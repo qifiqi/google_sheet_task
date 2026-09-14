@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import matplotlib.image as mpimg
+import pytest
 from matplotlib.colors import to_rgb
 
 from app.services import strategy_backtest_report_charts as charts
@@ -356,3 +357,39 @@ def test_generate_report_charts_with_real_fixture_returns(tmp_path: Path):
     for path in paths.values():
         image = mpimg.imread(path)
         assert image.shape[:2] == (760, 1440)
+
+
+def test_correlation_heatmap_annotates_values_and_unavailable_cells(tmp_path: Path):
+    output_path = tmp_path / "correlation.png"
+    charts.generate_correlation_heatmap(
+        ["600519.SS", "0700.HK", "BHP.AX"],
+        [
+            [1.0, 0.7315, 0.5142],
+            [0.7315, 1.0, None],
+            [0.5142, None, 1.0],
+        ],
+        output_path,
+    )
+
+    image = mpimg.imread(output_path)
+    # 方阵热力图：高度按 0.94 比例略小于宽度（figsize 3 只标的 → 5.66 英寸边长）。
+    assert image.ndim == 3
+    assert 0.9 < image.shape[0] / image.shape[1] < 1.0
+
+
+def test_correlation_heatmap_requires_font_files(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(charts, "FONT_REGULAR_PATH", tmp_path / "missing.otf")
+
+    with pytest.raises(FileNotFoundError):
+        charts.generate_correlation_heatmap(["A", "B"], [[1.0, 0.5], [0.5, 1.0]], tmp_path / "x.png")
+
+
+def test_correlation_cmap_is_blue_at_zero_and_white_at_extremes():
+    import math
+
+    # N=256 查表量化会让锚点有 ~0.003 的插值偏差，用小容差比较。
+    assert charts.CORRELATION_CMAP(0.5)[:3] == pytest.approx(to_rgb(charts.BLUE), abs=5e-3)
+    assert charts.CORRELATION_CMAP(0.0)[:3] == pytest.approx((1.0, 1.0, 1.0))
+    assert charts.CORRELATION_CMAP(1.0)[:3] == pytest.approx((1.0, 1.0, 1.0))
+    # 缺数据格子（None → masked）固定为灰色底。
+    assert charts.CORRELATION_CMAP(math.nan)[:3] == pytest.approx(to_rgb("#F0F0F0"))

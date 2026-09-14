@@ -281,6 +281,9 @@ def build_multi_product_global_preview_word_payload(
             "product_name": product.get("product_name"),
             "ratio": product.get("ratio"),
             "returns": product_results[product["product_index"]]["return_date"],
+            # 市场信息透传给 Word 报告的成交量取数，避免纯数字港股代码被误判为 A 股。
+            "market_type": product.get("market_type"),
+            "exchange_market": product.get("exchange_market"),
         })
     weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
     return {

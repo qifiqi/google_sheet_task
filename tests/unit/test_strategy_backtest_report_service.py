@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+import app.services.strategy_backtest_report_service as report_module
 from app.services.strategy_backtest_report_service import StrategyBacktestReportService
 
 
@@ -11,7 +13,7 @@ def test_single_product_report_defaults_weight_to_100_percent():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["单品", "", "100.00%"]]
+    assert allocation["rows"] == [["单品", "", "100.00%", "-"]]
 
 
 def test_single_product_report_defaults_missing_product_weight_to_100_percent():
@@ -24,7 +26,7 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["SCHD.US", "SCHD.US", "100.00%"]]
+    assert allocation["rows"] == [["SCHD.US", "SCHD.US", "100.00%", "-"]]
 
 
 def test_weight_allocation_adds_percent_suffix():
@@ -37,7 +39,7 @@ def test_weight_allocation_adds_percent_suffix():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "100%"]]
+    assert allocation["rows"] == [["600519", "贵州茅台", "100%", "-"]]
 
 
 def test_weight_allocation_drops_zero_ratio_products():
@@ -53,7 +55,26 @@ def test_weight_allocation_drops_zero_ratio_products():
 
     allocation = service._weight_allocation(request, "RPT-M")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "50%"]]
+    assert allocation["rows"] == [["600519", "贵州茅台", "50%", "-"]]
+
+
+def test_weight_allocation_fills_average_volume_by_code_label():
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [
+            {"stock_code": "600519", "product_name": "贵州茅台", "ratio": "50"},
+            {"stock_code": "0700.HK", "product_name": "腾讯控股", "ratio": "50"},
+        ],
+        "weight_allocation": None,
+        "index_stock_code": ["0700.HK"],
+    })()
+
+    allocation = service._weight_allocation(request, "RPT-M", {"600519": "2,000,000", "0700.HK (指数)": "5,000,000"})
+
+    assert allocation["rows"] == [
+        ["600519", "贵州茅台", "50%", "2,000,000"],
+        ["0700.HK (指数)", "腾讯控股", "50%", "5,000,000"],
+    ]
 
 
 def _filename_request(report_type, products):
@@ -143,8 +164,8 @@ def test_weight_allocation_marks_selected_index_from_list():
     allocation = service._weight_allocation(request, "RPT-M")
 
     assert allocation["rows"] == [
-        ["AAA.US", "A", "50%"],
-        ["BBB.US (指数)", "B", "50%"],
+        ["AAA.US", "A", "50%", "-"],
+        ["BBB.US (指数)", "B", "50%", "-"],
     ]
 
 
@@ -191,3 +212,162 @@ def test_resolve_returns_interim_uses_first_selected_benchmark(monkeypatch):
     data = service._resolve_returns(request)
 
     assert data[0]["index_return"] == 0.11
+
+
+class _StubKlineService:
+    def __init__(self, rows=None, error=None):
+        self.rows = rows if rows is not None else []
+        self.error = error
+        self.calls = []
+
+    def get_kline_data(self, stock_code, market_type, limit, **kwargs):
+        if self.error is not None:
+            raise self.error
+        self.calls.append({"stock_code": stock_code, "market_type": market_type, "limit": limit, **kwargs})
+        return self.rows
+
+
+def _pearson(left, right):
+    count = len(left)
+    mean_left = sum(left) / count
+    mean_right = sum(right) / count
+    cov = sum((x - mean_left) * (y - mean_right) for x, y in zip(left, right))
+    var_left = sum((x - mean_left) ** 2 for x in left)
+    var_right = sum((y - mean_right) ** 2 for y in right)
+    return cov / (var_left * var_right) ** 0.5
+
+
+def _cumulative_from_daily(daily):
+    cumulative = []
+    current = 0.0
+    for value in daily:
+        current = (1 + value) * (1 + current) - 1
+        cumulative.append(current)
+    return cumulative
+
+
+def _cumulative_product(stock_code, product_name, ratio, daily, market_type=None):
+    dates = ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]
+    product = {
+        "stock_code": stock_code,
+        "product_name": product_name,
+        "ratio": ratio,
+        "returns": [
+            {"date": date, "index_return": 0.0, "start_return": value}
+            for date, value in zip(dates, _cumulative_from_daily(daily))
+        ],
+    }
+    if market_type:
+        product["market_type"] = market_type
+    return product
+
+
+def _correlation_request(products, index_stock_code=None, report_type="RPT-M"):
+    return type("Request", (), {
+        "products": products,
+        "index_stock_code": index_stock_code,
+        "report_type": report_type,
+    })()
+
+
+def test_correlation_matrix_computes_lower_triangle_and_mirrors(monkeypatch):
+    daily_a = [0.01, 0.02, -0.015, 0.005]
+    daily_b = [0.005, -0.01, 0.03, -0.002]
+    request = _correlation_request([
+        _cumulative_product("600519.SS", "贵州茅台", "50", daily_a),
+        _cumulative_product("0700.HK", "腾讯控股", "50", daily_b, market_type="hk"),
+    ], index_stock_code=["0700.HK"])
+    result = SimpleNamespace(index_df=pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
+    }))
+
+    correlation = StrategyBacktestReportService()._correlation_matrix(request, result)
+
+    # 对齐轴上首日收益从净值 1.0 还原，还原序列与输入日涨跌幅一致。
+    pair_value = pytest.approx(_pearson(daily_a, daily_b))
+    assert correlation["labels"] == ["600519.SS", "0700.HK (指数)"]
+    assert correlation["matrix"] == [
+        [1.0, pair_value],
+        [pair_value, 1.0],
+    ]
+
+
+def test_correlation_matrix_marks_unavailable_pairs_as_none():
+    # 字面十进制累计值保证常数序列经 Decimal 还原后仍精确相等。
+    request = _correlation_request([
+        {"stock_code": "600519.SS", "product_name": "贵州茅台", "ratio": "60", "returns": [
+            {"date": "2024-01-01", "index_return": 0.0, "start_return": 0.0},
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.1},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": 0.045},
+        ]},
+        {"stock_code": "BHP.AX", "product_name": "必和必拓", "ratio": "40", "market_type": "au", "returns": [
+            {"date": "2024-01-01", "index_return": 0.0, "start_return": 0.02},
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.0404},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": 0.061208},
+        ]},
+    ])
+    result = SimpleNamespace(index_df=pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+    }))
+
+    correlation = StrategyBacktestReportService()._correlation_matrix(request, result)
+
+    # 常数日涨跌幅方差为 0，相关系数不可计算，热力图按缺数据显示。
+    assert correlation["matrix"] == [
+        [1.0, None],
+        [None, 1.0],
+    ]
+
+
+def test_correlation_matrix_skipped_for_single_product():
+    request = _correlation_request([
+        _cumulative_product("SCHD.US", "SCHD", "", [0.01, 0.01, 0.01], market_type="en"),
+    ], report_type="RPT-S")
+    result = SimpleNamespace(index_df=pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
+    }))
+
+    assert StrategyBacktestReportService()._correlation_matrix(request, result) is None
+
+
+def test_correlation_matrix_skipped_without_products():
+    request = _correlation_request([])
+    result = SimpleNamespace(index_df=pd.DataFrame({"date": pd.to_datetime(["2024-01-01"])}))
+
+    assert StrategyBacktestReportService()._correlation_matrix(request, result) is None
+
+
+def test_product_volumes_passes_market_type_and_formats_average(monkeypatch):
+    request = _correlation_request([
+        _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
+        _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
+    ])
+    result = SimpleNamespace(index_df=pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
+    }))
+    stub = _StubKlineService(rows=[{"volume": 1_000_000}, {"volume": 3_000_000}])
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
+
+    volumes = StrategyBacktestReportService()._product_volumes(request, "2024-01-01", "2024-01-04")
+
+    assert volumes == {"600519.SS": "2,000,000", "0700.HK": "2,000,000"}
+    assert [(call["stock_code"], call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
+        ("600519.SS", "cn", "2024-01-01", "2024-01-04"),
+        ("0700.HK", "hk", "2024-01-01", "2024-01-04"),
+    ]
+
+
+def test_product_volumes_degrades_to_dash_when_kline_fails(monkeypatch):
+    request = _correlation_request([
+        _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
+    ])
+    result = SimpleNamespace(index_df=pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
+    }))
+    stub = _StubKlineService(error=RuntimeError("kline unavailable"))
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
+
+    volumes = StrategyBacktestReportService()._product_volumes(request, "2024-01-01", "2024-01-04")
+
+    assert volumes == {"600519.SS": "-"}
+

@@ -17,10 +17,11 @@ from matplotlib import dates as mdates
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, MultipleLocator
-from numpy import linspace
+from numpy import isnan, linspace, ma
 
 from app.utils.value_parser import parse_float
 
@@ -37,6 +38,11 @@ LIGHT_RED = "#EF6E6E"
 GRID = "#E1E6EC"
 TEXT = "#333333"
 BACKGROUND = "#FFFFFF"
+# 相关系数热力图配色：0 附近为标准蓝，向 +1/-1 两端渐变为白（相关性越强越浅）。
+CORRELATION_CMAP = LinearSegmentedColormap.from_list(
+    "correlation_blue_white",
+    [(0.0, "#FFFFFF"), (0.5, BLUE), (1.0, "#FFFFFF")],
+).with_extremes(bad="#F0F0F0")
 # 折线主线条宽（pt）：CHART_DPI=240 下 1pt ≈ 3.3 物理像素，视觉粗细按此换算。
 LINE_WIDTH = 0.8
 # 回撤面积图的描边线宽（pt），细于主折线以突出填充主体。
@@ -108,6 +114,50 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
         _finite_values(chart_data.get("monthly_excess_returns")),
     )
     return {title: str(path) for title, path in charts.items()}
+
+
+def generate_correlation_heatmap(
+    labels: list[str],
+    matrix: list[list[Any]],
+    output_path: str | Path,
+) -> None:
+    """权重日涨跌幅相关系数热力图：N×N 方阵，单元格内直接标注相关系数。
+
+    标的增多时矩阵表格会超出版面宽度，热力图边长可随标的数自适应；
+    相关系数缺失（数据不可对齐/零方差）的格子以灰色底与 "-" 展示。
+    """
+    _ensure_fonts_available()
+    count = len(labels)
+    # 边长随标的数自适应并限制在 4~9 英寸，Word 按 6 英寸宽缩放后仍可读。
+    size = min(9.0, max(4.0, 0.62 * count + 1.8))
+    figure = Figure(figsize=(size, size * 0.94), dpi=CHART_DPI, facecolor=BACKGROUND)
+    FigureCanvasAgg(figure)
+    axis = figure.subplots()
+    values = [[float("nan") if cell is None else float(cell) for cell in row] for row in matrix]
+    image = axis.imshow(ma.masked_invalid(values), cmap=CORRELATION_CMAP, vmin=-1.0, vmax=1.0)
+    axis.set_xticks(range(count), labels, rotation=45, ha="right", fontproperties=_font(8))
+    axis.set_yticks(range(count), labels, fontproperties=_font(8))
+    axis.tick_params(colors=TEXT, length=0)
+    cell_font_size = 8 if count <= 8 else 7
+    for row_index, row in enumerate(values):
+        for column_index, value in enumerate(row):
+            if isnan(value):
+                text, color = "-", "#8C8C8C"
+            else:
+                # 蓝色区域用白字，接近白色的强相关区域用正文灰。
+                text = f"{value:.2f}"
+                color = "#FFFFFF" if abs(value) <= 0.5 else TEXT
+            axis.text(
+                column_index, row_index, text, ha="center", va="center",
+                color=color, fontproperties=_font(cell_font_size),
+            )
+    colorbar = figure.colorbar(image, ax=axis, shrink=0.85, pad=0.02)
+    colorbar.ax.tick_params(colors=TEXT, labelsize=8)
+    for label in colorbar.ax.get_yticklabels():
+        label.set_fontproperties(_font(8))
+    colorbar.outline.set_edgecolor("#9EADBD")
+    figure.tight_layout()
+    _save_figure(figure, Path(output_path))
 
 
 def _numeric_series(values: Any, length: int, default: float) -> list[float]:

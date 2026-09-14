@@ -12,6 +12,8 @@ from app.utils.return_series import build_return_series_fields
 
 report_charts = ModuleType("app.services.strategy_backtest_report_charts")
 report_charts.generate_report_charts = lambda *_args, **_kwargs: {}
+# 报告服务新增的相关系数热力图入口同样需要出现在桩上。
+report_charts.generate_correlation_heatmap = lambda *_args, **_kwargs: None
 sys.modules.setdefault("app.services.strategy_backtest_report_charts", report_charts)
 
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service

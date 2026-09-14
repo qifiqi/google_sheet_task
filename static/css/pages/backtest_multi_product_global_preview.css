@@ -223,6 +223,35 @@
         color: #e5e7eb;
     }
     .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
+    /* 导出 Word 选股弹窗：多选行与选中态高亮 */
+    .stock-option-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        cursor: pointer;
+        transition: background-color 0.12s ease;
+    }
+    .stock-option-row:last-child { border-bottom: none; }
+    .stock-option-row:hover { background: rgba(var(--bs-info-rgb), 0.08); }
+    .stock-option-row.is-selected {
+        background: rgba(var(--bs-info-rgb), 0.16);
+        box-shadow: inset 3px 0 0 var(--bs-info);
+    }
+    .stock-option-row.is-selected .stock-name-text { font-weight: 700; }
+    .stock-option-row .stock-check { flex-shrink: 0; width: 1.15em; height: 1.15em; }
+    .stock-option-row .stock-selected-icon {
+        visibility: hidden;
+        color: var(--bs-info);
+        font-size: 1.05rem;
+        flex-shrink: 0;
+    }
+    .stock-option-row.is-selected .stock-selected-icon { visibility: visible; }
+    .stock-option-row.stock-default-row { background: var(--bs-tertiary-bg); }
+    html[data-bs-theme="dark"] .stock-option-row.is-selected {
+        background: rgba(var(--bs-info-rgb), 0.25);
+    }
     @media (max-width: 991.98px) {
         .ratio-toolbar {
             flex-direction: column;

@@ -504,11 +504,11 @@ function exportReturnSeries() {
 // }
 
 
-// ===== 导出 Word 选股票弹窗（单选，可为空） =====
-let selectedStockCode = '';
+// ===== 导出 Word 选股票弹窗（多选，可为空；为空时后端用组合index） =====
+const selectedStockCodes = new Set();
 
 // ---- 公共导出函数（不弹窗时也用它）----
-async function exportWordDirectly(indexStockCode) {
+async function exportWordDirectly(indexStockCodes) {
     try {
         const ratios = collectRatioValues().map((ratio, index) => ({ product_index: index, ratio }));
         const payload = {
@@ -517,8 +517,8 @@ async function exportWordDirectly(indexStockCode) {
             group_key: activeGroupKey,
             ratios,
         };
-        if (indexStockCode) {
-            payload.index_stock_code = [indexStockCode];
+        if (Array.isArray(indexStockCodes) && indexStockCodes.length) {
+            payload.index_stock_code = indexStockCodes;
         }
 
         const response = await Api.endpoints.export.wordReport(payload);
@@ -530,7 +530,7 @@ async function exportWordDirectly(indexStockCode) {
 
         const filename = response.headers.get('Content-Disposition')
             ?.match(/filename[^;=\n]*=(?:UTF-8''|")?([^;\n"]+)/i)?.[1]
-            || `RPT-M_${indexStockCode || 'all'}.docx`;
+            || `RPT-M_${(indexStockCodes || []).join('_') || 'all'}.docx`;
 
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
@@ -565,7 +565,7 @@ function openExportWordModal() {
     //     return;
     // }
 
-    selectedStockCode = '';
+    selectedStockCodes.clear();
     document.getElementById('stockSearchInput').value = '';
     renderStockList('');
     new bootstrap.Modal(document.getElementById('exportWordModal')).show();
@@ -590,49 +590,57 @@ function renderStockList(keyword = '') {
         !kw || s.name.toLowerCase().includes(kw) || s.code.toLowerCase().includes(kw)
     );
     const container = document.getElementById('stockListContainer');
+    const noneSelected = selectedStockCodes.size === 0;
+    const counter = document.getElementById('stockSelectedCount');
+    if (counter) {
+        counter.textContent = `已选 ${selectedStockCodes.size} 只`;
+    }
 
-    const noneChecked = selectedStockCode === '' ? 'checked' : '';
     let html = `
-        <div class="form-check py-1 px-2 border-bottom bg-light">
-            <input class="form-check-input stock-radio" type="radio" name="stockRadio"
-                   value="" id="stock_none" ${noneChecked}>
-            <label class="form-check-label w-100" for="stock_none"
-                   style="cursor:pointer;display:flex;justify-content:space-between;">
-                <span class="text-body-secondary">不指定默认使用组合index</span>
-            </label>
-        </div>
+        <label class="stock-option-row stock-default-row ${noneSelected ? 'is-selected' : ''}">
+            <input class="form-check-input stock-check" type="checkbox" name="stockCheck"
+                   value="" id="stock_none" ${noneSelected ? 'checked' : ''}>
+            <span class="flex-grow-1 text-body-secondary">不指定默认使用组合index</span>
+        </label>
     `;
 
     if (!list.length) {
         html += '<div class="text-center text-body-secondary py-3">没有匹配的股票</div>';
         container.innerHTML = html;
-        bindStockRadios();
+        bindStockChecks();
         return;
     }
 
     html += list.map(s => {
-        const checked = selectedStockCode === s.code ? 'checked' : '';
+        const checked = selectedStockCodes.has(s.code);
         return `
-            <div class="form-check py-1 px-2 border-bottom">
-                <input class="form-check-input stock-radio" type="radio" name="stockRadio"
-                       value="${escapeHtml(s.code)}" id="stock_${escapeHtml(s.code)}" ${checked}>
-                <label class="form-check-label w-100" for="stock_${escapeHtml(s.code)}"
-                       style="cursor:pointer;display:flex;justify-content:space-between;">
-                    <span>${escapeHtml(s.name)} (${escapeHtml(s.code)})</span>
-                    <small class="text-body-secondary">比例 ${s.ratio}%</small>
-                </label>
-            </div>
+            <label class="stock-option-row ${checked ? 'is-selected' : ''}">
+                <input class="form-check-input stock-check" type="checkbox" name="stockCheck"
+                       value="${escapeHtml(s.code)}" id="stock_${escapeHtml(s.code)}" ${checked ? 'checked' : ''}>
+                <span class="flex-grow-1 stock-name-text">${escapeHtml(s.name)} <span class="text-body-secondary">(${escapeHtml(s.code)})</span></span>
+                <small class="text-body-secondary">比例 ${s.ratio}%</small>
+                <i class="bi bi-check-circle-fill stock-selected-icon"></i>
+            </label>
         `;
     }).join('');
 
     container.innerHTML = html;
-    bindStockRadios();
+    bindStockChecks();
 }
 
-function bindStockRadios() {
-    document.querySelectorAll('.stock-radio').forEach(radio => {
-        radio.addEventListener('change', e => {
-            selectedStockCode = e.target.value || '';
+function bindStockChecks() {
+    document.querySelectorAll('.stock-check').forEach(box => {
+        box.addEventListener('change', e => {
+            const code = e.target.value || '';
+            if (!code) {
+                // “不指定”即清空选择；空选状态下它保持勾选。
+                selectedStockCodes.clear();
+            } else if (e.target.checked) {
+                selectedStockCodes.add(code);
+            } else {
+                selectedStockCodes.delete(code);
+            }
+            renderStockList(document.getElementById('stockSearchInput').value);
         });
     });
 }
@@ -649,7 +657,7 @@ document.getElementById('confirmExportWordBtn')?.addEventListener('click', async
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
 
     try {
-        await exportWordDirectly(selectedStockCode);
+        await exportWordDirectly([...selectedStockCodes]);
         bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
     } finally {
         btn.disabled = false;

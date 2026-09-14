@@ -14,13 +14,29 @@ from app.repositories import task_repository, task_result_repository
 from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.services.strategy_backtest_report_charts import generate_report_charts
+from app.services.strategy_backtest_report_charts import generate_correlation_heatmap, generate_report_charts
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
 from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int
 from app.services.performance_analysis.portfolio_combiner import combine_product_returns, normalize_weight
+from app.services.performance_analysis.return_correlation import aligned_daily_returns, pairwise_correlation_matrix
+from app.services.kline_service import KlineService
+from app.utils.logger import get_logger
+from app.utils.market import normalize_market_type
+
+logger = get_logger(__name__)
+
+# 报告用 K 线服务懒加载：构造轻量，外部数据源 API 在首次取数时才创建。
+_kline_service: KlineService | None = None
+
+
+def _report_kline_service() -> KlineService:
+    global _kline_service
+    if _kline_service is None:
+        _kline_service = KlineService()
+    return _kline_service
 
 
 class StrategyBacktestReportService:
@@ -37,20 +53,33 @@ class StrategyBacktestReportService:
             raise ValueError("收益数据无法生成回测报告")
 
         # 把 DataFrame 和指标字典转换成通用 Word JSON。
-        report_data = self._build_report_data(request, result)
         chart_data = self._build_chart_data(result)
         dates = self._dates(result.index_df)
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
+        correlation = self._correlation_matrix(request, result)
         with TemporaryDirectory(prefix="strategy_backtest_report_") as temp_dir:
             # 图片只在临时目录中存在，DOCX 保存时会将图片内容嵌入文件。
             chart_paths = generate_report_charts(chart_data, temp_dir)
+            correlation_image = None
+            if correlation:
+                heatmap_path = Path(temp_dir) / "权重相关系数热力图.png"
+                generate_correlation_heatmap(correlation["labels"], correlation["matrix"], heatmap_path)
+                correlation_image = {
+                    "type": "image",
+                    "title": "权重日涨跌幅相关系数",
+                    "path": str(heatmap_path),
+                    "caption": f"各权重日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
+                }
+            report_data = self._build_report_data(request, result)
             report_data["blocks"].extend([
                 {"type": "heading", "text": "九、分析图表", "level": 1},
                 *[
                     {"type": "image", "title": title, "path": path, "caption": f"{title}（基于传入回测数据生成）"}
                     for title, path in chart_paths.items()
                 ],
+                # 相关系数热力图放在报告图表区末尾。
+                *([correlation_image] if correlation_image else []),
                 # {"type": "heading", "text": "十、指标计算说明", "level": 1},
                 # {"type": "bullet_list", "items": [
                 #     "净值按每日收益率连续复合计算，月度与年度指标由 performance_analysis 统一计算。",
@@ -115,7 +144,7 @@ class StrategyBacktestReportService:
     @staticmethod
     def _benchmark_codes(payload: StrategyBacktestReportSchema) -> list[str]:
         """本次渲染采用的基准代码；接口已列表化，多基准组装交付前暂取首个选中项。"""
-        return list(payload.index_stock_code[:1])
+        return list((payload.index_stock_code or [])[:1])
 
     def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
@@ -282,7 +311,8 @@ class StrategyBacktestReportService:
             {"label": "总交易日", "value": f"{len(result.index_df)} 天"},
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
-        weight_allocation = self._weight_allocation(payload, report_type)
+        volume_texts = self._product_volumes(payload, first_date, last_date)
+        weight_allocation = self._weight_allocation(payload, report_type, volume_texts)
         sections = self._sections(metrics, result)
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
@@ -301,30 +331,126 @@ class StrategyBacktestReportService:
         }
 
     @staticmethod
-    def _weight_allocation(payload: StrategyBacktestReportSchema, report_type: str) -> dict[str, Any]:
-        """构造报告中的股票权重表格；比例为 0 的产品不进入权重分配。"""
+    def _weight_allocation(
+        payload: StrategyBacktestReportSchema,
+        report_type: str,
+        volumes: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """构造报告中的股票权重表格；比例为 0 的产品不进入权重分配。
+
+        平均成交量按代码标签回填（键与行首代码一致，含 "(指数)" 后缀）。
+        """
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):
             return raw
+        volume_texts = volumes or {}
         products = StrategyBacktestReportService._active_report_products(payload.products)
         rows = []
         if isinstance(products, list):
             for product in products:
                 if isinstance(product, dict):
-                    weight = str(product.get("ratio") or product.get("weight") or "").strip()
-                    if report_type == "RPT-S" and not weight:
-                        weight = "100.00%"
                     stock_code = str(product.get("stock_code") or product.get("product_name") or "未命名")
                     if stock_code in StrategyBacktestReportService._benchmark_codes(payload):
                         stock_code = f"{stock_code} (指数)"
                     rows.append([
                         stock_code,
                         str(product.get("product_name") or ""),
-                        weight if not weight or weight.endswith("%") else f"{weight}%",
+                        StrategyBacktestReportService._weight_text(product, report_type),
+                        volume_texts.get(stock_code, "-"),
                     ])
         if not rows and report_type == "RPT-S":
-            rows = [["单品", "", "100.00%"]]
-        return {"columns": ["股票代码", "股票名", "权重"], "rows": rows or [["", "", ""]]}
+            rows = [["单品", "", "100.00%", "-"]]
+        return {
+            "columns": ["股票代码", "股票名", "权重", "平均成交量(股)"],
+            "rows": rows or [["", "", "", "-"]],
+        }
+
+    @staticmethod
+    def _weight_text(product: dict[str, Any], report_type: str) -> str:
+        """权重列展示文本；单品报告缺省 100.00%，纯数值自动补百分号。"""
+        weight = str(product.get("ratio") or product.get("weight") or "").strip()
+        if report_type == "RPT-S" and not weight:
+            weight = "100.00%"
+        return weight if not weight or weight.endswith("%") else f"{weight}%"
+
+    def _correlation_matrix(self, payload: StrategyBacktestReportSchema, result: Any) -> dict[str, Any] | None:
+        """构造相关系数热力图数据；有效对齐产品不足 2 个时不输出。
+
+        日涨跌幅还原与 Pearson 计算统一走 performance_analysis
+        （口径与组合收益一致），本方法只负责产品筛选与标签组装。
+        """
+        products = self._active_report_products(payload.products)
+        if not products:
+            return None
+        dates = [value.strftime("%Y-%m-%d") for value in self._dates(result.index_df)]
+        aligned = {}
+        for index, product in enumerate(products):
+            series = aligned_daily_returns(product.get("returns"), dates)
+            if series is not None:
+                aligned[index] = series
+        indexes = sorted(aligned)
+        if len(indexes) < 2:
+            return None
+        return {
+            "labels": [self._product_code_label(payload, products[index]) for index in indexes],
+            "matrix": pairwise_correlation_matrix([aligned[index] for index in indexes]),
+        }
+
+    def _product_volumes(
+        self,
+        payload: StrategyBacktestReportSchema,
+        first_date: str,
+        last_date: str,
+    ) -> dict[str, str]:
+        """按代码标签取各产品报告区间平均成交量；无有效产品返回空映射。"""
+        volumes: dict[str, str] = {}
+        for product in self._active_report_products(payload.products):
+            label = self._product_code_label(payload, product)
+            if label not in volumes:
+                volumes[label] = self._average_volume(product, first_date, last_date)
+        return volumes
+
+    @staticmethod
+    def _product_code_label(payload: StrategyBacktestReportSchema, product: dict[str, Any]) -> str:
+        """代码列展示，与权重分配表一致；选中基准代码追加 "(指数)" 后缀。"""
+        code = str(product.get("stock_code") or product.get("product_name") or "未命名")
+        if code in StrategyBacktestReportService._benchmark_codes(payload):
+            return f"{code} (指数)"
+        return code
+
+    def _average_volume(self, product: dict[str, Any], first_date: str, last_date: str) -> str:
+        """报告区间内平均成交量（normalize 后统一为股）；取不到显示 "-"，不阻塞报告。
+
+        market_type 取任务配置透传值并作为 get_kline_data 的推断缺省：
+        标准代码后缀推断优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
+        """
+        stock_code = str(product.get("stock_code") or "").strip()
+        if not stock_code:
+            return "-"
+        try:
+            market_type = str(product.get("market_type") or "").strip() or "cn"
+            calendar_days = max(1, (parse_date(last_date) - parse_date(first_date)).days)
+            trading_days_per_year = 250 if normalize_market_type(market_type) == "cn" else 252
+            limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
+            klines = _report_kline_service().get_kline_data(
+                stock_code,
+                market_type,
+                limit,
+                start_date=first_date,
+                end_date=last_date,
+                exchange_market=product.get("exchange_market"),
+            )
+            volumes = [
+                self._num(row.get("volume"))
+                for row in klines or []
+                if row.get("volume") is not None
+            ]
+            if not volumes:
+                return "-"
+            return f"{sum(volumes) / len(volumes):,.0f}"
+        except Exception:
+            logger.warning("报告平均成交量获取失败: %s", stock_code, exc_info=True)
+            return "-"
 
     def _sections(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
         """按模板顺序合并各表格 JSON。"""
@@ -803,12 +929,11 @@ class StrategyBacktestReportService:
         index_nav = self._net_values(index_df, "index_return")
         strategy_nav = self._net_values(start_df, "start_return")
         # excess_nav = self._net_values(excess_df, "excess_return")
-        excess_df.to_csv("excess_df.csv",index=False)
+        # excess_df.to_csv("excess_df.csv",index=False)
         return {
             "dates": dates,
             "index_nav": index_nav,
             "strategy_nav": strategy_nav,
-            # "excess_nav": excess_df["excess_return_2"].tolist(),
             "excess_nav": excess_df["excess_return"].tolist(),
             "excess_daily_return": excess_df['daily_return'].tolist(),
             "index_drawdown": self._drawdown_series(index_nav),
