@@ -38,6 +38,17 @@ LIGHT_RED = "#EF6E6E"
 GRID = "#E1E6EC"
 TEXT = "#333333"
 BACKGROUND = "#FFFFFF"
+# 多基准折线依次取调色板取色；策略恒定橙色锚定，单基准落在蓝色与历史一致。
+BENCHMARK_PALETTE = [BLUE, "#7030A0", GREEN, "#B45309", RED]
+
+
+def _benchmark_color(index: int) -> str:
+    return BENCHMARK_PALETTE[index % len(BENCHMARK_PALETTE)]
+
+
+def benchmark_label(benchmark: dict[str, Any], index: int) -> str:
+    """基准图例文案；服务端已按单基准"指数"/多基准"指数(代码)"填好 label。"""
+    return str(benchmark.get("label") or f"指数{index + 1}")
 # 相关系数热力图配色：0 附近为标准蓝，向 +1/-1 两端渐变为白（相关性越强越浅）。
 CORRELATION_CMAP = LinearSegmentedColormap.from_list(
     "correlation_blue_white",
@@ -55,12 +66,42 @@ FONT_BOLD_PATH = FONTS_DIR / "NotoSansCJKsc-Bold.otf"
 
 
 def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -> dict[str, str]:
-    """根据真实回测数据生成报告图表，返回图表标题到 PNG 路径的映射。"""
+    """根据真实回测数据生成报告图表，返回图表标题到 PNG 路径的映射。
+
+    序列形状由服务端 _build_chart_data 组装，本模块只渲染：benchmarks 为
+    基准序列列表（label/nav/drawdown/daily_returns），策略、超额、月度超额
+    单独给出；月度超额按基准逐条提供（含图表标题）。
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     dates = chart_data.get("dates") or []
     if not dates:
         raise ValueError("报告图表至少需要一条日期数据")
+    # 先校验字体，尽早失败并避免生成一组字体不一致的半成品图片。
+    _ensure_fonts_available()
+
+    # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应；
+    # 全部序列（含回撤）由服务端 _build_chart_data 预先算好，这里只负责渲染。
+    benchmarks = chart_data.get("benchmarks") or []
+    strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
+    strategy_drawdown = _numeric_series(chart_data.get("strategy_drawdown"), len(dates), 0.0)
+    nav_series = [
+        (benchmark_label(benchmark, index),
+         _numeric_series(benchmark.get("nav"), len(dates), 1.0), _benchmark_color(index))
+        for index, benchmark in enumerate(benchmarks)
+    ]
+    drawdown_series = [
+        (f"{benchmark_label(benchmark, index)}回撤",
+         _numeric_series(benchmark.get("drawdown"), len(dates), 0.0), _benchmark_color(index))
+        for index, benchmark in enumerate(benchmarks)
+    ]
+    excess_series = chart_data.get("excess_series") or []
+    excess_line_series = [
+        (str(entry.get("label") or "累计超额收益"),
+         _numeric_series(entry.get("values"), len(dates), 0.0),
+         RED if len(excess_series) <= 1 else _benchmark_color(index))
+        for index, entry in enumerate(excess_series)
+    ]
 
     charts = {
         "累计净值曲线": output_dir / "累计净值曲线.png",
@@ -68,51 +109,34 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
         "超额收益曲线": output_dir / "超额收益曲线.png",
         "分年度收益": output_dir / "分年度收益.png",
         "日收益分布": output_dir / "日收益分布.png",
-        "月度超额分布": output_dir / "月度超额分布.png",
     }
-    # 先校验字体，尽早失败并避免生成一组字体不一致的半成品图片。
-    _ensure_fonts_available()
-
-    # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应；
-    # 全部序列（含回撤）由服务端 _build_chart_data 预先算好，这里只负责渲染。
-    index_nav = _numeric_series(chart_data.get("index_nav"), len(dates), 1.0)
-    strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
-    index_drawdown = _numeric_series(chart_data.get("index_drawdown"), len(dates), 0.0)
-    strategy_drawdown = _numeric_series(chart_data.get("strategy_drawdown"), len(dates), 0.0)
-    excess_nav = _numeric_series(chart_data.get("excess_nav"), len(dates), 0.0)
     _draw_line_chart(
         charts["累计净值曲线"], "累计净值曲线", dates,
-        [("指数", index_nav, BLUE), ("策略", strategy_nav, ORANGE)], "净值",
+        [*nav_series, ("策略", strategy_nav, ORANGE)], "净值",
     )
-    # 最大回撤曲线按 DRAWDOWN_CHART_STYLE 在折线/面积两种渲染间切换。
+    # 最大回撤曲线按面积图渲染；与折线变体保持相同签名，便于一键切换。
     _draw_drawdown_area_chart(
         charts["最大回撤曲线"], "最大回撤曲线", dates,
-        [("指数回撤", index_drawdown, BLUE), ("策略回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
+        [*drawdown_series, ("策略回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     )
-    # _draw_line_chart(
-    #     charts["最大回撤曲线"], "最大回撤曲线", dates,
-    #     [("指数", index_drawdown, BLUE), ("策略", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
-    # )
     # _draw_excess_line_bar_chart(
-    #     charts["超额收益曲线"], "累计超额收益曲线", dates, excess_nav,
+    #     charts["超额收益曲线"], "累计超额收益曲线", dates,
     #     _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
     # )
     _draw_line_chart(
         charts["超额收益曲线"], "累计超额收益曲线", dates,
-        [("累计超额收益", excess_nav, RED)], "超额收益（%）", percent=True,
+        excess_line_series, "超额收益（%）", percent=True,
     )
     _draw_grouped_bar_chart(charts["分年度收益"], "分年度收益", chart_data.get("annual_returns") or {})
-    _draw_dual_histogram(
+    _draw_daily_distribution(
         charts["日收益分布"], "日收益率分布",
-        {
-            "index": _finite_values(chart_data.get("index_daily_returns")),
-            "strategy": _finite_values(chart_data.get("strategy_daily_returns")),
-        },
+        chart_data.get("daily_distribution") or {},
     )
-    _draw_monthly_excess_bars(
-        charts["月度超额分布"], "月度超额分布",
-        _finite_values(chart_data.get("monthly_excess_returns")),
-    )
+    for index, entry in enumerate(chart_data.get("monthly_excess_by_benchmark") or []):
+        title = str(entry.get("title") or "月度超额分布")
+        # 多基准时每基准一张图；文件名加序号避免相互覆盖。
+        charts[title] = output_dir / f"月度超额分布{index + 1 if index else ''}.png"
+        _draw_monthly_excess_bars(charts[title], title, _finite_values(entry.get("values")))
     return {title: str(path) for title, path in charts.items()}
 
 
@@ -348,27 +372,35 @@ def _draw_excess_line_bar_chart(
     _save_figure(figure, path)
 
 
-def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, list[Any]]) -> None:
+def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> None:
+    """分年度收益分组柱状图：每组柱 = 各基准（调色板）+ 策略（橙）。"""
     years = [str(value) for value in data.get("years") or []]
     if not years:
         _draw_empty_chart(path, title)
         return
 
-    index_returns = _numeric_series(data.get("index"), len(years), 0.0)
-    strategy_returns = _numeric_series(data.get("strategy"), len(years), 0.0)
+    benchmarks = data.get("benchmarks") or []
+    entries = [
+        (benchmark_label(benchmark, index),
+         _numeric_series(benchmark.get("values"), len(years), 0.0), _benchmark_color(index))
+        for index, benchmark in enumerate(benchmarks)
+    ]
+    entries.append(("策略", _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
+    count = len(entries)
+    bar_width = 0.8 / count
     figure = _new_figure()
     axis = figure.subplots()
     positions = list(range(len(years)))
-    bar_width = 0.36
-    # 两组柱以同一年度为中心对称排列，便于直接比较指数与策略。
-    axis.bar([position - bar_width / 2 for position in positions], index_returns, bar_width, label="指数", color=BLUE)
-    axis.bar([position + bar_width / 2 for position in positions], strategy_returns, bar_width, label="策略", color=ORANGE)
+    # 各组柱以同一年度为中心对称排列，便于同年度直接横向比较。
+    for offset, (label, values, color) in enumerate(entries):
+        shift = (offset - (count - 1) / 2) * bar_width
+        axis.bar([position + shift for position in positions], values, bar_width, label=label, color=color)
     axis.axhline(0, color="#9EADBD", linewidth=0.8)
     axis.set_xticks(positions, years, fontproperties=_font(8))
     _set_axis_labels(axis, y_label="收益率（%）")
     _set_percent_axis(axis, "y")
     _style_axis(axis)
-    axis.legend(frameon=False, loc="upper left", ncol=2, prop=_font(8))
+    axis.legend(frameon=False, loc="upper left", ncol=count, prop=_font(8))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
     _save_figure(figure, path)
 
@@ -514,21 +546,33 @@ def _draw_monthly_excess_bars(path: Path, title: str, monthly_excess: list[float
     _save_figure(figure, path)
 
 
-def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -> None:
-    values = data["index"] + data["strategy"]
-    # 两个子图共用、以 0 为中心的核心区间和分箱边界，便于左右对比；
-    # 核心区间按分位数确定，超出区间的极端收益归并进两端边缘箱
-    # （overflow bins），既提升主体分辨率又不丢失尾部统计。
+def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> None:
+    """日收益分布：面板 = 各基准 + 策略，共享以 0 为中心的核心区间与分箱。
+
+    核心区间按分位数确定，超出区间的极端收益归并进两端边缘箱（overflow
+    bins），既提升主体分辨率又不丢失尾部统计。面板数 ≤3 单行排布，更多
+    时折叠为两行网格；配色沿用基准=调色板、策略=橙的约定。
+    """
+    benchmarks = data.get("benchmarks") or []
+    panels = [
+        (benchmark_label(benchmark, index), _finite_values(benchmark.get("values")), _benchmark_color(index))
+        for index, benchmark in enumerate(benchmarks)
+    ]
+    panels.append(("策略", _finite_values(data.get("strategy")), ORANGE))
+    values = [value for _, series, _ in panels for value in series]
+    # 全部面板共用、以 0 为中心的核心区间和分箱边界，便于左右对比。
     symmetric_limit = _symmetric_histogram_limit(values)
     bin_count = _histogram_bin_count(values, symmetric_limit)
     bin_edges = linspace(-symmetric_limit, symmetric_limit, bin_count + 1)
     overflow_count = sum(1 for value in values if not -symmetric_limit <= value <= symmetric_limit)
     figure = _new_figure()
-    left_axis, right_axis = figure.subplots(1, 2, sharey=True)
-    for axis, series, color, panel_title in (
-        (left_axis, data["index"], BLUE, "指数日收益分布"),
-        (right_axis, data["strategy"], ORANGE, "策略日收益分布"),
-    ):
+    if len(panels) <= 3:
+        axes = list(figure.subplots(1, len(panels), sharey=True, squeeze=False)[0])
+    else:
+        axes = list(figure.subplots(2, ceil(len(panels) / 2), sharey=True, squeeze=False).ravel())
+        for spare_axis in axes[len(panels):]:
+            spare_axis.axis("off")
+    for axis, (panel_label, series, color) in zip(axes, panels):
         clipped = [min(max(value, -symmetric_limit), symmetric_limit) for value in series]
         # 顶部多留 12% 余量，避免归并标注与最高柱重叠。
         axis.margins(y=0.12)
@@ -536,20 +580,20 @@ def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -
         axis.set_xlim(-symmetric_limit, symmetric_limit)
         # 0% 是收益率分布的关键参照点，使用浅色细线避免喧宾夺主。
         axis.axvline(0, color="#9EADBD", linewidth=0.8)
-        # 面板小标题标明左右各是指数/策略，配色约定照旧（指数=蓝、策略=橙）。
-        axis.set_title(panel_title, color=TEXT, fontproperties=_font(9), pad=8)
+        # 面板小标题自明：指数 / 指数(代码) / 策略 日收益分布。
+        axis.set_title(f"{panel_label}日收益分布", color=TEXT, fontproperties=_font(9), pad=8)
         _set_axis_labels(axis, x_label="日收益率（%）")
         _apply_symmetric_percent_ticks(axis, symmetric_limit, mark_overflow=overflow_count > 0)
         _style_axis(axis)
     if overflow_count:
         # 归并需在图内说明，否则读者会把边缘柱当成普通分箱。
-        # right_axis.text(
+        # axes[-1].text(
         #     0.98, 0.96, f"{overflow_count} 笔超出 ±{symmetric_limit * 100:.1f}% 已并入两端",
-        #     transform=right_axis.transAxes, color="#8C8C8C", fontproperties=_font(7),
+        #     transform=axes[-1].transAxes, color="#8C8C8C", fontproperties=_font(7),
         #     ha="right", va="top",
         # )
         pass
-    _set_axis_labels(left_axis, y_label="频数")
+    _set_axis_labels(axes[0], y_label="频数")
     figure.tight_layout(rect=(0, 0, 1, 0.98))
     _save_figure(figure, path)
 

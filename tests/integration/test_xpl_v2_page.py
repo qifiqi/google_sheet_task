@@ -257,7 +257,7 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     ))
 
     sections = strategy_backtest_report_service._sections(runs)
-    chart_data = strategy_backtest_report_service._build_chart_data(runs[0].result)
+    chart_data = strategy_backtest_report_service._build_chart_data(runs)
 
     assert [section["title"] for section in sections] == [
         "一、收益类指标",
@@ -293,10 +293,10 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     excess_distribution = sections[5]["subsections"][1]["table"]
     assert excess_distribution["columns"] == ["超额区间", "月数", "占比"]
     assert all(len(row) == 3 for row in excess_distribution["rows"])
-    assert chart_data["index_nav"] == [1.01, 0.99]
+    assert chart_data["benchmarks"][0]["nav"] == [1.01, 0.99]
     assert chart_data["strategy_nav"] == [1.02, 0.99]
-    # 390510a 起 excess_nav 使用超额收益原值列，不再复利成净值。
-    assert chart_data["excess_nav"] == [0.01, 0.0]
+    # 390510a 起 excess 序列使用超额收益原值列，不再复利成净值。
+    assert chart_data["excess_series"][0]["values"] == [0.01, 0.0]
 
 
 def _page_user_headers(app, username="xpl-page-user"):

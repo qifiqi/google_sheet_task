@@ -62,9 +62,8 @@ class StrategyBacktestReportService:
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
 
-        # 把 DataFrame 和指标字典转换成通用 Word JSON。
-        # 图表暂取首个基准渲染，多基准序列化由图表改造提交交付。
-        chart_data = self._build_chart_data(result)
+        # 把 DataFrame 和指标字典转换成通用 Word JSON；图表按基准序列循环渲染。
+        chart_data = self._build_chart_data(runs)
         dates = self._dates(result.index_df)
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
@@ -1062,40 +1061,69 @@ class StrategyBacktestReportService:
             result.append(value / peak - 1 if peak else 0.0)
         return result
 
-    def _build_chart_data(self, result: Any) -> dict[str, Any]:
-        # result_mapper 已提供累计收益对应的净值，不再对累计收益重复复利。
-        """处理_build_chart_data相关逻辑。"""
+    def _build_chart_data(self, runs: list[_BenchmarkRun]) -> dict[str, Any]:
+        """组装图表渲染数据；序列形状与 charts 模块的渲染契约一一对应。
+
+        result_mapper 已提供累计收益对应的净值，不再对累计收益重复复利；
+        基准序列按 runs 循环展开，策略序列取首个运行结果（各次运行一致）。
+        """
+        result = runs[0].result
         dates = self._dates(result.index_df)
-        index_df = result.index_df
-        start_df = result.start_df
-        excess_df = result.excess_df
         metrics = result.metrics
-        annual_index = {str(item.get("year")): self._num(item.get("annual_return")) for item in
-                        metrics.get("index_returns_rate") or [] if isinstance(item, dict)}
-        annual_start = {str(item.get("year")): self._num(item.get("annual_return")) for item in
-                        metrics.get("start_returns_rate") or [] if isinstance(item, dict)}
-        years = sorted(set(annual_index) | set(annual_start))
+        annual_strategy = {str(item.get("year")): self._num(item.get("annual_return")) for item in
+                           metrics.get("start_returns_rate") or [] if isinstance(item, dict)}
+        strategy_nav = self._net_values(result.start_df, "start_return")
+        strategy_daily = result.start_df["daily_return"].tolist() if "daily_return" in result.start_df else []
+        benchmarks = []
+        daily_panels = []
+        excess_series = []
+        monthly_excess = []
+        benchmark_annuals = []
+        for run in runs:
+            run_result = run.result
+            benchmark_nav = self._net_values(run_result.index_df, "index_return")
+            daily_returns = (run_result.index_df["daily_return"].tolist()
+                             if "daily_return" in run_result.index_df else [])
+            benchmarks.append({
+                "label": run.label,
+                "nav": benchmark_nav,
+                "drawdown": self._drawdown_series(benchmark_nav),
+                "daily_returns": daily_returns,
+            })
+            daily_panels.append({"label": run.label, "values": daily_returns})
+            excess_series.append({
+                "label": f"超额({run.code})" if len(runs) > 1 else "累计超额收益",
+                "values": run_result.excess_df["excess_return"].tolist(),
+            })
+            monthly_excess.append({
+                "title": f"月度超额分布（{run.code}）" if len(runs) > 1 else "月度超额分布",
+                "values": [self._num(item.get("monthly_excess_return_diff")) for item in
+                           run_result.metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
+            })
+            benchmark_annuals.append({
+                "label": run.label,
+                "values_by_year": {str(item.get("year")): self._num(item.get("annual_return")) for item in
+                                   run_result.metrics.get("index_returns_rate") or [] if isinstance(item, dict)},
+            })
+        years = sorted(set().union(*(set(item["values_by_year"]) for item in benchmark_annuals)) | set(annual_strategy))
         if not years:
             years = sorted({str(value.year) for value in dates})
-
-        index_nav = self._net_values(index_df, "index_return")
-        strategy_nav = self._net_values(start_df, "start_return")
-        # excess_nav = self._net_values(excess_df, "excess_return")
-        # excess_df.to_csv("excess_df.csv",index=False)
         return {
             "dates": dates,
-            "index_nav": index_nav,
+            "benchmarks": benchmarks,
             "strategy_nav": strategy_nav,
-            "excess_nav": excess_df["excess_return"].tolist(),
-            "excess_daily_return": excess_df['daily_return'].tolist(),
-            "index_drawdown": self._drawdown_series(index_nav),
             "strategy_drawdown": self._drawdown_series(strategy_nav),
-            "index_daily_returns": index_df["daily_return"].tolist() if "daily_return" in index_df else [],
-            "strategy_daily_returns": start_df["daily_return"].tolist() if "daily_return" in start_df else [],
-            "monthly_excess_returns": [self._num(item.get("monthly_excess_return_diff")) for item in
-                                       metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
-            "annual_returns": {"years": years, "index": [annual_index.get(year, 0) for year in years],
-                               "strategy": [annual_start.get(year, 0) for year in years]},
+            "strategy_daily_returns": strategy_daily,
+            "excess_series": excess_series,
+            "annual_returns": {
+                "years": years,
+                "benchmarks": [{"label": item["label"],
+                                "values": [item["values_by_year"].get(year, 0) for year in years]}
+                               for item in benchmark_annuals],
+                "strategy": [annual_strategy.get(year, 0) for year in years],
+            },
+            "daily_distribution": {"benchmarks": daily_panels, "strategy": strategy_daily},
+            "monthly_excess_by_benchmark": monthly_excess,
         }
 
 strategy_backtest_report_service = StrategyBacktestReportService()

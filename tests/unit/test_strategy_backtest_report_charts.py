@@ -47,30 +47,42 @@ def _load_fixture_returns() -> dict:
     }
 
 
+def _charts_drawdown(values: list[float]) -> list[float]:
+    """与服务端 _drawdown_series 同口径：回撤以历史最高净值为基准。"""
+    peak, result = values[0], []
+    for value in values:
+        peak = max(peak, value)
+        result.append(value / peak - 1)
+    return result
+
+
 def _chart_data() -> dict:
     dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
     index_nav = [1 + index * 0.01 for index in range(24)]
     strategy_nav = [1 + index * 0.012 for index in range(24)]
 
-    def drawdown(values: list[float]) -> list[float]:
-        peak, result = values[0], []
-        for value in values:
-            peak = max(peak, value)
-            result.append(value / peak - 1)
-        return result
-
     return {
         "dates": dates,
-        "index_nav": index_nav,
+        "benchmarks": [{
+            "label": "指数",
+            "nav": index_nav,
+            # 回撤序列由服务端 _build_chart_data 预先算好，画图模块只消费。
+            "drawdown": _charts_drawdown(index_nav),
+            "daily_returns": [-0.02, -0.01, 0.0, 0.01, 0.02],
+        }],
         "strategy_nav": strategy_nav,
-        # 回撤序列由服务端 _build_chart_data 预先算好，画图模块只消费。
-        "index_drawdown": drawdown(index_nav),
-        "strategy_drawdown": drawdown(strategy_nav),
-        "excess_nav": [index * 0.002 for index in range(24)],
-        "annual_returns": {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
-        "index_daily_returns": [-0.02, -0.01, 0.0, 0.01, 0.02],
-        "strategy_daily_returns": [-0.01, 0.0, 0.01, 0.02, 0.03],
-        "monthly_excess_returns": [-0.03, -0.01, 0.0, 0.02, 0.04],
+        "strategy_drawdown": _charts_drawdown(strategy_nav),
+        "excess_series": [{"label": "累计超额收益", "values": [index * 0.002 for index in range(24)]}],
+        "annual_returns": {
+            "years": ["2024", "2025"],
+            "benchmarks": [{"label": "指数", "values": [0.1, -0.02]}],
+            "strategy": [0.15, 0.04],
+        },
+        "daily_distribution": {
+            "benchmarks": [{"label": "指数", "values": [-0.02, -0.01, 0.0, 0.01, 0.02]}],
+            "strategy": [-0.01, 0.0, 0.01, 0.02, 0.03],
+        },
+        "monthly_excess_by_benchmark": [{"title": "月度超额分布", "values": [-0.03, -0.01, 0.0, 0.02, 0.04]}],
     }
 
 
@@ -88,13 +100,13 @@ def test_generate_report_charts_outputs_all_pngs_with_static_fonts(tmp_path: Pat
 def test_generate_report_charts_handles_constant_and_missing_annual_data(tmp_path: Path):
     data = _chart_data()
     data.update({
-        "index_nav": [1.0],
+        "benchmarks": [{"label": "指数", "nav": [1.0], "drawdown": [0.0], "daily_returns": []}],
         "strategy_nav": [1.0],
-        "excess_nav": [0.0],
+        "strategy_drawdown": [0.0],
+        "excess_series": [{"label": "累计超额收益", "values": [0.0]}],
         "annual_returns": {},
-        "index_daily_returns": [],
-        "strategy_daily_returns": [],
-        "monthly_excess_returns": [],
+        "daily_distribution": {"benchmarks": [{"label": "指数", "values": []}], "strategy": []},
+        "monthly_excess_by_benchmark": [{"title": "月度超额分布", "values": []}],
     })
 
     paths = charts.generate_report_charts(data, tmp_path)
@@ -127,10 +139,10 @@ def test_dual_histogram_uses_shared_zero_centered_core_limits(monkeypatch, tmp_p
         captured["limits"] = [axis.get_xlim() for axis in figure.axes]
 
     monkeypatch.setattr(charts, "_save_figure", capture_figure)
-    charts._draw_dual_histogram(
+    charts._draw_daily_distribution(
         tmp_path / "daily.png",
         "日收益率分布",
-        {"index": [-0.02, 0.01], "strategy": [-0.01, 0.05]},
+        {"benchmarks": [{"label": "指数", "values": [-0.02, 0.01]}], "strategy": [-0.01, 0.05]},
     )
 
     limit = charts._symmetric_histogram_limit([-0.02, 0.01, -0.01, 0.05])
@@ -188,7 +200,9 @@ def test_percent_axes_put_unit_in_title_and_ticks_stay_plain(monkeypatch, tmp_pa
     )
     charts._draw_grouped_bar_chart(
         tmp_path / "annual.png", "分年度收益",
-        {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
+        {"years": ["2024", "2025"],
+         "benchmarks": [{"label": "指数", "values": [0.1, -0.02]}],
+         "strategy": [0.15, 0.04]},
     )
 
     assert set(captured) == {"drawdown", "excess", "annual"}
@@ -207,10 +221,10 @@ def test_dual_histogram_percent_ticks_are_symmetric_around_zero(monkeypatch, tmp
 
     monkeypatch.setattr(charts, "_save_figure", capture_figure)
     combined = [-0.02, 0.01, -0.01, 0.05]
-    charts._draw_dual_histogram(
+    charts._draw_daily_distribution(
         tmp_path / "daily.png",
         "日收益率分布",
-        {"index": combined[:2], "strategy": combined[2:]},
+        {"benchmarks": [{"label": "指数", "values": combined[:2]}], "strategy": combined[2:]},
     )
 
     limit = charts._symmetric_histogram_limit(combined)
@@ -237,10 +251,13 @@ def test_real_returns_dual_histogram_zooms_into_core_region(monkeypatch, tmp_pat
         captured["notes"] = [[text.get_text() for text in axis.texts] for axis in figure.axes]
 
     monkeypatch.setattr(charts, "_save_figure", capture_figure)
-    charts._draw_dual_histogram(
+    charts._draw_daily_distribution(
         tmp_path / "daily.png",
         "日收益率分布",
-        {"index": returns["index_daily"], "strategy": returns["strategy_daily"]},
+        {
+            "benchmarks": [{"label": "指数", "values": returns["index_daily"]}],
+            "strategy": returns["strategy_daily"],
+        },
     )
 
     # 核心区间按两组样本合并分位数确定（约 ±3.3%）并共用，超轴极端收益归并进边缘箱。
@@ -342,21 +359,110 @@ def test_generate_report_charts_with_real_fixture_returns(tmp_path: Path):
     returns = _load_fixture_returns()
     paths = charts.generate_report_charts({
         "dates": [date(2016, 1, 4) + timedelta(days=offset) for offset in range(len(returns["index_nav"]))],
-        "index_nav": returns["index_nav"],
+        "benchmarks": [{
+            "label": "指数",
+            "nav": returns["index_nav"],
+            "drawdown": _charts_drawdown(returns["index_nav"]),
+            "daily_returns": returns["index_daily"],
+        }],
         "strategy_nav": returns["strategy_nav"],
-        "excess_nav": [
-            strategy / index - 1 for index, strategy in zip(returns["index_nav"], returns["strategy_nav"])
-        ],
-        "index_daily_returns": returns["index_daily"],
-        "strategy_daily_returns": returns["strategy_daily"],
-        "monthly_excess_returns": returns["monthly_excess"],
-        "annual_returns": {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
+        "strategy_drawdown": _charts_drawdown(returns["strategy_nav"]),
+        "excess_series": [{
+            "label": "累计超额收益",
+            "values": [strategy / index - 1 for index, strategy in zip(returns["index_nav"], returns["strategy_nav"])],
+        }],
+        "annual_returns": {
+            "years": ["2024", "2025"],
+            "benchmarks": [{"label": "指数", "values": [0.1, -0.02]}],
+            "strategy": [0.15, 0.04],
+        },
+        "daily_distribution": {
+            "benchmarks": [{"label": "指数", "values": returns["index_daily"]}],
+            "strategy": returns["strategy_daily"],
+        },
+        "monthly_excess_by_benchmark": [{"title": "月度超额分布", "values": returns["monthly_excess"]}],
     }, tmp_path)
 
     assert set(paths) == {"累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布"}
     for path in paths.values():
         image = mpimg.imread(path)
         assert image.shape[:2] == (760, 1440)
+
+
+def test_generate_report_charts_expands_series_per_benchmark(tmp_path: Path):
+    """多基准：净值/回撤/超额多序列，月度超额每基准一张（标题带代码）。"""
+    dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    nav_a = [1 + index * 0.01 for index in range(24)]
+    nav_b = [1 + index * 0.008 for index in range(24)]
+    paths = charts.generate_report_charts({
+        "dates": dates,
+        "benchmarks": [
+            {"label": "指数(QQQ.US)", "nav": nav_a, "drawdown": _charts_drawdown(nav_a), "daily_returns": [0.01, -0.01]},
+            {"label": "指数(SOXX.US)", "nav": nav_b, "drawdown": _charts_drawdown(nav_b), "daily_returns": [0.02, -0.02]},
+        ],
+        "strategy_nav": [1 + index * 0.012 for index in range(24)],
+        "strategy_drawdown": _charts_drawdown([1 + index * 0.012 for index in range(24)]),
+        "strategy_daily_returns": [0.005, -0.005],
+        "excess_series": [
+            {"label": "超额(QQQ.US)", "values": [0.01, 0.0]},
+            {"label": "超额(SOXX.US)", "values": [0.02, 0.01]},
+        ],
+        "annual_returns": {
+            "years": ["2024", "2025"],
+            "benchmarks": [
+                {"label": "指数(QQQ.US)", "values": [0.1, -0.02]},
+                {"label": "指数(SOXX.US)", "values": [0.08, 0.01]},
+            ],
+            "strategy": [0.15, 0.04],
+        },
+        "daily_distribution": {
+            "benchmarks": [
+                {"label": "指数(QQQ.US)", "values": [0.01, -0.01]},
+                {"label": "指数(SOXX.US)", "values": [0.02, -0.02]},
+            ],
+            "strategy": [0.005, -0.005],
+        },
+        "monthly_excess_by_benchmark": [
+            {"title": "月度超额分布（QQQ.US）", "values": [0.01, -0.02]},
+            {"title": "月度超额分布（SOXX.US）", "values": [-0.01, 0.02]},
+        ],
+    }, tmp_path)
+
+    assert set(paths) == {
+        "累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布",
+        "月度超额分布（QQQ.US）", "月度超额分布（SOXX.US）",
+    }
+    for path in paths.values():
+        image = mpimg.imread(path)
+        assert image.shape[:2] == (760, 1440)
+
+
+def test_nav_and_drawdown_legends_order_benchmarks_before_strategy(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    def capture_figure(figure, path):
+        legend = figure.axes[0].get_legend()
+        captured[path.stem] = [text.get_text() for text in legend.get_texts()]
+        captured[f"{path.stem}-first-color"] = figure.axes[0].lines[0].get_color()
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    series = [
+        ("指数(QQQ.US)", [1 + index * 0.01 for index in range(24)], charts._benchmark_color(0)),
+        ("指数(SOXX.US)", [1 + index * 0.008 for index in range(24)], charts._benchmark_color(1)),
+        ("策略", [1 + index * 0.012 for index in range(24)], charts.ORANGE),
+    ]
+    charts._draw_line_chart(tmp_path / "nav.png", "累计净值曲线", dates, series, "净值")
+    charts._draw_drawdown_area_chart(
+        tmp_path / "drawdown.png", "最大回撤曲线", dates,
+        [(name + "回撤", [-0.01 * index for index in range(24)], color) for name, _, color in series],
+        "回撤（%）", percent=True,
+    )
+
+    # 图例顺序 = 基准在前、策略收尾；首位基准取蓝色，与历史单指数图一致。
+    assert captured["nav"] == ["指数(QQQ.US)", "指数(SOXX.US)", "策略"]
+    assert captured["nav-first-color"] == charts.BLUE
+    assert captured["drawdown"] == ["指数(QQQ.US)回撤", "指数(SOXX.US)回撤", "策略回撤"]
 
 
 def test_correlation_heatmap_annotates_values_and_unavailable_cells(tmp_path: Path):
