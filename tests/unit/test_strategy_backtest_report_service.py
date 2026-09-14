@@ -78,7 +78,8 @@ def test_weight_allocation_fills_average_volume_by_code_label():
 
     assert allocation["rows"] == [
         ["600519", "贵州茅台", "50%", "2,000,000"],
-        ["0700.HK (指数)", "腾讯控股", "50%", "5,000,000"],
+        ["0700.HK", "腾讯控股", "50%", "-"],
+        ["0700.HK (指数)", "腾讯控股", "100%", "5,000,000"],
     ]
 
 
@@ -172,7 +173,8 @@ def test_weight_allocation_marks_selected_index_from_list():
 
     assert allocation["rows"] == [
         ["AAA.US", "A", "50%", "-"],
-        ["BBB.US (指数)", "B", "50%", "-"],
+        ["BBB.US", "B", "50%", "-"],
+        ["BBB.US (指数)", "B", "100%", "-"],
     ]
 
 
@@ -278,8 +280,8 @@ def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
     scaled = stub.calls[0]
     assert scaled[0]["index_return"] == pytest.approx(0.05)
     assert scaled[1]["index_return"] == pytest.approx((1 + 0.05) * (1 + 0.5 * (1.2 / 1.1 - 1)) - 1)
-    # 单条基准但非满配：标签带代码与比例，避免误读为原始指数。
-    assert runs[0].label == "指数(QQQ.US 50%)"
+    # 单条基准但非满配：标签带比例，避免误读为原始指数。
+    assert runs[0].label == "指数(50%)"
 
 
 def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatch):
@@ -302,9 +304,35 @@ def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatc
     runs = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
-    assert [run.label for run in runs] == ["指数(QQQ.US 50%)", "指数(QQQ.US 100%)"]
+    # 同股不同比例：列头只展示比例，不再重复代码。
+    assert [run.label for run in runs] == ["指数(50%)", "指数(100%)"]
     assert stub.calls[0][0]["index_return"] == pytest.approx(0.05)
     assert stub.calls[1][0]["index_return"] == 0.10
+
+
+def test_weight_allocation_shows_strategy_rows_and_index_ratio_rows():
+    """无后缀行 = 策略权重；(指数) 行 = 指数自身的比例权重（真实值）。
+
+    策略比例为 0 的产品不进入策略行；被选为指数的标的按其比例权重
+    以 "(指数)" 行展示（含与策略同股的情况，如 QQQ 30% 与 QQQ 100%）。
+    """
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [
+            {"stock_code": "QQQ.US", "product_name": "纳指ETF", "ratio": "30"},
+            {"stock_code": "SOXX.US", "product_name": "半导体ETF", "ratio": "0"},
+        ],
+        "weight_allocation": None,
+        "index_benchmarks": [_entry("QQQ.US"), _entry("SOXX.US", 30)],
+    })()
+
+    allocation = service._weight_allocation(request, "RPT-M")
+
+    assert allocation["rows"] == [
+        ["QQQ.US", "纳指ETF", "30%", "-"],
+        ["QQQ.US (指数)", "纳指ETF", "100%", "-"],
+        ["SOXX.US (指数)", "半导体ETF", "30%", "-"],
+    ]
 
 
 def test_return_section_expands_columns_per_benchmark():

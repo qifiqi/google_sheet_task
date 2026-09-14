@@ -569,9 +569,8 @@ function openExportWordModal() {
     // }
 
     benchmarkEntries.length = 0;
-    document.getElementById('stockSearchInput').value = '';
     renderSelectedBenchmarks();
-    renderStockList('');
+    renderStockList();
     new bootstrap.Modal(document.getElementById('exportWordModal')).show();
 }
 
@@ -592,11 +591,8 @@ function stockEntryCount(code) {
     return benchmarkEntries.filter(entry => entry.code === code).length;
 }
 
-function renderStockList(keyword = '') {
-    const kw = keyword.trim().toLowerCase();
-    const list = getStockOptions().filter(s =>
-        !kw || s.name.toLowerCase().includes(kw) || s.code.toLowerCase().includes(kw)
-    );
+function renderStockList() {
+    const list = getStockOptions();
     const container = document.getElementById('stockListContainer');
     const counter = document.getElementById('stockSelectedCount');
     if (counter) {
@@ -610,7 +606,7 @@ function renderStockList(keyword = '') {
     `;
 
     if (!list.length) {
-        html += '<div class="text-center text-body-secondary py-3">没有匹配的股票</div>';
+        html += '<div class="text-center text-body-secondary py-3">暂无可选股票</div>';
         container.innerHTML = html;
         return;
     }
@@ -637,13 +633,13 @@ function renderStockList(keyword = '') {
 function addBenchmark(code) {
     benchmarkEntries.push({ code, ratio: DEFAULT_BENCHMARK_RATIO });
     renderSelectedBenchmarks();
-    renderStockList(document.getElementById('stockSearchInput').value);
+    renderStockList();
 }
 
 function removeBenchmark(index) {
     benchmarkEntries.splice(index, 1);
     renderSelectedBenchmarks();
-    renderStockList(document.getElementById('stockSearchInput').value);
+    renderStockList();
 }
 
 function renderSelectedBenchmarks() {
@@ -681,11 +677,7 @@ function renderSelectedBenchmarks() {
     });
 }
 
-// ---- 搜索 & 确认导出 ----
-document.getElementById('stockSearchInput')?.addEventListener('input', e => {
-    renderStockList(e.target.value);
-});
-
+// ---- 确认导出 ----
 document.getElementById('confirmExportWordBtn')?.addEventListener('click', async function () {
     const btn = this;
     btn.disabled = true;

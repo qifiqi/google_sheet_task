@@ -213,9 +213,9 @@ class StrategyBacktestReportService:
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(
                     [rows_by_date[date] for date in axis], runtime),
             )]
-        multiple = len(benchmark_series) > 1
+        labels = self._benchmark_labels(entries)
         runs = []
-        for code, weight, index_map in benchmark_series:
+        for (code, weight, index_map), label in zip(benchmark_series, labels):
             rows = [
                 {"date": date, "index_return": index_map[date],
                  "start_return": rows_by_date[date]["start_return"]}
@@ -224,19 +224,29 @@ class StrategyBacktestReportService:
             runs.append(_BenchmarkRun(
                 code=code,
                 weight=weight,
-                label=self._benchmark_label(code, weight, multiple),
+                label=label,
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
             ))
         return runs
 
     @staticmethod
-    def _benchmark_label(code: str, weight: Decimal, multiple: bool) -> str:
-        """基准列头：单基准且满配保持现状文案"指数"，其余 指数(代码 比例%)。"""
-        if not multiple and weight == 1:
-            return "指数"
-        # normalize 去尾零后转定点文本，避免 50.0 / 5E+1 之类的展示。
-        percent = format((weight * 100).normalize(), "f")
-        return f"指数({code} {percent}%)"
+    def _weight_percent_text(weight: Decimal) -> str:
+        """权重百分比展示文本；normalize 去尾零后转定点，避免 50.0 / 5E+1。"""
+        return format((Decimal(str(weight)) * 100).normalize(), "f")
+
+    @classmethod
+    def _benchmark_labels(cls, entries: list[tuple[str, Decimal]]) -> list[str]:
+        """基准列头：满配单条保持"指数"；同股只展示比例；异股展示 代码 比例%。"""
+        same_code = len({code for code, _weight in entries}) <= 1
+        labels = []
+        for code, weight in entries:
+            if len(entries) == 1 and weight == 1:
+                labels.append("指数")
+            elif same_code:
+                labels.append(f"指数({cls._weight_percent_text(weight)}%)")
+            else:
+                labels.append(f"指数({code} {cls._weight_percent_text(weight)}%)")
+        return labels
 
     @staticmethod
     def _find_product(request: StrategyBacktestReportSchema, code: str) -> dict[str, Any]:
@@ -427,28 +437,41 @@ class StrategyBacktestReportService:
         report_type: str,
         volumes: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """构造报告中的股票权重表格；比例为 0 的产品不进入权重分配。
+        """构造报告中的股票权重表格。
 
-        平均成交量按代码标签回填（键与行首代码一致，含 "(指数)" 后缀）。
+        无后缀行 = 策略权重（有效产品按配置比例）；"(指数)" 后缀行 =
+        指数基准自身的比例权重（如 QQQ 100%、SOXX 30%），两套权重并列
+        展示，便于区分策略持仓与指数构成。平均成交量按代码标签回填。
         """
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):
             return raw
         volume_texts = volumes or {}
-        products = StrategyBacktestReportService._active_report_products(payload.products)
+        active = StrategyBacktestReportService._active_report_products(payload.products)
         rows = []
-        if isinstance(products, list):
-            for product in products:
-                if isinstance(product, dict):
-                    stock_code = str(product.get("stock_code") or product.get("product_name") or "未命名")
-                    if stock_code in StrategyBacktestReportService._benchmark_codes(payload):
-                        stock_code = f"{stock_code} (指数)"
-                    rows.append([
-                        stock_code,
-                        str(product.get("product_name") or ""),
-                        StrategyBacktestReportService._weight_text(product, report_type),
-                        volume_texts.get(stock_code, "-"),
-                    ])
+        if isinstance(active, list):
+            for product in active:
+                if not isinstance(product, dict):
+                    continue
+                code = str(product.get("stock_code") or product.get("product_name") or "未命名")
+                rows.append([
+                    code,
+                    str(product.get("product_name") or ""),
+                    StrategyBacktestReportService._weight_text(product, report_type),
+                    volume_texts.get(code, "-"),
+                ])
+        name_by_code: dict[str, str] = {}
+        for product in payload.products if isinstance(payload.products, list) else []:
+            if isinstance(product, dict):
+                name_by_code.setdefault(str(product.get("stock_code") or "").strip(),
+                                        str(product.get("product_name") or ""))
+        for code, weight in StrategyBacktestReportService._benchmark_entries(payload):
+            rows.append([
+                f"{code} (指数)",
+                name_by_code.get(code, ""),
+                f"{StrategyBacktestReportService._weight_percent_text(weight)}%",
+                volume_texts.get(f"{code} (指数)", "-"),
+            ])
         if not rows and report_type == "RPT-S":
             rows = [["单品", "", "100.00%", "-"]]
         return {
@@ -493,12 +516,29 @@ class StrategyBacktestReportService:
         first_date: str,
         last_date: str,
     ) -> dict[str, str]:
-        """按代码标签取各产品报告区间平均成交量；无有效产品返回空映射。"""
+        """按代码标签取权重表全部行（策略行 + 指数基准行）的报告区间平均成交量。
+
+        策略行以纯代码为键；指数基准行以 "代码 (指数)" 为键（同一标的，
+        成交量与策略行相同）。
+        """
         volumes: dict[str, str] = {}
         for product in self._active_report_products(payload.products):
-            label = self._product_code_label(payload, product)
-            if label not in volumes:
+            if not isinstance(product, dict):
+                continue
+            code = str(product.get("stock_code") or product.get("product_name") or "").strip()
+            volumes.setdefault(code, self._average_volume(product, first_date, last_date))
+        for code, _weight in self._benchmark_entries(payload):
+            label = f"{code} (指数)"
+            if label in volumes:
+                continue
+            if code in volumes:
+                volumes[label] = volumes[code]
+                continue
+            try:
+                product = self._find_product(payload, code)
                 volumes[label] = self._average_volume(product, first_date, last_date)
+            except ValueError:
+                volumes[label] = "-"
         return volumes
 
     @staticmethod
@@ -1120,6 +1160,8 @@ class StrategyBacktestReportService:
         excess_series = []
         monthly_excess = []
         benchmark_annuals = []
+        # 同股不同比例时，图表标签只展示比例（与表格列头规则一致）。
+        same_code = len({run.code for run in runs}) <= 1
         for run in runs:
             run_result = run.result
             benchmark_nav = self._net_values(run_result.index_df, "index_return")
@@ -1132,13 +1174,16 @@ class StrategyBacktestReportService:
                 "daily_returns": daily_returns,
             })
             daily_panels.append({"label": run.label, "values": daily_returns})
+            percent = self._weight_percent_text(run.weight)
             excess_series.append({
-                "label": (f"超额({run.code} {format((run.weight * 100).normalize(), 'f')}%)"
-                          if len(runs) > 1 else "累计超额收益"),
+                "label": (f"超额({percent}%)" if same_code else f"超额({run.code} {percent}%)")
+                         if len(runs) > 1 else "累计超额收益",
                 "values": run_result.excess_df["excess_return"].tolist(),
             })
             monthly_excess.append({
-                "title": f"月度超额分布（{run.code}）" if len(runs) > 1 else "月度超额分布",
+                "title": (f"月度超额分布（{percent}%）" if same_code
+                          else f"月度超额分布（{run.code} {percent}%）")
+                         if len(runs) > 1 else "月度超额分布",
                 "values": [self._num(item.get("monthly_excess_return_diff")) for item in
                            run_result.metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
             })

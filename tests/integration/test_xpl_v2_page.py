@@ -54,8 +54,8 @@ def _report_analysis_result():
 
 
 def _default_run(result=None):
-    """单基准 runs 形态的便捷构造（code=None 表示默认组合基准）。"""
-    return [SimpleNamespace(code=None, label="指数", result=result or _report_analysis_result())]
+    """单基准 runs 形态的便捷构造（code=None、满配表示默认组合基准）。"""
+    return [SimpleNamespace(code=None, weight=1, label="指数", result=result or _report_analysis_result())]
 
 
 def _source_args(request):
