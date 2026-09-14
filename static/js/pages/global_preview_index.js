@@ -7,10 +7,6 @@ let groupMode = 'year';
 let previewGroups = [];
 const previewCache = new Map();
 
-const escapeHtml = (value) => String(value == null ? '' : value)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
 function showMessage(message, type = 'danger') {
     const box = document.getElementById('messageBox');
     box.className = `alert alert-${type} mb-0`;
@@ -129,7 +125,9 @@ async function exportPreview() {
     const query = exportName ? `?export_name=${encodeURIComponent(exportName)}` : '';
     const button = document.getElementById('exportBtn');
     button.disabled = true; button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>正在导出';
-    const response = await Api.endpoints.export.globalPreview(encodeURIComponent(currentTaskId), query);
+    // 此入口的历史契约始终是“按股票拆 Excel，再合并 ZIP”。
+    // 不从首屏预览元数据推断股票数量：首屏只预加载一个年份分组，无法代表整任务。
+    const response = await Api.endpoints.export.globalPreviewStocks(encodeURIComponent(currentTaskId), query);
     if (!response.ok) { button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出'; return showMessage('导出失败'); }
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);

@@ -67,8 +67,10 @@ def _stream_response(generated):
         stream_with_context(generated.generate()),
         mimetype=generated.mimetype,
         headers={
+            # WSGI 响应头只能包含 Latin-1 字符。实际下载名由 RFC 5987 的
+            # filename* 提供；ASCII 回退名仅供不支持该扩展的客户端使用。
             "Content-Disposition": (
-                f'attachment; filename="{generated.filename}"; '
+                'attachment; filename="download.zip"; '
                 f"filename*=UTF-8''{encoded_name}"
             ),
         },
@@ -139,6 +141,12 @@ def export_global_preview_by_stock(task_id):
     _require_completed_task(task)
     ratios = _parse_ratios_query()
     generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
+    export_name = request.args.get("export_name")
+    if export_name:
+        generated = replace(
+            generated,
+            filename=f"{sanitize_export_filename(export_name)}.zip",
+        )
     return _stream_response(generated)
 
 

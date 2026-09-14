@@ -388,6 +388,13 @@
       globalPreview: function (taskId, query) {
         return fetch("/api/exports/global-previews/" + taskId + (query || ""));
       },
+      // 全局预览按股票 ZIP 导出（每股票一个 Excel 合并压缩包），文件流下载，返回原始 Response。
+      // 多股票任务用本端点；单股票任务仍走上方单工作簿 XLSX 端点。
+      globalPreviewStocks: function (taskId, query) {
+        return fetch(
+          "/api/exports/global-previews/" + taskId + "/stocks" + (query || ""),
+        );
+      },
       // 全局预览批量 ZIP 导出（backtest 列表页），文件流下载，返回原始 Response。
       globalPreviewsBatch: function (taskIds) {
         return fetch("/api/exports/global-previews/batch", {

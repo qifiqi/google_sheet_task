@@ -115,6 +115,35 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
             assert entry_modified_at.year >= datetime.now().year - 1
 
 
+def test_global_preview_stock_zip_honors_export_name(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        db.session.add(Task(
+            id="c7-preview-export-name",
+            name="预览任务",
+            task_type="backtest_training",
+            status="completed",
+            config='{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
+        ))
+        db.session.commit()
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        db.session.add(TaskResult(
+            task_id="c7-preview-export-name", step_index=0,
+            parameters='{"stock_code":"AAPL","year":"2024"}', result='{"result":{}}', success=True,
+        ))
+        db.session.commit()
+
+        response = app.test_client().get(
+            "/api/exports/global-previews/c7-preview-export-name/stocks?export_name=批量导出"
+        )
+
+        assert response.status_code == 200
+        assert response.mimetype == "application/zip"
+        content_disposition = response.headers["Content-Disposition"]
+        assert 'filename="download.zip"' in content_disposition
+        assert "filename*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA.zip" in content_disposition
+
+
 def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
