@@ -108,7 +108,7 @@ def test_pure_data_payload_with_weights(app_factory):
             ("1", 0),
         ]
         entry = payload["series"][0]
-        assert entry["stock_code"] == "600519.SS"
+        assert entry["stock_code"] == "600519.SH"
         assert entry["weight"] == pytest.approx(0.25)
         assert entry["included"] is True
         # 序列原样返回累计收益三列，无任何派生列（净值/日收益由前端公式计算）。

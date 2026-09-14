@@ -32,7 +32,7 @@ class StockMetadataRepository(BaseRepository):
         """在候选代码（同一证券的不同后缀形态）中取最新一条；不存在返回 None。
 
         用于市场代码统一解析的 stock_meta 前置查询：任务传入无后缀代码时，
-        命中此前以东财交易所编号归一出的带后缀行（如 510300 → 510300.SS）。
+        命中此前以东财交易所编号归一出的带后缀行（如 510300 → 510300.SH）。
         查询使用 in_ 参数绑定。
         """
         candidates = [str(code) for code in stock_codes if code]
@@ -52,7 +52,7 @@ class StockMetadataRepository(BaseRepository):
     def upsert(self, fields, commit=True):
         """按 (stock_code, market_type) 存在则更新、否则新建；返回 dict。
 
-        - 查询前与模型事件监听器做同一 stock_code 标准化（600000 → 600000.SS），
+        - 查询前与模型事件监听器做同一 stock_code 标准化（600000 → 600000.SH），
           否则首次插入后再 upsert 会因查不到旧行而撞唯一约束；
         - 会话内已挂起（未 flush）的同键对象直接原地更新，避免同一会话内
           重复插入撞唯一约束（对齐原 stock_metadata_service 语义）；

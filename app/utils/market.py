@@ -111,6 +111,8 @@ STOCK_CODE_SUFFIXES = {
     "my": ".KL",
 }
 
+# 标准后缀 → 市场映射（输入识别用）。沪市规范输出为 .SH；.SS 是历史雅虎
+# 格式（旧任务/旧 stock_meta 行），输入仍识别、经 normalize_stock_code 归一。
 STANDARD_SUFFIX_MARKETS = {
     ".SS": "cn", ".SH": "cn", ".SZ": "cn", ".BJ": "cn",
     **{suffix.upper(): market for market, suffix in STOCK_CODE_SUFFIXES.items()},
@@ -162,7 +164,7 @@ def normalize_stock_code(
     market_type: Any,
     exchange_market: Any = None,
 ) -> str:
-    """生成项目统一证券代码格式，例如 ``600519.SS``、``0700.HK``、``AAPL.US``。"""
+    """生成项目统一证券代码格式，例如 ``600519.SH``、``0700.HK``、``AAPL.US``。"""
     original_code = str(stock_code or "").strip().upper()
     code, existing_suffix = split_stock_code(original_code)
     market = infer_market_type(stock_code, market_type)
@@ -177,13 +179,14 @@ def normalize_stock_code(
         return original_code
     if market == "cn":
         exchange = str(exchange_market or "").strip()
+        # 历史雅虎格式 .SS 仅作输入识别，输出统一为国内惯例 .SH。
         if existing_suffix in {".SS", ".SH"}:
-            return f"{code}.SS"
+            return f"{code}.SH"
         if existing_suffix in {".SZ", ".BJ"}:
             return f"{code}{existing_suffix}"
         # 沪市：6(股票/科创板)、5(基金/ETF，如 510300)
         if exchange == "1" or code.startswith(("5", "6")):
-            return f"{code}.SS"
+            return f"{code}.SH"
         # 深市：0(主板)、1(基金/ETF/债券)、2(B股)、3(创业板，如 159919)
         if exchange == "0" or code.startswith(("0", "1", "2", "3")):
             return f"{code}.SZ"
@@ -198,10 +201,17 @@ def normalize_stock_code(
 
 
 def to_yahoo_ticker(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
-    """将项目标准证券代码转换为 Yahoo 所需 ticker；美股不带 ``.US`` 后缀。"""
+    """将项目标准证券代码转换为 Yahoo 所需 ticker。
+
+    美股不带 ``.US`` 后缀；沪市 ``.SH`` 是国内惯例，雅虎要求 ``.SS``，
+    雅虎格式转换只发生在本边界，项目内部一律使用统一格式。
+    """
     code = normalize_stock_code(stock_code, market_type, exchange_market)
-    if infer_market_type(code, market_type) == "en" and code.endswith(".US"):
+    market = infer_market_type(code, market_type)
+    if market == "en" and code.endswith(".US"):
         return code[:-3]
+    if market == "cn" and code.endswith(".SH"):
+        return f"{code[:-3]}.SS"
     return code
 
 

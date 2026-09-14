@@ -9,9 +9,9 @@ import json
 from datetime import datetime
 
 import pytest
+from sqlalchemy import text
 
 from app.extensions import db
-from app.models import StockMetadata
 from app.repositories import stock_metadata_repository
 from app.services.stock_search_service import StockSearchService
 from app.utils.market import resolve_market_type
@@ -67,7 +67,7 @@ def test_search_stocks_keeps_futures_market_filter():
 
     cn = service.search_stocks("IF", market_type="cn")
     assert [(item["code"], item["market_type"]) for item in cn] == [
-        ("510300.SS", "cn"),
+        ("510300.SH", "cn"),
     ]
 
 
@@ -97,15 +97,15 @@ def test_resolve_stock_hits_stock_meta_without_dfcf(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
         task = _make_bmp_task(app)
-        # 预置 stock_meta：东财交易所编号 1（沪）
-        stock_metadata_repository.upsert({
-            "stock_code": "510300.SS",
-            "stock_name": "沪深300ETF",
-            "market_type": "cn",
-            "exchange_market": "1",
-            "security_type_name": "基金",
-            "source": "codetable",
-        }, commit=False)
+        # 预置 stock_meta 历史行：原生 SQL 绕过 ORM 标准化监听器，
+        # 模拟切换统一格式（.SS → .SH）前落库的沪市雅虎格式存量行。
+        db.session.execute(text(
+            "INSERT INTO t_param_stock_metadata "
+            "(stock_code, stock_name, market_type, exchange_market, security_type_name, source, created_at, updated_at) "
+            "VALUES ('510300.SS', '沪深300ETF', 'cn', '1', '基金', 'codetable', "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        db.session.commit()
 
         dfcf_calls = []
         service = StockSearchService(dfcf_api=type(
@@ -119,6 +119,7 @@ def test_resolve_stock_hits_stock_meta_without_dfcf(app_factory, monkeypatch):
 
         resolved = service.resolve_stock("510300", "cn")
 
+        # 历史行按库内形态原样命中返回；下游消费方（kline/creation）会再归一为 .SH。
         assert resolved["code"] == "510300.SS"
         assert resolved["exchange_market"] == "1"
         assert dfcf_calls == []
@@ -158,7 +159,7 @@ def test_resolve_stock_miss_falls_back_to_dfcf_and_persists(app_factory, monkeyp
 
         resolved = service.resolve_stock("510300", "cn")
 
-        assert resolved["code"] == "510300.SS"
+        assert resolved["code"] == "510300.SH"
         assert resolved["exchange_market"] == "1"
         assert len(upserts) == 1
         assert upserts[0][1] is False  # commit=False 随任务事务提交

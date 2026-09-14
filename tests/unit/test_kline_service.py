@@ -161,7 +161,7 @@ def test_external_source_is_normalized_and_persisted():
     rows = service.get_kline_data("600000.SS", "cn", 100, data_source="dfcf")
 
     assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
-    assert rows[0]["stock_code"] == "600000.SS"
+    assert rows[0]["stock_code"] == "600000.SH"
     assert rows[0]["stock_name"] == "浦发银行"
     assert rows[0]["open"] == 10.0
     assert rows[0]["close"] == 11.0

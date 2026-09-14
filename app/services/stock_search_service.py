@@ -135,13 +135,16 @@ class StockSearchService:
 
     @staticmethod
     def _meta_code_candidates(code: str, market_type: str) -> list[str]:
-        """同一证券在 stock_meta 中的候选主键形态（不同后缀规则的历史行）。"""
+        """同一证券在 stock_meta 中的候选主键形态（不同后缀规则的历史行）。
+
+        沪市 .SH 为当前统一格式；.SS 是切换统一格式前的历史雅虎行，保留命中。
+        """
         code = str(code or "").strip().upper()
         if market_type == "cn":
             base = strip_stock_code_suffix(code)
             if base != code:
                 return [code, base]
-            return [f"{base}.SS", f"{base}.SZ", f"{base}.BJ", base]
+            return [f"{base}.SH", f"{base}.SZ", f"{base}.BJ", f"{base}.SS", base]
         suffix = STOCK_CODE_SUFFIXES.get(market_type)
         if suffix:
             return [code, f"{strip_stock_code_suffix(code)}{suffix}"]

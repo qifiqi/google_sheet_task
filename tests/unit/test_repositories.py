@@ -331,8 +331,9 @@ class TestStockMetadataRepository:
         assert created["id"] == updated["id"]
         assert updated["stock_name"] == "新名称"
         # get 为字面查询：标准化由调用方完成（服务层 normalize + 旧代码回退）。
-        assert stock_metadata_repository.get("600000.SS", "cn")["stock_name"] == "新名称"
-        assert stock_metadata_repository.get("600000.SS", "us") is None
+        # upsert 标准化为统一格式 .SH；get 为字面查询，需以标准形态查询。
+        assert stock_metadata_repository.get("600000.SH", "cn")["stock_name"] == "新名称"
+        assert stock_metadata_repository.get("600000.SH", "us") is None
 
 
 # ==================== backtest_repository ====================
