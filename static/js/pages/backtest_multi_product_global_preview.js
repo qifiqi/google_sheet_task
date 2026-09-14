@@ -504,11 +504,14 @@ function exportReturnSeries() {
 // }
 
 
-// ===== 导出 Word 选股票弹窗（多选，可为空；为空时后端用组合index） =====
-const selectedStockCodes = new Set();
+// ===== 导出 Word 选股票弹窗（多选+比例，可为空；为空时后端用组合index） =====
+// 语义 A：每个基准条目 = {code, ratio}，基准序列按 比例×指数日收益+现金 缩放；
+// 同一产品可用不同比例添加多条（如 QQQ 50% 与 QQQ 100% 两条基准列）。
+const benchmarkEntries = [];
+const DEFAULT_BENCHMARK_RATIO = 100;
 
 // ---- 公共导出函数（不弹窗时也用它）----
-async function exportWordDirectly(indexStockCodes) {
+async function exportWordDirectly(benchmarks) {
     try {
         const ratios = collectRatioValues().map((ratio, index) => ({ product_index: index, ratio }));
         const payload = {
@@ -517,8 +520,8 @@ async function exportWordDirectly(indexStockCodes) {
             group_key: activeGroupKey,
             ratios,
         };
-        if (Array.isArray(indexStockCodes) && indexStockCodes.length) {
-            payload.index_stock_code = indexStockCodes;
+        if (Array.isArray(benchmarks) && benchmarks.length) {
+            payload.index_benchmarks = benchmarks;
         }
 
         const response = await Api.endpoints.export.wordReport(payload);
@@ -530,7 +533,7 @@ async function exportWordDirectly(indexStockCodes) {
 
         const filename = response.headers.get('Content-Disposition')
             ?.match(/filename[^;=\n]*=(?:UTF-8''|")?([^;\n"]+)/i)?.[1]
-            || `RPT-M_${(indexStockCodes || []).join('_') || 'all'}.docx`;
+            || `RPT-M_${(benchmarks || []).map(b => `${b.stock_code}${Number(b.ratio) === 100 ? '' : Number(b.ratio)}`).join('_') || 'all'}.docx`;
 
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
@@ -565,8 +568,9 @@ function openExportWordModal() {
     //     return;
     // }
 
-    selectedStockCodes.clear();
+    benchmarkEntries.length = 0;
     document.getElementById('stockSearchInput').value = '';
+    renderSelectedBenchmarks();
     renderStockList('');
     new bootstrap.Modal(document.getElementById('exportWordModal')).show();
 }
@@ -584,64 +588,96 @@ function getStockOptions() {
         .filter(s => s.code);
 }
 
+function stockEntryCount(code) {
+    return benchmarkEntries.filter(entry => entry.code === code).length;
+}
+
 function renderStockList(keyword = '') {
     const kw = keyword.trim().toLowerCase();
     const list = getStockOptions().filter(s =>
         !kw || s.name.toLowerCase().includes(kw) || s.code.toLowerCase().includes(kw)
     );
     const container = document.getElementById('stockListContainer');
-    const noneSelected = selectedStockCodes.size === 0;
     const counter = document.getElementById('stockSelectedCount');
     if (counter) {
-        counter.textContent = `已选 ${selectedStockCodes.size} 只`;
+        counter.textContent = `已选 ${benchmarkEntries.length} 条`;
     }
 
     let html = `
-        <label class="stock-option-row stock-default-row ${noneSelected ? 'is-selected' : ''}">
-            <input class="form-check-input stock-check" type="checkbox" name="stockCheck"
-                   value="" id="stock_none" ${noneSelected ? 'checked' : ''}>
+        <div class="stock-option-row stock-default-row ${benchmarkEntries.length ? '' : 'is-selected'}">
             <span class="flex-grow-1 text-body-secondary">不指定默认使用组合index</span>
-        </label>
+        </div>
     `;
 
     if (!list.length) {
         html += '<div class="text-center text-body-secondary py-3">没有匹配的股票</div>';
         container.innerHTML = html;
-        bindStockChecks();
         return;
     }
 
     html += list.map(s => {
-        const checked = selectedStockCodes.has(s.code);
+        const count = stockEntryCount(s.code);
         return `
-            <label class="stock-option-row ${checked ? 'is-selected' : ''}">
-                <input class="form-check-input stock-check" type="checkbox" name="stockCheck"
-                       value="${escapeHtml(s.code)}" id="stock_${escapeHtml(s.code)}" ${checked ? 'checked' : ''}>
+            <div class="stock-option-row stock-add-row ${count ? 'is-selected' : ''}"
+                 data-code="${escapeHtml(s.code)}" title="点击添加为基准；再次点击可用不同比例叠加">
                 <span class="flex-grow-1 stock-name-text">${escapeHtml(s.name)} <span class="text-body-secondary">(${escapeHtml(s.code)})</span></span>
+                ${count ? `<span class="badge text-bg-info">×${count}</span>` : ''}
                 <small class="text-body-secondary">比例 ${s.ratio}%</small>
-                <i class="bi bi-check-circle-fill stock-selected-icon"></i>
-            </label>
+                <i class="bi bi-plus-circle-fill stock-add-icon"></i>
+            </div>
         `;
     }).join('');
 
     container.innerHTML = html;
-    bindStockChecks();
+    container.querySelectorAll('.stock-add-row').forEach(row => {
+        row.addEventListener('click', () => addBenchmark(row.dataset.code));
+    });
 }
 
-function bindStockChecks() {
-    document.querySelectorAll('.stock-check').forEach(box => {
-        box.addEventListener('change', e => {
-            const code = e.target.value || '';
-            if (!code) {
-                // “不指定”即清空选择；空选状态下它保持勾选。
-                selectedStockCodes.clear();
-            } else if (e.target.checked) {
-                selectedStockCodes.add(code);
-            } else {
-                selectedStockCodes.delete(code);
-            }
-            renderStockList(document.getElementById('stockSearchInput').value);
+function addBenchmark(code) {
+    benchmarkEntries.push({ code, ratio: DEFAULT_BENCHMARK_RATIO });
+    renderSelectedBenchmarks();
+    renderStockList(document.getElementById('stockSearchInput').value);
+}
+
+function removeBenchmark(index) {
+    benchmarkEntries.splice(index, 1);
+    renderSelectedBenchmarks();
+    renderStockList(document.getElementById('stockSearchInput').value);
+}
+
+function renderSelectedBenchmarks() {
+    const container = document.getElementById('selectedBenchmarks');
+    if (!container) {
+        return;
+    }
+    if (!benchmarkEntries.length) {
+        container.innerHTML = '<div class="selected-empty">未选择基准，默认使用组合index（点击下方股票添加）</div>';
+        return;
+    }
+    container.innerHTML = benchmarkEntries.map((entry, index) => `
+        <div class="selected-benchmark-row">
+            <span class="selected-code flex-grow-1">${escapeHtml(entry.code)}</span>
+            <input type="number" class="form-control form-control-sm benchmark-ratio-input"
+                   min="0.5" max="100" step="0.5" value="${entry.ratio}"
+                   data-index="${index}" aria-label="基准比例">
+            <span class="ratio-unit">%</span>
+            <button type="button" class="btn-close btn-sm" data-remove="${index}" aria-label="删除该基准"></button>
+        </div>
+    `).join('');
+    container.querySelectorAll('.benchmark-ratio-input').forEach(input => {
+        input.addEventListener('change', e => {
+            const index = Number(e.target.dataset.index);
+            const value = Number(e.target.value);
+            // 比例语义为 (0, 100]，非法输入回退默认 100；后端 Schema 兜底校验。
+            benchmarkEntries[index].ratio = Number.isFinite(value) && value > 0
+                ? Math.min(value, 100)
+                : DEFAULT_BENCHMARK_RATIO;
+            e.target.value = benchmarkEntries[index].ratio;
         });
+    });
+    container.querySelectorAll('[data-remove]').forEach(btn => {
+        btn.addEventListener('click', () => removeBenchmark(Number(btn.dataset.remove)));
     });
 }
 
@@ -657,7 +693,10 @@ document.getElementById('confirmExportWordBtn')?.addEventListener('click', async
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
 
     try {
-        await exportWordDirectly([...selectedStockCodes]);
+        await exportWordDirectly(benchmarkEntries.map(entry => ({
+            stock_code: entry.code,
+            ratio: Number(entry.ratio) || DEFAULT_BENCHMARK_RATIO,
+        })));
         bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
     } finally {
         btn.disabled = false;

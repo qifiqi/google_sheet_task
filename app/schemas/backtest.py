@@ -1,5 +1,6 @@
 """回测域请求 Schema。"""
 
+import math
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -15,6 +16,15 @@ SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
 MULTI_PRODUCT_REPORT_TYPE = "RPT-M"
 REPORT_TYPES = {SINGLE_PRODUCT_REPORT_TYPE, MULTI_PRODUCT_REPORT_TYPE}
 DEFAULT_REPORT_TITLE = "量化策略回测绩效分析报告"
+BENCHMARK_RATIO_BASE = 100.0
+
+
+class IndexBenchmarkSchema(APIModel):
+    """RPT-M 基准指数条目：产品代码 + 参与比例（百分比数值）。"""
+
+    stock_code: str
+    # 百分比数值（50 = 50%），(0, 100]；归一化见 _normalize_index_benchmarks。
+    ratio: float
 
 
 class StrategyBacktestReportSchema(APIModel):
@@ -34,8 +44,9 @@ class StrategyBacktestReportSchema(APIModel):
     returns: list[dict[str, Any]] = []
     # 单品任务来源；return_series_id 在一个 task 有多条结果时用于精确指定。
     task_id: str | None = None
-    # RPT-M 基准指数（产品代码数组，去重保序，最多 3 个；空 = 默认组合index）。
-    index_stock_code: list[str] = []
+    # RPT-M 基准指数（产品代码 + 比例%，最多 3 条；空 = 默认组合index；
+    # 同一产品可用不同比例选多次，作为不同基准列对比）。
+    index_benchmarks: list[IndexBenchmarkSchema] = []
     return_series_id: int | None = Field(default=None, gt=0)
     # V2 Google Sheet 来源；spreadsheet_id 可以由 google_sheet_url 解析得到。
     google_sheet_url: str | None = None
@@ -71,20 +82,46 @@ class StrategyBacktestReportSchema(APIModel):
         """对齐原 DTO 语义：显式 null 与缺失一样按空容器处理。"""
         return [] if value is None else value
 
-    @field_validator("index_stock_code", mode="before")
+    @field_validator("index_benchmarks", mode="before")
     @classmethod
-    def _normalize_index_stock_codes(cls, value):
-        """列表化归一：null 视为空选；去空、去重保序；上限 3 个保证表格与图例可读。"""
+    def _normalize_index_benchmarks(cls, value):
+        """基准条目归一：null 视为空选；比例兼容 50、"50%"、0.5（等价 50%）。
+
+        语义 A（每指数各自带比例）：同一产品可用不同比例选多次作为不同
+        基准列，仅代码+比例完全相同的重复条目去重；上限 3 条保证表格
+        与图例可读。
+        """
         if value is None:
             return []
         if not isinstance(value, list):
-            raise ValueError("index_stock_code 必须是股票代码数组")
-        codes = list(dict.fromkeys(
-            code for code in (str(item).strip() for item in value) if code
-        ))
-        if len(codes) > 3:
-            raise ValueError("基准指数最多支持选择 3 个")
-        return codes
+            raise ValueError("index_benchmarks 必须是数组")
+        normalized: list[dict[str, Any]] = []
+        seen: set[tuple[str, float]] = set()
+        for item in value:
+            if not isinstance(item, dict):
+                raise ValueError("index_benchmarks 每项必须是 {stock_code, ratio} 对象")
+            code = str(item.get("stock_code") or "").strip()
+            if not code:
+                continue
+            raw_ratio = str(item.get("ratio") if item.get("ratio") is not None else 100).strip()
+            explicit_percent = raw_ratio.endswith("%")
+            try:
+                number = float(raw_ratio[:-1] if explicit_percent else raw_ratio)
+            except ValueError as exc:
+                raise ValueError(f"指数 {code} 的比例不是有效数字: {item.get('ratio')}") from exc
+            if not math.isfinite(number) or number < 0:
+                raise ValueError(f"指数 {code} 的比例必须是非负有限数")
+            percent = number if (explicit_percent or number > 1) else number * 100
+            if not 0 < percent <= BENCHMARK_RATIO_BASE:
+                raise ValueError(f"指数 {code} 的比例必须在 (0, 100] 区间内")
+            key = (code, percent)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append({"stock_code": code, "ratio": percent})
+        if len(normalized) > 3:
+            raise ValueError("基准指数最多支持选择 3 条")
+        return normalized
 
     @field_validator("metadata", "runtime_params", mode="before")
     @classmethod
@@ -105,7 +142,7 @@ class StrategyBacktestReportSchema(APIModel):
                     raise ValueError("RPT-M 的收益来源必须配置在每个 products 项中")
                 for index, product in enumerate(self.products, start=1):
                     self._validate_source(product, product.get("returns") or [], label=f"products[{index}]")
-                self._validate_index_codes_unique_hit()
+                self._validate_index_benchmarks_unique_hit()
                 return self
             # group_key 形态（前端全局预览页直传，export_service 按任务构建 products）。
             if not self.task_id:
@@ -128,14 +165,17 @@ class StrategyBacktestReportSchema(APIModel):
         }, self.returns)
         return self
 
-    def _validate_index_codes_unique_hit(self) -> None:
-        """基准指数必须唯一命中产品代码：0 命中是未知代码，多命中是同码歧义。"""
-        if not self.index_stock_code:
+    def _validate_index_benchmarks_unique_hit(self) -> None:
+        """基准代码必须唯一命中产品：0 命中是未知代码，多命中是同码歧义。
+
+        同一代码可出现多条（不同比例），仅按唯一代码做命中校验。
+        """
+        if not self.index_benchmarks:
             return
         product_codes = [
             str(product.get("stock_code") or "").strip() for product in self.products
         ]
-        for code in self.index_stock_code:
+        for code in {item.stock_code for item in self.index_benchmarks}:
             hits = product_codes.count(code)
             if hits == 0:
                 raise ValueError(f"指数代码 {code} 不在产品列表中")

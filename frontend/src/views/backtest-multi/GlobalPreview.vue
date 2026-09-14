@@ -475,7 +475,8 @@ async function confirmExportWord() {
       ratios: collectRatioPayload(),
     }
     if (selectedStockCode.value) {
-      payload.index_stock_code = [selectedStockCode.value]
+      // 指数比例语义 A：单选入口固定 100% 满配；比例化入口在多品预览页。
+      payload.index_benchmarks = [{ stock_code: selectedStockCode.value, ratio: 100 }]
     }
     // 文件名优先取响应 Content-Disposition，回退 RPT-M_{code|all}.docx（静态版同口径）
     const { blob, filename } = await exportWordReportDownload(payload, `RPT-M_${selectedStockCode.value || 'all'}.docx`)

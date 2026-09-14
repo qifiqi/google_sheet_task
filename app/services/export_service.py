@@ -305,8 +305,8 @@ class ExportService:
                 raise ValidationError("task_id 不是有效的多产品回测任务")
             payload = StrategyBacktestReportSchema.model_validate(word_payload)
 
-        if report_request.index_stock_code:
-            payload.index_stock_code = report_request.index_stock_code
+        if report_request.index_benchmarks:
+            payload.index_benchmarks = report_request.index_benchmarks
 
         filename, buffer = strategy_backtest_report_service.generate_word(payload)
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)

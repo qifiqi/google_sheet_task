@@ -7,9 +7,14 @@ import app.services.strategy_backtest_report_service as report_module
 from app.services.strategy_backtest_report_service import StrategyBacktestReportService
 
 
+def _entry(code, ratio=100):
+    """基准条目 duck 对象（Schema 归一后的形态：stock_code + ratio%）。"""
+    return SimpleNamespace(stock_code=code, ratio=ratio)
+
+
 def test_single_product_report_defaults_weight_to_100_percent():
     service = StrategyBacktestReportService()
-    request = type("Request", (), {"products": [], "weight_allocation": None, "index_stock_code": []})()
+    request = type("Request", (), {"products": [], "weight_allocation": None, "index_benchmarks": []})()
 
     allocation = service._weight_allocation(request, "RPT-S")
 
@@ -21,7 +26,7 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
     request = type("Request", (), {
         "products": [{"stock_code": "SCHD.US", "product_name": "SCHD.US"}],
         "weight_allocation": None,
-        "index_stock_code": [],
+        "index_benchmarks": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -34,7 +39,7 @@ def test_weight_allocation_adds_percent_suffix():
     request = type("Request", (), {
         "products": [{"stock_code": "600519", "product_name": "贵州茅台", "ratio": "100"}],
         "weight_allocation": None,
-        "index_stock_code": [],
+        "index_benchmarks": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -50,7 +55,7 @@ def test_weight_allocation_drops_zero_ratio_products():
             {"stock_code": "SOXX", "product_name": "半导体ETF", "ratio": "0"},
         ],
         "weight_allocation": None,
-        "index_stock_code": [],
+        "index_benchmarks": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-M")
@@ -66,7 +71,7 @@ def test_weight_allocation_fills_average_volume_by_code_label():
             {"stock_code": "0700.HK", "product_name": "腾讯控股", "ratio": "50"},
         ],
         "weight_allocation": None,
-        "index_stock_code": ["0700.HK"],
+        "index_benchmarks": [_entry("0700.HK")],
     })()
 
     allocation = service._weight_allocation(request, "RPT-M", {"600519": "2,000,000", "0700.HK (指数)": "5,000,000"})
@@ -160,7 +165,7 @@ def test_weight_allocation_marks_selected_index_from_list():
             {"stock_code": "BBB.US", "product_name": "B", "ratio": "50"},
         ],
         "weight_allocation": None,
-        "index_stock_code": ["BBB.US"],
+        "index_benchmarks": [_entry("BBB.US")],
     })()
 
     allocation = service._weight_allocation(request, "RPT-M")
@@ -199,7 +204,7 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
     request = type("Request", (), {
         "report_type": "RPT-M",
         "runtime_params": {},
-        "index_stock_code": ["0700.HK"],
+        "index_benchmarks": [_entry("0700.HK")],
         "products": [{
             "stock_code": "0700.HK",
             "returns": [
@@ -219,7 +224,7 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
 
 
 def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatch):
-    """多选逐基准运行引擎，标签用 指数(代码) 自描述；策略列各次运行一致。"""
+    """多选逐基准运行引擎，标签用 指数(代码 比例%) 自描述；策略列各次运行一致。"""
     service = StrategyBacktestReportService()
     combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
     monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
@@ -228,7 +233,7 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
     request = type("Request", (), {
         "report_type": "RPT-M",
         "runtime_params": {},
-        "index_stock_code": ["AAA.US", "BBB.US"],
+        "index_benchmarks": [_entry("AAA.US"), _entry("BBB.US")],
         "products": [
             {"stock_code": "AAA.US", "returns": [{"date": "2024-01-02", "index_return": 0.11, "start_return": 0.01}]},
             {"stock_code": "BBB.US", "returns": [{"date": "2024-01-02", "index_return": 0.22, "start_return": 0.02}]},
@@ -238,10 +243,68 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
     runs = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
-    assert [run.label for run in runs] == ["指数(AAA.US)", "指数(BBB.US)"]
+    assert [run.label for run in runs] == ["指数(AAA.US 100%)", "指数(BBB.US 100%)"]
     assert stub.calls[0][0]["index_return"] == 0.11
     assert stub.calls[1][0]["index_return"] == 0.22
     assert stub.calls[0][0]["start_return"] == stub.calls[1][0]["start_return"] == 0.10
+
+
+def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
+    """比例缩放口径 = 比例×日收益再复利（等价 比例×指数+现金）。"""
+    service = StrategyBacktestReportService()
+    combined = [
+        {"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10},
+        {"date": "2024-01-03", "index_return": 0.40, "start_return": 0.12},
+    ]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "runtime_params": {},
+        "index_benchmarks": [_entry("QQQ.US", ratio=50)],
+        "products": [{
+            "stock_code": "QQQ.US",
+            "returns": [
+                {"date": "2024-01-02", "index_return": 0.10, "start_return": 0.01},
+                {"date": "2024-01-03", "index_return": 0.20, "start_return": 0.02},
+            ],
+        }],
+    })()
+
+    runs = service._build_benchmark_runs(request)
+
+    # 满配日收益 10%/18.18% → 半仓 5%/9.09% → 复利累计 5%/14.77%。
+    scaled = stub.calls[0]
+    assert scaled[0]["index_return"] == pytest.approx(0.05)
+    assert scaled[1]["index_return"] == pytest.approx((1 + 0.05) * (1 + 0.5 * (1.2 / 1.1 - 1)) - 1)
+    # 单条基准但非满配：标签带代码与比例，避免误读为原始指数。
+    assert runs[0].label == "指数(QQQ.US 50%)"
+
+
+def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatch):
+    """同一产品不同比例是两条独立基准（语义 A 的核心诉求）。"""
+    service = StrategyBacktestReportService()
+    combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "runtime_params": {},
+        "index_benchmarks": [_entry("QQQ.US", ratio=50), _entry("QQQ.US", ratio=100)],
+        "products": [{
+            "stock_code": "QQQ.US",
+            "returns": [{"date": "2024-01-02", "index_return": 0.10, "start_return": 0.01}],
+        }],
+    })()
+
+    runs = service._build_benchmark_runs(request)
+
+    assert len(stub.calls) == 2
+    assert [run.label for run in runs] == ["指数(QQQ.US 50%)", "指数(QQQ.US 100%)"]
+    assert stub.calls[0][0]["index_return"] == pytest.approx(0.05)
+    assert stub.calls[1][0]["index_return"] == 0.10
 
 
 def test_return_section_expands_columns_per_benchmark():
@@ -399,7 +462,7 @@ def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
             {"stock_code": "BBB.US", "product_name": "B", "ratio": "50"},
         ],
         "weight_allocation": None,
-        "index_stock_code": ["AAA.US", "BBB.US"],
+        "index_benchmarks": [_entry("AAA.US"), _entry("BBB.US")],
     })()
 
     for runs in (_benchmark_runs_for_alignment(), _benchmark_runs_for_alignment(0.0, 0.02)):
@@ -483,10 +546,10 @@ def _cumulative_product(stock_code, product_name, ratio, daily, market_type=None
     return product
 
 
-def _correlation_request(products, index_stock_code=None, report_type="RPT-M"):
+def _correlation_request(products, index_benchmarks=None, report_type="RPT-M"):
     return type("Request", (), {
         "products": products,
-        "index_stock_code": index_stock_code,
+        "index_benchmarks": index_benchmarks,
         "report_type": report_type,
     })()
 
@@ -497,7 +560,7 @@ def test_correlation_matrix_computes_lower_triangle_and_mirrors(monkeypatch):
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", daily_a),
         _cumulative_product("0700.HK", "腾讯控股", "50", daily_b, market_type="hk"),
-    ], index_stock_code=["0700.HK"])
+    ], index_benchmarks=[_entry("0700.HK")])
     result = SimpleNamespace(index_df=pd.DataFrame({
         "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
     }))

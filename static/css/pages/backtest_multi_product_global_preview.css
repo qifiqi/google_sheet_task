@@ -240,15 +240,35 @@
         box-shadow: inset 3px 0 0 var(--bs-info);
     }
     .stock-option-row.is-selected .stock-name-text { font-weight: 700; }
-    .stock-option-row .stock-check { flex-shrink: 0; width: 1.15em; height: 1.15em; }
-    .stock-option-row .stock-selected-icon {
-        visibility: hidden;
-        color: var(--bs-info);
-        font-size: 1.05rem;
-        flex-shrink: 0;
-    }
-    .stock-option-row.is-selected .stock-selected-icon { visibility: visible; }
     .stock-option-row.stock-default-row { background: var(--bs-tertiary-bg); }
+    /* 已选基准区：每条 = 代码 + 比例输入 + 删除，支持同股不同比例叠加。 */
+    .selected-benchmarks { display: flex; flex-direction: column; gap: 0.35rem; }
+    .selected-benchmarks .selected-empty {
+        font-size: 0.82rem;
+        padding: 0.35rem 0.6rem;
+        background: var(--bs-tertiary-bg);
+        border-radius: 0.5rem;
+    }
+    .selected-benchmark-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0.6rem;
+        border: 1px solid var(--bs-info);
+        border-radius: 0.5rem;
+        background: rgba(var(--bs-info-rgb), 0.08);
+    }
+    .selected-benchmark-row .selected-code { font-weight: 600; }
+    .selected-benchmark-row .benchmark-ratio-input { width: 82px; }
+    .selected-benchmark-row .ratio-unit {
+        font-size: 0.82rem;
+        color: var(--bs-secondary-color);
+        margin-left: -0.25rem;
+    }
+    /* 股票行为"点击添加"：加号图标 hover 放大提示可点。 */
+    .stock-add-row { cursor: pointer; }
+    .stock-add-row .stock-add-icon { color: var(--bs-info); font-size: 1.05rem; }
+    .stock-add-row:hover .stock-add-icon { transform: scale(1.15); }
     html[data-bs-theme="dark"] .stock-option-row.is-selected {
         background: rgba(var(--bs-info-rgb), 0.25);
     }

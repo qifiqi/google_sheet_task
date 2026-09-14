@@ -6,6 +6,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,7 +22,12 @@ from app.services.word_export_template import generate_word_document
 from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int
-from app.services.performance_analysis.portfolio_combiner import combine_product_returns, normalize_weight
+from app.services.performance_analysis.portfolio_combiner import (
+    combine_product_returns,
+    cumulative_to_daily,
+    daily_to_cumulative,
+    normalize_weight,
+)
 from app.services.performance_analysis.return_correlation import aligned_daily_returns, pairwise_correlation_matrix
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
@@ -45,6 +51,7 @@ class _BenchmarkRun:
     """一次 V1 引擎运行：code=None 表示默认组合基准；label 为报告指数列头文案。"""
 
     code: str | None
+    weight: Decimal
     label: str
     result: Any  # MetricsV1Result
 
@@ -152,9 +159,17 @@ class StrategyBacktestReportService:
         return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
 
     @staticmethod
-    def _benchmark_codes(payload: StrategyBacktestReportSchema) -> list[str]:
-        """报告采用的基准代码（去重保序）；空列表表示默认组合基准。"""
-        return [str(code) for code in (payload.index_stock_code or [])]
+    def _benchmark_entries(payload: StrategyBacktestReportSchema) -> list[tuple[str, Decimal]]:
+        """报告采用的基准条目（代码, 权重小数）；空列表表示默认组合基准。"""
+        return [
+            (str(item.stock_code or "").strip(), Decimal(str(item.ratio)) / Decimal("100"))
+            for item in (payload.index_benchmarks or [])
+        ]
+
+    @staticmethod
+    def _benchmark_codes(payload: StrategyBacktestReportSchema) -> set[str]:
+        """基准代码集合（权重表/标签的 "(指数)" 后缀标记用）。"""
+        return {code for code, _weight in StrategyBacktestReportService._benchmark_entries(payload)}
 
     def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> list[_BenchmarkRun]:
         """组合收益 + 各基准注入后逐次运行 V1 引擎；未选指数时为单个默认组合基准。
@@ -176,30 +191,31 @@ class StrategyBacktestReportService:
                 "google_sheet_name": request.google_sheet_name,
             })
         rows_by_date = {row["date"]: row for row in data}
-        index_codes = self._benchmark_codes(request) if request.report_type == "RPT-M" else []
-        index_maps = {
-            code: self._cumulative_index_by_date(self._find_product(request, code))
-            for code in index_codes
-        }
-        if index_maps:
+        entries = self._benchmark_entries(request) if request.report_type == "RPT-M" else []
+        benchmark_series = [
+            (code, weight, self._index_series_by_date(self._find_product(request, code), weight))
+            for code, weight in entries
+        ]
+        if benchmark_series:
             # 统一日期轴：剔除任一基准缺失的交易日，保证各次运行的策略指标严格一致。
             axis = [
                 row["date"] for row in data
-                if all(row["date"] in index_map for index_map in index_maps.values())
+                if all(row["date"] in index_map for _, _, index_map in benchmark_series)
             ]
         else:
             axis = [row["date"] for row in data]
 
-        if not index_maps:
+        if not benchmark_series:
             return [_BenchmarkRun(
                 code=None,
+                weight=Decimal("1"),
                 label="指数",
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(
                     [rows_by_date[date] for date in axis], runtime),
             )]
-        multiple = len(index_maps) > 1
+        multiple = len(benchmark_series) > 1
         runs = []
-        for code, index_map in index_maps.items():
+        for code, weight, index_map in benchmark_series:
             rows = [
                 {"date": date, "index_return": index_map[date],
                  "start_return": rows_by_date[date]["start_return"]}
@@ -207,10 +223,20 @@ class StrategyBacktestReportService:
             ]
             runs.append(_BenchmarkRun(
                 code=code,
-                label=f"指数({code})" if multiple else "指数",
+                weight=weight,
+                label=self._benchmark_label(code, weight, multiple),
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
             ))
         return runs
+
+    @staticmethod
+    def _benchmark_label(code: str, weight: Decimal, multiple: bool) -> str:
+        """基准列头：单基准且满配保持现状文案"指数"，其余 指数(代码 比例%)。"""
+        if not multiple and weight == 1:
+            return "指数"
+        # normalize 去尾零后转定点文本，避免 50.0 / 5E+1 之类的展示。
+        percent = format((weight * 100).normalize(), "f")
+        return f"指数({code} {percent}%)"
 
     @staticmethod
     def _find_product(request: StrategyBacktestReportSchema, code: str) -> dict[str, Any]:
@@ -233,6 +259,20 @@ class StrategyBacktestReportService:
             if parsed is not None:
                 index_by_date[parsed.isoformat()] = row.get("index_return", 0)
         return index_by_date
+
+    @staticmethod
+    def _index_series_by_date(product: dict[str, Any], weight: Decimal) -> dict[str, Any]:
+        """基准序列映射：权重 1 直接取产品指数列，否则按"比例×日收益+现金"缩放。
+
+        缩放口径与组合器一致（累计→日→乘权重→再复利）。
+        """
+        if weight == 1:
+            return StrategyBacktestReportService._cumulative_index_by_date(product)
+        scaled = daily_to_cumulative([
+            {"date": row["date"], "index_return": float(weight) * row["index_return"], "start_return": 0.0}
+            for row in cumulative_to_daily(product.get("returns") or [])
+        ])
+        return {row["date"]: row["index_return"] for row in scaled}
 
     def _resolve_source_returns(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         """读取一种收益来源，并规范为按日期升序的累计收益率。"""
@@ -1093,7 +1133,8 @@ class StrategyBacktestReportService:
             })
             daily_panels.append({"label": run.label, "values": daily_returns})
             excess_series.append({
-                "label": f"超额({run.code})" if len(runs) > 1 else "累计超额收益",
+                "label": (f"超额({run.code} {format((run.weight * 100).normalize(), 'f')}%)"
+                          if len(runs) > 1 else "累计超额收益"),
                 "values": run_result.excess_df["excess_return"].tolist(),
             })
             monthly_excess.append({
