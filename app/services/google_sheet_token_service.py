@@ -170,7 +170,7 @@ class GoogleSheetTokenService:
         total_usage = google_sheet_token_repository.sum_field('task_usage_count')
         active_count = google_sheet_token_repository.count_active()
         available_count = sum(
-            1 for token in google_sheet_token_repository.list_active_entities().all() if token.is_available()
+            1 for token in google_sheet_token_repository.list_active_entities() if token.is_available()
         )
         return {
             "current_total_in_use": int(current_total),
@@ -319,15 +319,7 @@ class GoogleSheetTokenService:
         snapshot = snapshot or self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
         normalized_task_type = self._normalize_token_task_type(task_type)
-        tokens = (
-            google_sheet_token_repository.list_active_entities(task_type=normalized_task_type)
-            .order_by(
-                GoogleSheetToken.current_in_use_count.asc(),
-                GoogleSheetToken.task_usage_count.asc(),
-                GoogleSheetToken.id.asc(),
-            )
-            .all()
-        )
+        tokens = google_sheet_token_repository.list_active_entities(task_type=normalized_task_type)
         available = []
         for token in tokens:
             current_in_use = int(token_usage.get(int(token.id), 0))

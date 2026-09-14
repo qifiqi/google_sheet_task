@@ -68,13 +68,13 @@ class TestTaskRepository:
         assert [t["id"] for t in task_repository.list_by_ids(["t-1", "missing"])] == ["t-1"]
         assert task_repository.list_by_ids([]) == []
 
-    def test_list_paginated_filters(self, app_factory, task_row):
+    def test_list_paginated_with_statistics_filters(self, app_factory, task_row):
         task_repository.create({"id": "t-2", "name": "other", "status": "error", "task_type": "google_sheet_C4"})
-        page = task_repository.list_paginated(1, 10, task_type="google_sheet")
-        assert page["total"] == 1 and page["items"][0]["id"] == "t-1"
-        page = task_repository.list_paginated(1, 10, status="error")
+        page = task_repository.list_paginated_with_statistics(1, 10, task_type="google_sheet")
+        assert page["pagination"]["total"] == 1 and page["items"][0]["id"] == "t-1"
+        page = task_repository.list_paginated_with_statistics(1, 10, status="error")
         assert page["items"][0]["id"] == "t-2"
-        page = task_repository.list_paginated(1, 10, keyword="示例")
+        page = task_repository.list_paginated_with_statistics(1, 10, keyword="示例")
         assert page["items"][0]["id"] == "t-1"
 
     def test_clear_created_by(self, app_factory, task_row):
@@ -139,18 +139,17 @@ class TestTaskLogRepository:
         assert len(log["message"]) == 4000
         assert log["message"].endswith("...（日志已截断）")
 
-    def test_get_last_and_list_by_task_order(self, app_factory, task_row):
+    def test_last_write_time_and_list_by_task_order(self, app_factory, task_row):
         task_log_repository.create_log("t-1", "info", "first")
         task_log_repository.create_log("t-1", "error", "second")
-        assert task_log_repository.get_last("t-1")["message"] == "second"
         rows = task_log_repository.list_by_task("t-1")
         assert [r["message"] for r in rows] == ["first", "second"]
-        assert task_log_repository.count_by_task("t-1") == 2
+        assert task_log_repository.last_write_time("t-1") is not None
 
     def test_delete_by_task(self, app_factory, task_row):
         task_log_repository.create_log("t-1", "info", "log")
         assert task_log_repository.delete_by_task("t-1") == 1
-        assert task_log_repository.count_by_task("t-1") == 0
+        assert task_log_repository.list_by_task("t-1") == []
 
 
 # ==================== task_template_repository ====================

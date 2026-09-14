@@ -40,44 +40,6 @@ class TaskRepository(BaseRepository):
         task = query.order_by(Task.created_at.desc(), Task.id.desc()).first()
         return task.id if task else None
 
-    def list_paginated(
-        self,
-        page,
-        per_page,
-        task_type=None,
-        task_types=None,
-        status=None,
-        keyword=None,
-    ):
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-        if status and status != "all":
-            query = query.filter(Task.status == status)
-        if keyword:
-            pattern = f"%{keyword.strip()}%"
-            query = query.filter(
-                or_(
-                    Task.name.ilike(pattern),
-                    Task.description.ilike(pattern),
-                    Task.id.ilike(pattern),
-                )
-            )
-        pagination = query.order_by(Task.created_at.desc()).paginate(
-            page=max(page or 1, 1),
-            per_page=max(min(per_page or 10, 100), 1),
-            error_out=False,
-        )
-        return {
-            "items": [t.to_dict() for t in pagination.items],
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "current_page": pagination.page,
-            "per_page": pagination.per_page,
-        }
-
     def list_paginated_with_statistics(
         self,
         page,

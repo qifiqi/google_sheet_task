@@ -37,7 +37,10 @@ def clear_task_execution_data(task_id: str, *, include_logs: bool = False) -> No
         result_ids=result_ids,
         return_series_ids=return_series_ids,
     )
-    backtest_repository.delete_summary_index_by_task_or_results(task_id, result_ids, commit=False)
+    # OR 语义（按任务 + 按结果集）拆为两次条件删除，同批 commit=False 凑一个事务。
+    backtest_repository.delete_summary_index_by_task_ids([task_id], commit=False)
+    if result_ids:
+        backtest_repository.delete_summary_index_by_result_ids(result_ids, commit=False)
     task_result_repository.delete_by_task(task_id, commit=False)
     task_result_repository.delete_returns_by_task(task_id, commit=False)
     backtest_repository.release_locks_by_task(task_id, commit=False)

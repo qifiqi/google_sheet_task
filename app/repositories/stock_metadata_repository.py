@@ -98,11 +98,10 @@ class StockMetadataRepository(BaseRepository):
         return row.to_dict()
 
     def bulk_upsert(self, rows, commit=True):
-        """循环 upsert 后统一提交；返回处理行数。"""
-        count = 0
-        for fields in rows or []:
-            if self.upsert(fields, commit=False):
-                count += 1
+        """循环 upsert 后统一提交；返回处理行数（即 rows 条数，逐条逐键 upsert）。"""
+        rows = rows or []
+        for fields in rows:
+            self.upsert(fields, commit=False)
         if commit:
             self._commit()
-        return count
+        return len(rows)
