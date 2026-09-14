@@ -18,7 +18,7 @@ def test_single_product_report_defaults_weight_to_100_percent():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["单品", "", "100.00%", "-"]]
+    assert allocation["rows"] == [["单品", "", "100.00%", "-", "-"]]
 
 
 def test_single_product_report_defaults_missing_product_weight_to_100_percent():
@@ -31,7 +31,7 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["SCHD.US", "SCHD.US", "100.00%", "-"]]
+    assert allocation["rows"] == [["SCHD.US", "SCHD.US", "100.00%", "-", "-"]]
 
 
 def test_weight_allocation_adds_percent_suffix():
@@ -44,7 +44,7 @@ def test_weight_allocation_adds_percent_suffix():
 
     allocation = service._weight_allocation(request, "RPT-S")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "100%", "-"]]
+    assert allocation["rows"] == [["600519", "贵州茅台", "100%", "-", "-"]]
 
 
 def test_weight_allocation_drops_zero_ratio_products():
@@ -60,7 +60,46 @@ def test_weight_allocation_drops_zero_ratio_products():
 
     allocation = service._weight_allocation(request, "RPT-M")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "50%", "-"]]
+    assert allocation["rows"] == [["600519", "贵州茅台", "50%", "-", "-"]]
+
+
+def test_etf_total_assets_text_abbreviates_large_values(monkeypatch):
+    """资产总数按中文习惯缩写（亿/万），避免长数字撑爆表格列宽。"""
+    cases = [
+        (488981004288, "4889.81亿"),
+        (48898100, "4889.81万"),
+        (85000, "8.50万"),
+        (9999, "9,999"),
+        (None, "-"),
+    ]
+    for value, expected in cases:
+        monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *a, **k: value)
+        assert StrategyBacktestReportService._etf_total_assets_text({"stock_code": "QQQ.US"}) == expected
+
+
+def test_weight_allocation_fills_etf_total_assets_column():
+    """ETF资产总数列按代码标签回填；未提供的标的显示 "-"。"""
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [
+            {"stock_code": "600519", "product_name": "贵州茅台", "ratio": "50"},
+            {"stock_code": "0700.HK", "product_name": "腾讯控股", "ratio": "50"},
+        ],
+        "weight_allocation": None,
+        "index_benchmarks": [],
+    })()
+
+    allocation = service._weight_allocation(
+        request, "RPT-M",
+        {"600519": "2,000,000", "0700.HK": "3,000,000"},
+        {"600519": "1,234,567,890"},
+    )
+
+    assert allocation["columns"] == ["股票代码", "股票名", "权重", "平均成交量(股)", "ETF资产总数"]
+    assert allocation["rows"] == [
+        ["600519", "贵州茅台", "50%", "2,000,000", "1,234,567,890"],
+        ["0700.HK", "腾讯控股", "50%", "3,000,000", "-"],
+    ]
 
 
 def test_weight_allocation_fills_average_volume_by_code_label():
@@ -74,12 +113,14 @@ def test_weight_allocation_fills_average_volume_by_code_label():
         "index_benchmarks": [_entry("0700.HK")],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-M", {"600519": "2,000,000", "0700.HK (指数)": "5,000,000"})
+    allocation = service._weight_allocation(
+        request, "RPT-M", {"600519": "2,000,000", "0700.HK (指数)": "5,000,000"}
+    )
 
     assert allocation["rows"] == [
-        ["600519", "贵州茅台", "50%", "2,000,000"],
-        ["0700.HK", "腾讯控股", "50%", "-"],
-        ["0700.HK (指数)", "腾讯控股", "100%", "5,000,000"],
+        ["600519", "贵州茅台", "50%", "2,000,000", "-"],
+        ["0700.HK", "腾讯控股", "50%", "-", "-"],
+        ["0700.HK (指数)", "腾讯控股", "100%", "5,000,000", "-"],
     ]
 
 
@@ -172,9 +213,9 @@ def test_weight_allocation_marks_selected_index_from_list():
     allocation = service._weight_allocation(request, "RPT-M")
 
     assert allocation["rows"] == [
-        ["AAA.US", "A", "50%", "-"],
-        ["BBB.US", "B", "50%", "-"],
-        ["BBB.US (指数)", "B", "100%", "-"],
+        ["AAA.US", "A", "50%", "-", "-"],
+        ["BBB.US", "B", "50%", "-", "-"],
+        ["BBB.US (指数)", "B", "100%", "-", "-"],
     ]
 
 
@@ -329,9 +370,9 @@ def test_weight_allocation_shows_strategy_rows_and_index_ratio_rows():
     allocation = service._weight_allocation(request, "RPT-M")
 
     assert allocation["rows"] == [
-        ["QQQ.US", "纳指ETF", "30%", "-"],
-        ["QQQ.US (指数)", "纳指ETF", "100%", "-"],
-        ["SOXX.US (指数)", "半导体ETF", "30%", "-"],
+        ["QQQ.US", "纳指ETF", "30%", "-", "-"],
+        ["QQQ.US (指数)", "纳指ETF", "100%", "-", "-"],
+        ["SOXX.US (指数)", "半导体ETF", "30%", "-", "-"],
     ]
 
 
@@ -495,6 +536,8 @@ def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
 
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
+    # ETF 资产总数为外网络取数，列对齐测试统一桩掉（列宽覆盖不受影响）。
+    monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *args, **kwargs: None)
     request = type("Request", (), {
         "report_type": "RPT-M",
         "title": "多基准报告",

@@ -31,6 +31,7 @@ from app.services.performance_analysis.portfolio_combiner import (
 from app.services.performance_analysis.return_correlation import aligned_daily_returns, pairwise_correlation_matrix
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
+from app.utils.etf_total_assets import get_etf_total_assets
 from app.utils.market import normalize_market_type
 
 logger = get_logger(__name__)
@@ -413,7 +414,8 @@ class StrategyBacktestReportService:
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
         volume_texts = self._product_volumes(payload, first_date, last_date)
-        weight_allocation = self._weight_allocation(payload, report_type, volume_texts)
+        asset_texts = self._etf_total_assets_texts(payload)
+        weight_allocation = self._weight_allocation(payload, report_type, volume_texts, asset_texts)
         sections = self._sections(runs)
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
@@ -436,17 +438,20 @@ class StrategyBacktestReportService:
         payload: StrategyBacktestReportSchema,
         report_type: str,
         volumes: dict[str, str] | None = None,
+        assets: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """构造报告中的股票权重表格。
 
         无后缀行 = 策略权重（有效产品按配置比例）；"(指数)" 后缀行 =
         指数基准自身的比例权重（如 QQQ 100%、SOXX 30%），两套权重并列
-        展示，便于区分策略持仓与指数构成。平均成交量按代码标签回填。
+        展示，便于区分策略持仓与指数构成。平均成交量与 ETF 资产总数
+        按代码标签回填。
         """
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):
             return raw
         volume_texts = volumes or {}
+        asset_texts = assets or {}
         active = StrategyBacktestReportService._active_report_products(payload.products)
         rows = []
         if isinstance(active, list):
@@ -459,6 +464,7 @@ class StrategyBacktestReportService:
                     str(product.get("product_name") or ""),
                     StrategyBacktestReportService._weight_text(product, report_type),
                     volume_texts.get(code, "-"),
+                    asset_texts.get(code, "-"),
                 ])
         name_by_code: dict[str, str] = {}
         for product in payload.products if isinstance(payload.products, list) else []:
@@ -471,12 +477,13 @@ class StrategyBacktestReportService:
                 name_by_code.get(code, ""),
                 f"{StrategyBacktestReportService._weight_percent_text(weight)}%",
                 volume_texts.get(f"{code} (指数)", "-"),
+                asset_texts.get(f"{code} (指数)", "-"),
             ])
         if not rows and report_type == "RPT-S":
-            rows = [["单品", "", "100.00%", "-"]]
+            rows = [["单品", "", "100.00%", "-", "-"]]
         return {
-            "columns": ["股票代码", "股票名", "权重", "平均成交量(股)"],
-            "rows": rows or [["", "", "", "-"]],
+            "columns": ["股票代码", "股票名", "权重", "平均成交量(股)", "ETF资产总数"],
+            "rows": rows or [["", "", "", "-", "-"]],
         }
 
     @staticmethod
@@ -540,6 +547,47 @@ class StrategyBacktestReportService:
             except ValueError:
                 volumes[label] = "-"
         return volumes
+
+    @staticmethod
+    def _etf_total_assets_text(product: dict[str, Any]) -> str:
+        """ETF 资产总数展示文本；取不到（非 ETF/数据源缺失/失败）显示 "-"。
+
+        数值按中文习惯缩写（亿/万），避免长数字撑爆表格列宽。
+        """
+        value = get_etf_total_assets(
+            product.get("stock_code"),
+            product.get("market_type"),
+            product.get("exchange_market"),
+        )
+        if value is None:
+            return "-"
+        if abs(value) >= 1e8:
+            return f"{value / 1e8:.2f}亿"
+        if abs(value) >= 1e4:
+            return f"{value / 1e4:.2f}万"
+        return f"{value:,.0f}"
+
+    def _etf_total_assets_texts(self, payload: StrategyBacktestReportSchema) -> dict[str, str]:
+        """按权重表行标签取各标的 ETF 资产总数展示文本（策略行 + 指数基准行）。"""
+        texts: dict[str, str] = {}
+        for product in self._active_report_products(payload.products):
+            if not isinstance(product, dict):
+                continue
+            code = str(product.get("stock_code") or product.get("product_name") or "").strip()
+            texts.setdefault(code, self._etf_total_assets_text(product))
+        for code, _weight in self._benchmark_entries(payload):
+            label = f"{code} (指数)"
+            if label in texts:
+                continue
+            if code in texts:
+                texts[label] = texts[code]
+                continue
+            try:
+                product = self._find_product(payload, code)
+                texts[label] = self._etf_total_assets_text(product)
+            except ValueError:
+                texts[label] = "-"
+        return texts
 
     @staticmethod
     def _product_code_label(payload: StrategyBacktestReportSchema, product: dict[str, Any]) -> str:
