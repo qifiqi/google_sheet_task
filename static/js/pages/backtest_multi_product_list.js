@@ -87,22 +87,43 @@ function buildKlineRangeText(task) {
     return `${config.start_date || '-'} ~ ${config.end_date || '-'}`;
 }
 
-// 执行参数跨产品去重：参数行完全相同只展示一次。
-function buildExecutionParamsText(task) {
+// 执行参数跨产品去重：参数行完全相同只展示一次；整行皆空的参数组跳过。
+// 空单元格语义是“留空走自适应默认值”，列表页保留占位展示为“自适应”。
+function buildExecutionParamRows(task) {
     const products = Array.isArray(task.config?.products) ? task.config.products : [];
     const seen = new Set();
-    const uniqueRows = [];
+    const rows = [];
     products.forEach((product) => {
         (Array.isArray(product.parameters) ? product.parameters : []).forEach((row) => {
-            const key = JSON.stringify(row);
+            const values = (Array.isArray(row) ? row : [row]).map((item) => String(item ?? '').trim());
+            if (!values.some(Boolean)) {
+                return;
+            }
+            const key = JSON.stringify(values);
             if (seen.has(key)) {
                 return;
             }
             seen.add(key);
-            uniqueRows.push((Array.isArray(row) ? row : [row]).join('/'));
+            rows.push(values);
         });
     });
-    return uniqueRows.join('；');
+    return rows;
+}
+
+const EXECUTION_PARAM_EMPTY_LABEL = '自适应';
+
+function buildExecutionParamsText(task) {
+    return buildExecutionParamRows(task)
+        .map((values) => values.map((value) => value || EXECUTION_PARAM_EMPTY_LABEL).join('/'))
+        .join('；');
+}
+
+function buildExecutionParamsHtml(task) {
+    return buildExecutionParamRows(task)
+        .map((values) => values
+            .map((value) => (value ? Biz.escapeHtml(value) : `<span class="text-body-secondary">${EXECUTION_PARAM_EMPTY_LABEL}</span>`))
+            .join('/'))
+        .join('；');
 }
 
 function renderTaskCell(task) {
@@ -369,7 +390,7 @@ async function loadTasks(options = {}) {
                     <td class="ps-4 task-name-cell">${renderTaskCell(task)}</td>
                     <td><span class="badge rounded-pill text-bg-light border">${Biz.escapeHtml(inferModelVersion(task))}</span></td>
                     <td>${Biz.escapeHtml(buildKlineRangeText(task))}</td>
-                    <td class="param-preview-cell" title="${Biz.escapeHtml(buildExecutionParamsText(task))}">${Biz.escapeHtml(buildExecutionParamsText(task)) || '-'}</td>
+                    <td class="param-preview-cell" title="${Biz.escapeHtml(buildExecutionParamsText(task))}">${buildExecutionParamsHtml(task) || '-'}</td>
                     <td>${Biz.renderStatus(task.status)}</td>
                     <td>${Biz.renderTimeCell(task.created_at)}</td>
                     <td>${Biz.renderTimeCell(task.start_time)}</td>
