@@ -923,7 +923,7 @@ class PerformanceMetricsMixin:
             base_df['index_net'] = 1 * (1 + base_df['index_return'])
             base_df['start_net'] = 1 * (1 + base_df['start_return'])
             base_df['excess_nav'] = 1 * (1 + base_df['excess_return'])
-            base_df['excess_return_2'] = base_df['start_net']/base_df['index_net'] - 1
+            # base_df['excess_return_2'] = base_df['start_net']/base_df['index_net'] - 1
             # 如果需要分别提取（但建议直接用 base_df）
             index_df = base_df[
                 ['date', 'year', 'month', 'year_month', 'index_return', 'index_net']
@@ -932,7 +932,8 @@ class PerformanceMetricsMixin:
                 ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
             ].rename(columns={'start_net': 'net_value'})
             excess_df = base_df[
-                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav',"excess_return_2"]
+                # ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav',"excess_return_2"]
+                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav']
             ].rename(columns={'excess_nav': 'net_value'})
 
 

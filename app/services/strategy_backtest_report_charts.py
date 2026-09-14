@@ -87,14 +87,14 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     #     charts["最大回撤曲线"], "最大回撤曲线", dates,
     #     [("指数", index_drawdown, BLUE), ("策略", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     # )
-    _draw_excess_line_bar_chart(
-        charts["超额收益曲线"], "累计超额收益曲线", dates, excess_nav,
-        _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
-    )
-    # _draw_line_chart(
-    #     charts["超额收益曲线"], "累计超额收益曲线", dates,
-    #     [("累计超额收益", excess_nav, RED)], "超额收益（%）", percent=True,
+    # _draw_excess_line_bar_chart(
+    #     charts["超额收益曲线"], "累计超额收益曲线", dates, excess_nav,
+    #     _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
     # )
+    _draw_line_chart(
+        charts["超额收益曲线"], "累计超额收益曲线", dates,
+        [("累计超额收益", excess_nav, RED)], "超额收益（%）", percent=True,
+    )
     _draw_grouped_bar_chart(charts["分年度收益"], "分年度收益", chart_data.get("annual_returns") or {})
     _draw_dual_histogram(
         charts["日收益分布"], "日收益率分布",
