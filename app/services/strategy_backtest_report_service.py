@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
@@ -39,20 +40,30 @@ def _report_kline_service() -> KlineService:
     return _kline_service
 
 
+@dataclass
+class _BenchmarkRun:
+    """一次 V1 引擎运行：code=None 表示默认组合基准；label 为报告指数列头文案。"""
+
+    code: str | None
+    label: str
+    result: Any  # MetricsV1Result
+
+
 class StrategyBacktestReportService:
     """将 V1 指标结果适配为通用 Word JSON。"""
 
     def generate_word(self, request: StrategyBacktestReportSchema) -> tuple[str, BytesIO]:
         """渲染 Word 报告；请求校验由 StrategyBacktestReportSchema 在请求边界完成。"""
 
-        # 三类来源在此统一为累计收益序列，后续指标、图表与 Word 渲染完全复用。
-        returns = self._resolve_returns(request)
-        runtime = self._runtime_params(request.runtime_params)
-        result = performance_analyzer.get_calculate_metrics_v1_with_dataframes(returns, runtime)
+        # 每个基准各运行一次 V1 引擎（未选指数时为默认组合基准）：
+        # 策略列与基准选择无关，各次运行完全一致；指数/超额列按各自运行结果取值。
+        runs = self._build_benchmark_runs(request)
+        result = runs[0].result
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
 
         # 把 DataFrame 和指标字典转换成通用 Word JSON。
+        # 图表暂取首个基准渲染，多基准序列化由图表改造提交交付。
         chart_data = self._build_chart_data(result)
         dates = self._dates(result.index_df)
         first_date = dates[0].strftime("%Y-%m-%d")
@@ -71,7 +82,7 @@ class StrategyBacktestReportService:
                     "path": str(heatmap_path),
                     "caption": f"各权重日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
                 }
-            report_data = self._build_report_data(request, result)
+            report_data = self._build_report_data(request, runs)
             report_data["blocks"].extend([
                 {"type": "heading", "text": "九、分析图表", "level": 1},
                 *[
@@ -87,7 +98,7 @@ class StrategyBacktestReportService:
                 #     "市场下跌阶段和上涨阶段阈值通过 runtime_params 传入。",
                 # ]},
                 {"type": "heading", "text": "十、结论", "level": 1},
-                *[{"type": "paragraph", "text": text} for text in self._conclusion(result.metrics, result, first_date, last_date)],
+                *[{"type": "paragraph", "text": text} for text in self._conclusion(runs, first_date, last_date)],
             ])
             output_path = Path(temp_dir) / "report.docx"
             generate_word_document(report_data, output_path)
@@ -143,45 +154,86 @@ class StrategyBacktestReportService:
 
     @staticmethod
     def _benchmark_codes(payload: StrategyBacktestReportSchema) -> list[str]:
-        """本次渲染采用的基准代码；接口已列表化，多基准组装交付前暂取首个选中项。"""
-        return list((payload.index_stock_code or [])[:1])
+        """报告采用的基准代码（去重保序）；空列表表示默认组合基准。"""
+        return [str(code) for code in (payload.index_stock_code or [])]
 
-    def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
-        """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
+    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> list[_BenchmarkRun]:
+        """组合收益 + 各基准注入后逐次运行 V1 引擎；未选指数时为单个默认组合基准。
+
+        统一日期轴 = 组合共同交易日 ∩ 全部基准序列交易日，整份报告（表格/图表/
+        元数据）共用同一条轴；轴不足 2 个交易日由引擎侧统一报错。
+        指数注入仅用于 RPT-M；单品/V2 来源保持顶层三选一解析。
+        """
+        runtime = self._runtime_params(request.runtime_params)
         if request.report_type == "RPT-M":
             data = self._combine_product_returns(request)
-            # 指定指数列：按日期对齐注入选中产品的 index_return（标的自身基准列），
-            # 缺失日期保留组合默认基准；修复旧实现按位置 zip 在日历错位时的静默错位。
-            benchmark_codes = self._benchmark_codes(request)
-            if benchmark_codes:
-                code = benchmark_codes[0]
-                product = next(
-                    (item for item in request.products
-                     if str(item.get("stock_code") or "").strip() == code),
-                    None,
-                )
-                if product is None:
-                    raise ValueError(f"指数代码 {code} 不在产品列表中")
-                index_by_date = {}
-                for row in product.get("returns") or []:
-                    parsed = parse_date(row.get("date") or row.get("stock_date"))
-                    if parsed is not None:
-                        index_by_date[parsed.isoformat()] = row.get("index_return", 0)
-                for row in data:
-                    if row["date"] in index_by_date:
-                        row["index_return"] = index_by_date[row["date"]]
+        else:
+            data = self._resolve_source_returns({
+                "returns": request.returns,
+                "task_id": request.task_id,
+                "return_series_id": request.return_series_id,
+                "google_sheet_url": request.google_sheet_url,
+                "spreadsheet_id": request.spreadsheet_id,
+                "google_sheet_name": request.google_sheet_name,
+            })
+        rows_by_date = {row["date"]: row for row in data}
+        index_codes = self._benchmark_codes(request) if request.report_type == "RPT-M" else []
+        index_maps = {
+            code: self._cumulative_index_by_date(self._find_product(request, code))
+            for code in index_codes
+        }
+        if index_maps:
+            # 统一日期轴：剔除任一基准缺失的交易日，保证各次运行的策略指标严格一致。
+            axis = [
+                row["date"] for row in data
+                if all(row["date"] in index_map for index_map in index_maps.values())
+            ]
+        else:
+            axis = [row["date"] for row in data]
 
-            return data
+        if not index_maps:
+            return [_BenchmarkRun(
+                code=None,
+                label="指数",
+                result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(
+                    [rows_by_date[date] for date in axis], runtime),
+            )]
+        multiple = len(index_maps) > 1
+        runs = []
+        for code, index_map in index_maps.items():
+            rows = [
+                {"date": date, "index_return": index_map[date],
+                 "start_return": rows_by_date[date]["start_return"]}
+                for date in axis
+            ]
+            runs.append(_BenchmarkRun(
+                code=code,
+                label=f"指数({code})" if multiple else "指数",
+                result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
+            ))
+        return runs
 
+    @staticmethod
+    def _find_product(request: StrategyBacktestReportSchema, code: str) -> dict[str, Any]:
+        """按代码定位基准产品；Schema 已校验唯一命中，此处兜底防御。"""
+        product = next(
+            (item for item in request.products
+             if str(item.get("stock_code") or "").strip() == code),
+            None,
+        )
+        if product is None:
+            raise ValueError(f"指数代码 {code} 不在产品列表中")
+        return product
 
-        return self._resolve_source_returns({
-            "returns": request.returns,
-            "task_id": request.task_id,
-            "return_series_id": request.return_series_id,
-            "google_sheet_url": request.google_sheet_url,
-            "spreadsheet_id": request.spreadsheet_id,
-            "google_sheet_name": request.google_sheet_name,
-        })
+    @staticmethod
+    def _cumulative_index_by_date(product: dict[str, Any]) -> dict[str, Any]:
+        """产品收益序列的 date → index_return（标的自身基准列）映射。"""
+        index_by_date: dict[str, Any] = {}
+        for row in product.get("returns") or []:
+            parsed = parse_date(row.get("date") or row.get("stock_date"))
+            if parsed is not None:
+                index_by_date[parsed.isoformat()] = row.get("index_return", 0)
+        return index_by_date
 
     def _resolve_source_returns(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         """读取一种收益来源，并规范为按日期升序的累计收益率。"""
@@ -289,12 +341,12 @@ class StrategyBacktestReportService:
         """处理_runtime_params相关逻辑。"""
         return MetricsRuntimeParamsDTO.from_raw(raw)
 
-    def _build_report_data(self, payload: StrategyBacktestReportSchema, result: Any) -> dict[str, Any]:
+    def _build_report_data(self, payload: StrategyBacktestReportSchema, runs: list[_BenchmarkRun]) -> dict[str, Any]:
         """将回测指标转换为通用 Word JSON 协议。"""
-        metrics = result.metrics
         report_type = payload.report_type
         if report_type not in {"RPT-S", "RPT-M"}:
             raise ValueError("report_type 仅支持 RPT-S 或 RPT-M")
+        result = runs[0].result
         dates = self._dates(result.index_df)
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
@@ -313,7 +365,7 @@ class StrategyBacktestReportService:
         ]
         volume_texts = self._product_volumes(payload, first_date, last_date)
         weight_allocation = self._weight_allocation(payload, report_type, volume_texts)
-        sections = self._sections(metrics, result)
+        sections = self._sections(runs)
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
             {"type": "table", "title": "权重分配", **weight_allocation},
@@ -452,324 +504,411 @@ class StrategyBacktestReportService:
             logger.warning("报告平均成交量获取失败: %s", stock_code, exc_info=True)
             return "-"
 
-    def _sections(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _sections(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """按模板顺序合并各表格 JSON。"""
         return [
-            {"title": "一、收益类指标", "subsections": self._return_section(metrics, result)},
-            {"title": "二、风险类指标", "subsections": self._risk_section(metrics, result)},
-            {"title": "三、风险调整收益指标", "subsections": self._risk_adjusted_section(metrics, result)},
-            {"title": "四、月度收益分布", "subsections": self._monthly_section(metrics, result)},
-            {"title": "五、日度收益分布", "subsections": self._daily_section(metrics, result)},
-            {"title": "六、超额收益分析", "subsections": self._excess_section(metrics, result)},
-            {"title": "七、极端行情表现", "subsections": self._extreme_section(metrics, result)},
-            {"title": "八、资金曲线特征", "subsections": self._capital_curve_section(metrics, result)},
+            {"title": "一、收益类指标", "subsections": self._return_section(runs)},
+            {"title": "二、风险类指标", "subsections": self._risk_section(runs)},
+            {"title": "三、风险调整收益指标", "subsections": self._risk_adjusted_section(runs)},
+            {"title": "四、月度收益分布", "subsections": self._monthly_section(runs)},
+            {"title": "五、日度收益分布", "subsections": self._daily_section(runs)},
+            {"title": "六、超额收益分析", "subsections": self._excess_section(runs)},
+            {"title": "七、极端行情表现", "subsections": self._extreme_section(runs)},
+            {"title": "八、资金曲线特征", "subsections": self._capital_curve_section(runs)},
         ]
 
-    def _return_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    @staticmethod
+    def _run_metrics_list(runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
+        """各次引擎运行的指标字典；约定首元素为策略列取值来源。"""
+        return [run.result.metrics for run in runs]
+
+    def _benchmark_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
+        """指数列头：单基准保持现状文案"指数"，多基准用 指数(代码) 自描述。"""
+        return [run.label for run in runs]
+
+    def _excess_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
+        """超额列头：单基准保持现状文案"超额(策略-指数)"，多基准用 超额(代码)。"""
+        if len(runs) <= 1:
+            return ["超额(策略-指数)"]
+        return [f"超额({run.code})" for run in runs]
+
+    def _return_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造一、收益类指标章节的全部表格；数值统一取自 V1 指标结果。
 
-        超额列为两个 V1 数值的展示减法（策略-指数），不含业务口径计算。
+        指数/超额列按基准循环展开；超额列为两个 V1 数值的展示减法（策略-指数），
+        不含业务口径计算。
         """
-        _ = result
-        index_cumulative = self._num(metrics.get("index_cumulative_return"))
-        strategy_cumulative = self._num(metrics.get("start_cumulative_return"))
-        excess_cumulative = self._num(metrics.get("excess_cumulative_return"))
-        index_annualized = self._year_all(metrics.get("index_annualized_rates"), "annualized_return")
-        strategy_annualized = self._year_all(metrics.get("start_annualized_rates"), "annualized_return")
-        index_volatility = self._year_all(metrics.get("index_sharpe_ratios"), "annual_std_dev")
-        strategy_volatility = self._year_all(metrics.get("start_sharpe_ratios"), "annual_std_dev")
-        index_returns = self._metric_by_year(metrics.get("index_returns_rate"), "annual_return")
-        strategy_returns = self._metric_by_year(metrics.get("start_returns_rate"), "annual_return")
-        years = sorted(set(index_returns) | set(strategy_returns))
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
+        benchmark_headers = self._benchmark_headers(runs)
+        excess_headers = self._excess_headers(runs)
+        index_cumulatives = [self._num(m.get("index_cumulative_return")) for m in metrics_list]
+        excess_cumulatives = [self._num(m.get("excess_cumulative_return")) for m in metrics_list]
+        strategy_cumulative = self._num(strategy.get("start_cumulative_return"))
+        index_annualized = [self._year_all(m.get("index_annualized_rates"), "annualized_return") for m in metrics_list]
+        strategy_annualized = self._year_all(strategy.get("start_annualized_rates"), "annualized_return")
+        index_volatilities = [self._year_all(m.get("index_sharpe_ratios"), "annual_std_dev") for m in metrics_list]
+        strategy_volatility = self._year_all(strategy.get("start_sharpe_ratios"), "annual_std_dev")
+        index_returns_list = [self._metric_by_year(m.get("index_returns_rate"), "annual_return") for m in metrics_list]
+        strategy_returns = self._metric_by_year(strategy.get("start_returns_rate"), "annual_return")
+        years = sorted(set().union(*(set(item) for item in index_returns_list)) | set(strategy_returns))
         rolling_rows = [
-            self._rolling_row(metrics, months)
+            self._rolling_row(runs, months)
             for months in (3, 6, 12)
         ]
+        rolling_index_headers = [f"{run.label}平均收益" for run in runs] if len(runs) > 1 else ["指数平均收益"]
+        rolling_win_headers = [f"策略胜率(跑赢{run.code})" for run in runs] if len(runs) > 1 else ["策略胜率(跑赢指数)"]
         return [
             {"title": "1.1 核心收益", "table": self._table(
-                ["指标", "指数", "策略", "超额(策略-指数)"], [
-                    ["累计回报率", self._pct(index_cumulative), self._pct(strategy_cumulative),
-                     self._pct(excess_cumulative)],
-                    ["年化收益率", self._pct(index_annualized), self._pct(strategy_annualized),
-                     self._pct(self._num(strategy_annualized) - self._num(index_annualized))],
-                    ["年化波动率", self._pct(index_volatility), self._pct(strategy_volatility),
-                     self._pct(self._num(strategy_volatility) - self._num(index_volatility))],
+                ["指标", *benchmark_headers, "策略", *excess_headers], [
+                    ["累计回报率", *[self._pct(value) for value in index_cumulatives],
+                     self._pct(strategy_cumulative),
+                     *[self._pct(value) for value in excess_cumulatives]],
+                    ["年化收益率", *[self._pct(value) for value in index_annualized],
+                     self._pct(strategy_annualized),
+                     *[self._pct(self._num(strategy_annualized) - self._num(value)) for value in index_annualized]],
+                    ["年化波动率", *[self._pct(value) for value in index_volatilities],
+                     self._pct(strategy_volatility),
+                     *[self._pct(self._num(strategy_volatility) - self._num(value)) for value in index_volatilities]],
                 ])},
             {"title": "1.2 分年度收益率", "table": self._table(
-                ["年份", "指数", "策略", "超额(策略-指数)"], [
-                    [year, self._pct(index_returns.get(year)), self._pct(strategy_returns.get(year)),
-                     self._pct(self._num(strategy_returns.get(year)) - self._num(index_returns.get(year)))]
+                ["年份", *benchmark_headers, "策略", *excess_headers], [
+                    [year,
+                     *[self._pct(index_returns.get(year)) for index_returns in index_returns_list],
+                     self._pct(strategy_returns.get(year)),
+                     *[self._pct(self._num(strategy_returns.get(year)) - self._num(index_returns.get(year)))
+                       for index_returns in index_returns_list]]
                     for year in years
                 ])},
             {"title": "1.3 滚动收益（月度窗口）", "table": self._table(
-                ["滚动周期", "指数平均收益", "策略平均收益", "策略胜率(跑赢指数)"], rolling_rows)},
+                ["滚动周期", *rolling_index_headers, "策略平均收益", *rolling_win_headers], rolling_rows)},
         ]
 
     @classmethod
-    def _rolling_row(cls, metrics: dict[str, Any], months: int) -> list[str]:
+    def _rolling_row(cls, runs: list[_BenchmarkRun], months: int) -> list[str]:
         """直接消费 V1 滚动聚合导出；数据不足 5 年时展示 V1 返回的 reason。"""
         label = f"{months}个月滚动"
-        reason = metrics.get(f"rolling_return_{months}_reason")
+        metrics_list = cls._run_metrics_list(runs)
+        dashes = ["-"] * (len(runs) * 2 + 1)
+        reason = metrics_list[0].get(f"rolling_return_{months}_reason")
         if reason:
-            return [f"{label}（{reason}）", "-", "-", "-"]
-        index_avg = metrics.get(f"index_rolling_return_{months}_avg_return")
-        start_avg = metrics.get(f"start_rolling_return_{months}_avg_return")
-        win_rate = metrics.get(f"rolling_return_{months}_win_rate")
-        if index_avg is None or start_avg is None or win_rate is None:
-            return [label, "-", "-", "-"]
-        return [label, cls._pct(index_avg), cls._pct(start_avg), cls._pct(win_rate)]
+            return [f"{label}（{reason}）", *dashes]
+        index_avgs = [m.get(f"index_rolling_return_{months}_avg_return") for m in metrics_list]
+        start_avg = metrics_list[0].get(f"start_rolling_return_{months}_avg_return")
+        win_rates = [m.get(f"rolling_return_{months}_win_rate") for m in metrics_list]
+        if any(value is None for value in index_avgs) or start_avg is None or any(value is None for value in win_rates):
+            return [label, *dashes]
+        return [label, *[cls._pct(value) for value in index_avgs], cls._pct(start_avg),
+                *[cls._pct(value) for value in win_rates]]
 
-    def _risk_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _risk_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造二、风险类指标章节的全部表格；数值统一取自 V1 指标结果。
 
         2.2 超额回撤列为两个 V1 回撤值的展示减法（指数-策略，口径见 metrics TODO）。
         """
-        _ = result
-        index_drawdown = self._total_metric(metrics.get("index_maximum_drawdown"), "drawdown")
-        strategy_drawdown = self._total_metric(metrics.get("start_maximum_drawdown"), "drawdown")
-        index_years = self._metric_by_year((metrics.get("index_maximum_drawdown") or {}).get("year_maximum_drawdown"),
-                                           "drawdown")
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
+        benchmark_headers = self._benchmark_headers(runs)
+        index_drawdowns = [self._total_metric(m.get("index_maximum_drawdown"), "drawdown") for m in metrics_list]
+        strategy_drawdown = self._total_metric(strategy.get("start_maximum_drawdown"), "drawdown")
+        index_years_list = [
+            self._metric_by_year((m.get("index_maximum_drawdown") or {}).get("year_maximum_drawdown"), "drawdown")
+            for m in metrics_list
+        ]
         strategy_years = self._metric_by_year(
-            (metrics.get("start_maximum_drawdown") or {}).get("year_maximum_drawdown"), "drawdown")
-        years = sorted(set(index_years) | set(strategy_years))
+            (strategy.get("start_maximum_drawdown") or {}).get("year_maximum_drawdown"), "drawdown")
+        years = sorted(set().union(*(set(item) for item in index_years_list)) | set(strategy_years))
         drawdown_rows = [
-            [year, self._pct(-self._num(index_years.get(year))), self._pct(-self._num(strategy_years.get(year))),
-             self._pct(self._num(index_years.get(year)) - self._num(strategy_years.get(year)))]
+            [year,
+             *[self._pct(-self._num(index_years.get(year))) for index_years in index_years_list],
+             self._pct(-self._num(strategy_years.get(year))),
+             *[self._pct(self._num(index_years.get(year)) - self._num(strategy_years.get(year)))
+               for index_years in index_years_list]]
             for year in years
         ]
-        daily_drawdown_threshold = metrics.get("daily_drawdown_threshold")
+        daily_drawdown_threshold = strategy.get("daily_drawdown_threshold")
         if daily_drawdown_threshold is None:
             daily_drawdown_threshold = MetricsRuntimeParamsDTO().daily_drawdown_threshold
+        drawdown_excess_headers = [f"超额回撤({run.code})" for run in runs] if len(runs) > 1 else ["超额回撤(策略-指数)"]
         return [
             {"title": "2.1 回撤指标", "table": self._table(
-                ["指标", "指数", "策略"], [
-                    ["最大回撤(MDD)", self._pct(-self._num(index_drawdown)), self._pct(-self._num(strategy_drawdown))],
+                ["指标", *benchmark_headers, "策略"], [
+                    ["最大回撤(MDD)", *[self._pct(-self._num(value)) for value in index_drawdowns],
+                     self._pct(-self._num(strategy_drawdown))],
                     ["最大回撤修复天数(年度最大)",
                     #  self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
                     #  self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
-                    self._integer(max(metrics.get("year_index_yearly_max_repair_days").values(), default=0)),
-                    self._integer(max(metrics.get("year_start_yearly_max_repair_days").values(), default=0))],
-                    
+                    *[self._integer(max((m.get("year_index_yearly_max_repair_days") or {}).values(), default=0))
+                      for m in metrics_list],
+                    self._integer(max((strategy.get("year_start_yearly_max_repair_days") or {}).values(), default=0))],
+
                     [f"回撤发生次数(单日>{self._percent_label(daily_drawdown_threshold)})",
-                     self._integer(metrics.get("index_dd_count")),
-                     self._integer(metrics.get("start_dd_count"))],
+                     *[self._integer(m.get("index_dd_count")) for m in metrics_list],
+                     self._integer(strategy.get("start_dd_count"))],
                 ])},
             {"title": "2.2 分年度最大回撤", "table": self._table(
-                ["年份", "指数回撤", "策略回撤", "超额回撤(策略-指数)"], drawdown_rows)},
+                ["年份", *[f"{run.label}回撤" for run in runs], "策略回撤", *drawdown_excess_headers],
+                drawdown_rows)},
         ]
 
-    def _risk_adjusted_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
-        """构造三、风险调整收益指标章节的表格。"""
-        return [{"table": self._table(
-            ["指标", "指数", "策略"], [
-                ["夏普比率", self._decimal(self._year_all(metrics.get("index_sharpe_ratios"), "sharpe_ratio")),
-                 self._decimal(self._year_all(metrics.get("start_sharpe_ratios"), "sharpe_ratio"))],
-                ["卡玛比率", self._decimal(self._year_all(metrics.get("index_kama_ratio"), "kama_ratio")),
-                 self._decimal(self._year_all(metrics.get("start_kama_ratio"), "kama_ratio"))],
-                ["索提诺比率", self._decimal(self._year_all(metrics.get("index_sortino_ratio"), "sortino_ratio")),
-                 self._decimal(self._year_all(metrics.get("start_sortino_ratio"), "sortino_ratio"))],
-                ["超额夏普比率", "-", self._decimal(metrics.get("excess_sharpe"))],
-                ["超额索提诺比率", "-", self._decimal(metrics.get("excess_sortino"))],
-            ])}]
+    def _risk_adjusted_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
+        """构造三、风险调整收益指标章节的表格；超额比率按基准拆行。"""
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
+        benchmark_headers = self._benchmark_headers(runs)
+        excess_row_suffixes = [f"({run.code})" for run in runs] if len(runs) > 1 else [""]
+        rows = [
+            ["夏普比率",
+             *[self._decimal(self._year_all(m.get("index_sharpe_ratios"), "sharpe_ratio")) for m in metrics_list],
+             self._decimal(self._year_all(strategy.get("start_sharpe_ratios"), "sharpe_ratio"))],
+            ["卡玛比率",
+             *[self._decimal(self._year_all(m.get("index_kama_ratio"), "kama_ratio")) for m in metrics_list],
+             self._decimal(self._year_all(strategy.get("start_kama_ratio"), "kama_ratio"))],
+            ["索提诺比率",
+             *[self._decimal(self._year_all(m.get("index_sortino_ratio"), "sortino_ratio")) for m in metrics_list],
+             self._decimal(self._year_all(strategy.get("start_sortino_ratio"), "sortino_ratio"))],
+        ]
+        for run, metrics, suffix in zip(runs, metrics_list, excess_row_suffixes):
+            rows.append([f"超额夏普比率{suffix}", "-", self._decimal(metrics.get("excess_sharpe"))])
+            rows.append([f"超额索提诺比率{suffix}", "-", self._decimal(metrics.get("excess_sortino"))])
+        return [{"table": self._table(["指标", *benchmark_headers, "策略"], rows)}]
 
-    def _monthly_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _monthly_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造四、月度收益分布章节的全部表格；数值统一取自 V1 指标结果。"""
-        _ = result
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
         distribution_labels = ["< -5%", "-5%~-2%", "-2%~0%", "0%~2%", "2%~5%", "5%~10%", ">10%"]
-        index_distribution = self._num_list(metrics.get("index_monthly_distribution"))
-        index_distribution_pct = self._num_list(metrics.get("index_monthly_distribution_pct"))
-        strategy_distribution = self._num_list(metrics.get("start_monthly_distribution"))
-        strategy_distribution_pct = self._num_list(metrics.get("start_monthly_distribution_pct"))
+        index_distributions = [self._num_list(m.get("index_monthly_distribution")) for m in metrics_list]
+        index_distribution_pcts = [self._num_list(m.get("index_monthly_distribution_pct")) for m in metrics_list]
+        strategy_distribution = self._num_list(strategy.get("start_monthly_distribution"))
+        strategy_distribution_pct = self._num_list(strategy.get("start_monthly_distribution_pct"))
         distribution_rows = [
             [label,
-             self._integer(self._pick(index_distribution, index)),
-             self._pct(self._pick(index_distribution_pct, index) / 100),
+             *[self._integer(self._pick(distribution, index)) for distribution in index_distributions],
+             *[self._pct(self._pick(distribution_pct, index) / 100) for distribution_pct in index_distribution_pcts],
              self._integer(self._pick(strategy_distribution, index)),
              self._pct(self._pick(strategy_distribution_pct, index) / 100)]
             for index, label in enumerate(distribution_labels)]
         summary_rows = [
-            ["总月数", self._integer(metrics.get("total_months")), self._integer(metrics.get("total_months"))],
-            ["盈利月数", self._integer(metrics.get("index_profit_months")),
-             self._integer(metrics.get("start_profit_months"))],
-            ["亏损月数", self._integer(metrics.get("index_loss_months")),
-             self._integer(metrics.get("start_loss_months"))],
-            ["月盈利百分比", self._pct(metrics.get("index_profit_percentage")),
-             self._pct(metrics.get("start_profit_percentage"))],
-            ["平均月收益率", self._pct(self._year_all(metrics.get("index_sharpe_ratios"), "avg_monthly_return")),
-             self._pct(self._year_all(metrics.get("start_sharpe_ratios"), "avg_monthly_return"))],
-            ["月收益率标准差", self._pct(self._year_all(metrics.get("index_sharpe_ratios"), "monthly_std_dev")),
-             self._pct(self._year_all(metrics.get("start_sharpe_ratios"), "monthly_std_dev"))],
-            ["最大单月收益", self._pct(metrics.get("index_max_monthly_return")),
-             self._pct(metrics.get("start_max_monthly_return"))],
-            ["最大单月亏损", self._pct(metrics.get("index_max_monthly_loss")),
-             self._pct(metrics.get("start_max_monthly_loss"))],
-            ["月收益率偏度", self._decimal(metrics.get("index_monthly_return_skewness")),
-             self._decimal(metrics.get("start_monthly_return_skewness"))],
-            ["月收益率峰度", self._decimal(metrics.get("index_monthly_return_kurtosis")),
-             self._decimal(metrics.get("start_monthly_return_kurtosis"))],
+            ["总月数", *[self._integer(m.get("total_months")) for m in metrics_list],
+             self._integer(strategy.get("total_months"))],
+            ["盈利月数", *[self._integer(m.get("index_profit_months")) for m in metrics_list],
+             self._integer(strategy.get("start_profit_months"))],
+            ["亏损月数", *[self._integer(m.get("index_loss_months")) for m in metrics_list],
+             self._integer(strategy.get("start_loss_months"))],
+            ["月盈利百分比", *[self._pct(m.get("index_profit_percentage")) for m in metrics_list],
+             self._pct(strategy.get("start_profit_percentage"))],
+            ["平均月收益率", *[self._pct(self._year_all(m.get("index_sharpe_ratios"), "avg_monthly_return"))
+                               for m in metrics_list],
+             self._pct(self._year_all(strategy.get("start_sharpe_ratios"), "avg_monthly_return"))],
+            ["月收益率标准差", *[self._pct(self._year_all(m.get("index_sharpe_ratios"), "monthly_std_dev"))
+                                 for m in metrics_list],
+             self._pct(self._year_all(strategy.get("start_sharpe_ratios"), "monthly_std_dev"))],
+            ["最大单月收益", *[self._pct(m.get("index_max_monthly_return")) for m in metrics_list],
+             self._pct(strategy.get("start_max_monthly_return"))],
+            ["最大单月亏损", *[self._pct(m.get("index_max_monthly_loss")) for m in metrics_list],
+             self._pct(strategy.get("start_max_monthly_loss"))],
+            ["月收益率偏度", *[self._decimal(m.get("index_monthly_return_skewness")) for m in metrics_list],
+             self._decimal(strategy.get("start_monthly_return_skewness"))],
+            ["月收益率峰度", *[self._decimal(m.get("index_monthly_return_kurtosis")) for m in metrics_list],
+             self._decimal(strategy.get("start_monthly_return_kurtosis"))],
         ]
+        if len(runs) > 1:
+            distribution_headers = [header for run in runs
+                                    for header in (f"{run.label}月数", f"{run.label}占比")]
+        else:
+            distribution_headers = ["指数月数", "指数占比"]
         return [
             {"title": "4.1 月度统计总览", "table": self._table(
-                ["指标", "指数", "策略"], summary_rows)},
+                ["指标", *self._benchmark_headers(runs), "策略"], summary_rows)},
             {"title": "4.2 月度收益区间分布", "table": self._table(
-                ["收益区间", "指数月数", "指数占比", "策略月数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers, "策略月数", "策略占比"], distribution_rows)},
         ]
 
-    def _daily_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _daily_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造五、日度收益分布章节的全部表格；数值统一取自 V1 指标结果。"""
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
         distribution_labels = ["<-5%", "-5%~-3%", "-3%~-1%", "-1%~0%", "0%~1%", "1%~3%", "3%~5%", ">5%"]
-        index_distribution = self._num_list(metrics.get("index_days_distribution"))
-        index_distribution_pct = self._num_list(metrics.get("index_days_distribution_pct"))
-        strategy_distribution = self._num_list(metrics.get("start_days_distribution"))
-        strategy_distribution_pct = self._num_list(metrics.get("start_days_distribution_pct"))
+        index_distributions = [self._num_list(m.get("index_days_distribution")) for m in metrics_list]
+        index_distribution_pcts = [self._num_list(m.get("index_days_distribution_pct")) for m in metrics_list]
+        strategy_distribution = self._num_list(strategy.get("start_days_distribution"))
+        strategy_distribution_pct = self._num_list(strategy.get("start_days_distribution_pct"))
         distribution_rows = [
             [label,
-             self._integer(self._pick(index_distribution, index)),
-             self._pct(self._pick(index_distribution_pct, index) / 100),
+             *[self._integer(self._pick(distribution, index)) for distribution in index_distributions],
+             *[self._pct(self._pick(distribution_pct, index) / 100) for distribution_pct in index_distribution_pcts],
              self._integer(self._pick(strategy_distribution, index)),
              self._pct(self._pick(strategy_distribution_pct, index) / 100)]
             for index, label in enumerate(distribution_labels)]
         summary_rows = [
-            ["总交易日", self._integer(metrics.get("total_trading_days")),
-             self._integer(metrics.get("total_trading_days"))],
-            ["盈利天数", self._integer(metrics.get("index_profit_days")),
-             self._integer(metrics.get("start_profit_days"))],
-            ["亏损天数", self._integer(metrics.get("index_loss_days")),
-             self._integer(metrics.get("start_loss_days"))],
-            ["日盈利百分比", self._pct(metrics.get("index_days_profit_percentage")),
-             self._pct(metrics.get("start_days_profit_percentage"))],
-            ["日均收益率", self._pct(metrics.get("index_mean_daily_return")),
-             self._pct(metrics.get("start_mean_daily_return"))],
-            ["日收益率标准差", self._pct(metrics.get("index_daily_return_std")),
-             self._pct(metrics.get("start_daily_return_std"))],
-            ["最大单日收益", self._pct(metrics.get("index_max_daily_gain")),
-             self._pct(metrics.get("start_max_daily_gain"))],
-            ["最大单日亏损", self._pct(metrics.get("index_max_daily_loss")),
-             self._pct(metrics.get("start_max_daily_loss"))],
-            ["日收益率偏度", self._decimal(metrics.get("index_mean_daily_skewness")),
-             self._decimal(metrics.get("start_mean_daily_skewness"))],
-            ["日收益率峰度", self._decimal(metrics.get("index_mean_daily_kurtosis")),
-             self._decimal(metrics.get("start_mean_daily_kurtosis"))],
+            ["总交易日", *[self._integer(m.get("total_trading_days")) for m in metrics_list],
+             self._integer(strategy.get("total_trading_days"))],
+            ["盈利天数", *[self._integer(m.get("index_profit_days")) for m in metrics_list],
+             self._integer(strategy.get("start_profit_days"))],
+            ["亏损天数", *[self._integer(m.get("index_loss_days")) for m in metrics_list],
+             self._integer(strategy.get("start_loss_days"))],
+            ["日盈利百分比", *[self._pct(m.get("index_days_profit_percentage")) for m in metrics_list],
+             self._pct(strategy.get("start_days_profit_percentage"))],
+            ["日均收益率", *[self._pct(m.get("index_mean_daily_return")) for m in metrics_list],
+             self._pct(strategy.get("start_mean_daily_return"))],
+            ["日收益率标准差", *[self._pct(m.get("index_daily_return_std")) for m in metrics_list],
+             self._pct(strategy.get("start_daily_return_std"))],
+            ["最大单日收益", *[self._pct(m.get("index_max_daily_gain")) for m in metrics_list],
+             self._pct(strategy.get("start_max_daily_gain"))],
+            ["最大单日亏损", *[self._pct(m.get("index_max_daily_loss")) for m in metrics_list],
+             self._pct(strategy.get("start_max_daily_loss"))],
+            ["日收益率偏度", *[self._decimal(m.get("index_mean_daily_skewness")) for m in metrics_list],
+             self._decimal(strategy.get("start_mean_daily_skewness"))],
+            ["日收益率峰度", *[self._decimal(m.get("index_mean_daily_kurtosis")) for m in metrics_list],
+             self._decimal(strategy.get("start_mean_daily_kurtosis"))],
         ]
         profit_loss_rows = [
-            ["平均盈利日收益", self._pct(metrics.get("index_avg_profit_day_return")),
-             self._pct(metrics.get("start_avg_profit_day_return"))],
-            ["平均亏损日收益", self._pct(metrics.get("index_avg_loss_day_return")),
-             self._pct(metrics.get("start_avg_loss_day_return"))],
-            ["盈亏比(平均盈利/平均亏损)", self._decimal(metrics.get("index_profit_loss_ratio")),
-             self._decimal(metrics.get("start_profit_loss_ratio"))],
-            ["单笔最大盈利/最大亏损", self._decimal(metrics.get("index_max_profit_loss_ratio")),
-             self._decimal(metrics.get("start_max_profit_loss_ratio"))],
+            ["平均盈利日收益", *[self._pct(m.get("index_avg_profit_day_return")) for m in metrics_list],
+             self._pct(strategy.get("start_avg_profit_day_return"))],
+            ["平均亏损日收益", *[self._pct(m.get("index_avg_loss_day_return")) for m in metrics_list],
+             self._pct(strategy.get("start_avg_loss_day_return"))],
+            ["盈亏比(平均盈利/平均亏损)", *[self._decimal(m.get("index_profit_loss_ratio")) for m in metrics_list],
+             self._decimal(strategy.get("start_profit_loss_ratio"))],
+            ["单笔最大盈利/最大亏损", *[self._decimal(m.get("index_max_profit_loss_ratio")) for m in metrics_list],
+             self._decimal(strategy.get("start_max_profit_loss_ratio"))],
         ]
+        if len(runs) > 1:
+            distribution_headers = [header for run in runs
+                                    for header in (f"{run.label}天数", f"{run.label}占比")]
+        else:
+            distribution_headers = ["指数天数", "指数占比"]
+        overview_headers = ["指标", *self._benchmark_headers(runs), "策略"]
         return [
-            {"title": "5.1 日度统计总览", "table": self._table(
-                ["指标", "指数", "策略"], summary_rows)},
-            {"title": "5.2 盈亏比分析", "table": self._table(
-                ["指标", "指数", "策略"], profit_loss_rows)},
+            {"title": "5.1 日度统计总览", "table": self._table(overview_headers, summary_rows)},
+            {"title": "5.2 盈亏比分析", "table": self._table(overview_headers, profit_loss_rows)},
             {"title": "5.3 日度收益区间分布", "table": self._table(
-                ["收益区间", "指数天数", "指数占比", "策略天数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers, "策略天数", "策略占比"], distribution_rows)},
         ]
 
-    def _excess_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
-        """构造六、超额收益分析章节的全部表格；数值统一取自 V1 指标结果。"""
-        _ = result
-        annualized = self._year_all(metrics.get("excess_returns"), "annualized_return_diff")
+    def _excess_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
+        """构造六、超额收益分析章节的全部表格；数值按基准逐列展开。"""
+        metrics_list = self._run_metrics_list(runs)
+        multiple = len(runs) > 1
+        value_headers = [f"超额({run.code})" for run in runs] if multiple else ["数值"]
+        annualized_list = [self._year_all(m.get("excess_returns"), "annualized_return_diff") for m in metrics_list]
         distribution_labels = ["<-2%", "-2%~0%", "0%~2%", "2%~5%", ">5%"]
-        distribution_counts = self._num_list(metrics.get("excess_distribution"))
-        distribution_pct = self._num_list(metrics.get("excess_distribution_pct"))
+        distribution_counts = [self._num_list(m.get("excess_distribution")) for m in metrics_list]
+        distribution_pcts = [self._num_list(m.get("excess_distribution_pct")) for m in metrics_list]
         distribution_rows = [
-            [label, self._integer(self._pick(distribution_counts, index)),
-             self._pct(self._pick(distribution_pct, index) / 100)]
+            [label,
+             *[cell for counts, pcts in zip(distribution_counts, distribution_pcts)
+               for cell in (self._integer(self._pick(counts, index)),
+                            self._pct(self._pick(pcts, index) / 100))]]
             for index, label in enumerate(distribution_labels)]
         excess_rows = [
-            ["累计超额(策略-指数)", self._pct(metrics.get("excess_cumulative_return"))],
-            ["年化超额", self._pct(annualized)],
-            ["月超额收益均值", self._pct(metrics.get("average_monthly_excess_return"))],
-            ["月超额收益波动率", self._pct(metrics.get("monthly_excess_return_standard_deviation"))],
-            ["月超额胜率(>0)", self._pct(metrics.get("monthly_excess_win_rate"))],
-            ["最大单月超额", self._pct(metrics.get("max_monthly_excess"))],
+            ["累计超额(策略-指数)", *[self._pct(m.get("excess_cumulative_return")) for m in metrics_list]],
+            ["年化超额", *[self._pct(value) for value in annualized_list]],
+            ["月超额收益均值", *[self._pct(m.get("average_monthly_excess_return")) for m in metrics_list]],
+            ["月超额收益波动率", *[self._pct(m.get("monthly_excess_return_standard_deviation")) for m in metrics_list]],
+            ["月超额胜率(>0)", *[self._pct(m.get("monthly_excess_win_rate")) for m in metrics_list]],
+            ["最大单月超额", *[self._pct(m.get("max_monthly_excess")) for m in metrics_list]],
         ]
-        excess_rolling_rows = [self._excess_rolling_row(metrics, months) for months in (1, 3, 6, 12)]
+        excess_rolling_rows = [self._excess_rolling_row(runs, months) for months in (1, 3, 6, 12)]
+        if multiple:
+            distribution_headers = [header for run in runs
+                                    for header in (f"月数({run.code})", f"占比({run.code})")]
+            rolling_headers = ["滚动窗口", *[header for run in runs
+                                             for header in (f"平均超额({run.code})", f"正超额概率({run.code})")]]
+        else:
+            distribution_headers = ["月数", "占比"]
+            rolling_headers = ["滚动窗口", "平均超额", "正超额概率"]
         return [
             {"title": "6.1 超额收益统计", "table": self._table(
-                ["指标", "数值"], excess_rows)},
+                ["指标", *value_headers], excess_rows)},
             {"title": "6.2 超额收益区间分布", "table": self._table(
-                ["超额区间", "月数", "占比"], distribution_rows)},
+                ["超额区间", *distribution_headers], distribution_rows)},
             {"title": "6.3 滚动超额胜率", "table": self._table(
-                ["滚动窗口", "平均超额", "正超额概率"], excess_rolling_rows)},
+                rolling_headers, excess_rolling_rows)},
         ]
 
     @classmethod
-    def _excess_rolling_row(cls, metrics: dict[str, Any], months: int) -> list[str]:
+    def _excess_rolling_row(cls, runs: list[_BenchmarkRun], months: int) -> list[str]:
         """1 个月窗口取 V1 月度超额统计；其余窗口消费 V1 滚动超额聚合导出。"""
         label = f"{months}个月"
-        if months == 1:
-            average = metrics.get("average_monthly_excess_return")
-            win_rate = metrics.get("monthly_excess_win_rate")
-            if average is None and win_rate is None:
-                return [label, "-", "-"]
-            return [label, cls._pct(average), cls._pct(win_rate)]
-        reason = metrics.get(f"excess_rolling_return_{months}_reason")
-        if reason:
-            return [f"{label}（{reason}）", "-", "-"]
-        average = metrics.get(f"excess_rolling_return_{months}_avg_return")
-        win_rate = metrics.get(f"excess_rolling_return_{months}_win_rate")
-        if average is None or win_rate is None:
-            return [label, "-", "-"]
-        return [label, cls._pct(average), cls._pct(win_rate)]
+        metrics_list = cls._run_metrics_list(runs)
+        dashes = ["-"] * (len(runs) * 2)
+        if months > 1:
+            reason = metrics_list[0].get(f"excess_rolling_return_{months}_reason")
+            if reason:
+                return [f"{label}（{reason}）", *dashes]
+            averages = [m.get(f"excess_rolling_return_{months}_avg_return") for m in metrics_list]
+            win_rates = [m.get(f"excess_rolling_return_{months}_win_rate") for m in metrics_list]
+            if any(value is None for value in averages) or any(value is None for value in win_rates):
+                return [label, *dashes]
+        else:
+            averages = [m.get("average_monthly_excess_return") for m in metrics_list]
+            win_rates = [m.get("monthly_excess_win_rate") for m in metrics_list]
+            if all(value is None for value in averages) and all(value is None for value in win_rates):
+                return [label, *dashes]
+        cells: list[str] = []
+        for average, win_rate in zip(averages, win_rates):
+            cells.extend([cls._pct(average), cls._pct(win_rate)])
+        return [label, *cells]
 
-    def _extreme_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _extreme_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造七、极端行情表现章节的全部表格；数值统一取自 V1 指标结果。
 
         跑赢次数为 V1 胜率的分子口径（月份以指数为准：指数跌破下跌阈值/
         超过上涨阈值的月份中，策略月收益高于指数月收益的月数）。
         """
-        _ = result
-        downturn_threshold = metrics.get("market_downturn_threshold")
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
+        benchmark_headers = self._benchmark_headers(runs)
+        stage_excess_headers = [f"超额({run.code})" for run in runs] if len(runs) > 1 else ["超额"]
+        downturn_threshold = strategy.get("market_downturn_threshold")
         if downturn_threshold is None:
             downturn_threshold = MetricsRuntimeParamsDTO().market_downturn_threshold
-        upturn_threshold = metrics.get("market_upturn_threshold")
+        upturn_threshold = strategy.get("market_upturn_threshold")
         if upturn_threshold is None:
             upturn_threshold = MetricsRuntimeParamsDTO().market_upturn_threshold
-        daily_extreme_threshold = metrics.get("daily_extreme_threshold")
+        daily_extreme_threshold = strategy.get("daily_extreme_threshold")
         if daily_extreme_threshold is None:
             daily_extreme_threshold = MetricsRuntimeParamsDTO().daily_extreme_threshold
         daily_extreme_label = self._percent_label(daily_extreme_threshold)
         downturn_rows = [
-            ["阶段月数", self._integer(metrics.get("index_downfall_months_len")),
-             self._integer(metrics.get("start_downfall_months_len")), "-"],
-            ["平均收益", self._pct(metrics.get("index_downfall_avg_return")),
-             self._pct(metrics.get("start_downfall_avg_return")),
-             self._pct(metrics.get("downfall_excess_avg_return"))],
-            ["策略跑赢次数", "-", self._integer(metrics.get("downfall_outperform_count")),
-             self._pct(metrics.get("downfall_win_rate"))]]
+            ["阶段月数", *[self._integer(m.get("index_downfall_months_len")) for m in metrics_list],
+             self._integer(strategy.get("start_downfall_months_len")), *["-"] * len(runs)],
+            ["平均收益", *[self._pct(m.get("index_downfall_avg_return")) for m in metrics_list],
+             self._pct(strategy.get("start_downfall_avg_return")),
+             *[self._pct(m.get("downfall_excess_avg_return")) for m in metrics_list]],
+            ["策略跑赢次数", *["-"] * len(runs),
+             self._integer(strategy.get("downfall_outperform_count")),
+             *[self._pct(m.get("downfall_win_rate")) for m in metrics_list]]]
         upturn_rows = [
-            ["阶段月数", self._integer(metrics.get("index_upward_months_len")),
-             self._integer(metrics.get("start_upward_months_len")), "-"],
-            ["平均收益", self._pct(metrics.get("index_upward_avg_return")),
-             self._pct(metrics.get("start_upward_avg_return")),
-             self._pct(metrics.get("upward_excess_avg_return"))],
-            ["策略跑赢次数", "-", self._integer(metrics.get("upward_outperform_count")),
-             self._pct(metrics.get("upward_win_rate"))]]
+            ["阶段月数", *[self._integer(m.get("index_upward_months_len")) for m in metrics_list],
+             self._integer(strategy.get("start_upward_months_len")), *["-"] * len(runs)],
+            ["平均收益", *[self._pct(m.get("index_upward_avg_return")) for m in metrics_list],
+             self._pct(strategy.get("start_upward_avg_return")),
+             *[self._pct(m.get("upward_excess_avg_return")) for m in metrics_list]],
+            ["策略跑赢次数", *["-"] * len(runs),
+             self._integer(strategy.get("upward_outperform_count")),
+             *[self._pct(m.get("upward_win_rate")) for m in metrics_list]]]
         extreme_rows = [
-            ["最大单日涨幅", self._pct(metrics.get("index_max_daily_gain")),
-             self._pct(metrics.get("start_max_daily_gain"))],
-            ["最大单日跌幅", self._pct(metrics.get("index_max_daily_loss")),
-             self._pct(metrics.get("start_max_daily_loss"))],
-            [f"涨幅>{daily_extreme_label}的天数", self._integer(metrics.get("index_daily_gain_days")),
-             self._integer(metrics.get("start_daily_gain_days"))],
-            [f"跌幅>{daily_extreme_label}的天数", self._integer(metrics.get("index_daily_loss_days")),
-             self._integer(metrics.get("start_daily_loss_days"))],
+            ["最大单日涨幅", *[self._pct(m.get("index_max_daily_gain")) for m in metrics_list],
+             self._pct(strategy.get("start_max_daily_gain"))],
+            ["最大单日跌幅", *[self._pct(m.get("index_max_daily_loss")) for m in metrics_list],
+             self._pct(strategy.get("start_max_daily_loss"))],
+            [f"涨幅>{daily_extreme_label}的天数", *[self._integer(m.get("index_daily_gain_days")) for m in metrics_list],
+             self._integer(strategy.get("start_daily_gain_days"))],
+            [f"跌幅>{daily_extreme_label}的天数", *[self._integer(m.get("index_daily_loss_days")) for m in metrics_list],
+             self._integer(strategy.get("start_daily_loss_days"))],
             [f"涨跌比(涨>{daily_extreme_label}/跌>{daily_extreme_label})",
-             self._decimal(metrics.get("index_daily_gain_loss_ratio")),
-             self._decimal(metrics.get("start_daily_gain_loss_ratio"))]]
+             *[self._decimal(m.get("index_daily_gain_loss_ratio")) for m in metrics_list],
+             self._decimal(strategy.get("start_daily_gain_loss_ratio"))]]
+        stage_headers = ["指标", *benchmark_headers, "策略", *stage_excess_headers]
         return [
             {"title": f"7.1 市场下跌阶段（指数月收益 < {self._threshold_label(downturn_threshold)}）",
-             "table": self._table(["指标", "指数", "策略", "超额"], downturn_rows)},
+             "table": self._table(stage_headers, downturn_rows)},
             {"title": f"7.2 市场上涨阶段（指数月收益 > {self._threshold_label(upturn_threshold)}）",
-             "table": self._table(["指标", "指数", "策略", "超额"], upturn_rows)},
+             "table": self._table(stage_headers, upturn_rows)},
             {"title": "7.3 极端单日表现", "table": self._table(
-                ["指标", "指数", "策略"], extreme_rows)},
+                ["指标", *benchmark_headers, "策略"], extreme_rows)},
         ]
 
     @staticmethod
@@ -783,23 +922,26 @@ class StrategyBacktestReportService:
         """把非负阈值格式化为百分比标签（不带符号，用于行内标签）。"""
         return f"{value * 100:g}%"
 
-    def _capital_curve_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
+    def _capital_curve_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造八、资金曲线特征章节的表格；净值/连涨连跌/创新高统计统一取自 V1 指标结果。"""
-        _ = result
-        index_consecutive = metrics.get("index_consecutive") or {}
-        start_consecutive = metrics.get("start_consecutive") or {}
+        metrics_list = self._run_metrics_list(runs)
+        strategy = metrics_list[0]
+        index_consecutive_list = [(m.get("index_consecutive") or {}) for m in metrics_list]
+        start_consecutive = strategy.get("start_consecutive") or {}
         rows = [
-            ["初始净值", self._decimal(metrics.get("index_net_value_left"), 4),
-             self._decimal(metrics.get("start_net_value_left"), 4)],
-            ["期末净值", self._decimal(metrics.get("index_net_value_right"), 4),
-             self._decimal(metrics.get("start_net_value_right"), 4)],
-            ["最大连涨月份", self._integer(index_consecutive.get("max_gain_months")),
+            ["初始净值", *[self._decimal(m.get("index_net_value_left"), 4) for m in metrics_list],
+             self._decimal(strategy.get("start_net_value_left"), 4)],
+            ["期末净值", *[self._decimal(m.get("index_net_value_right"), 4) for m in metrics_list],
+             self._decimal(strategy.get("start_net_value_right"), 4)],
+            ["最大连涨月份", *[self._integer(consecutive.get("max_gain_months"))
+                               for consecutive in index_consecutive_list],
              self._integer(start_consecutive.get("max_gain_months"))],
-            ["最大连跌月份", self._integer(index_consecutive.get("max_loss_months")),
+            ["最大连跌月份", *[self._integer(consecutive.get("max_loss_months"))
+                               for consecutive in index_consecutive_list],
              self._integer(start_consecutive.get("max_loss_months"))],
-            ["创新高平均间隔月", self._decimal(metrics.get("index_new_high_avg_interval_months"), 1),
-             self._decimal(metrics.get("start_new_high_avg_interval_months"), 1)]]
-        return [{"table": self._table(["指标", "指数", "策略"], rows)}]
+            ["创新高平均间隔月", *[self._decimal(m.get("index_new_high_avg_interval_months"), 1) for m in metrics_list],
+             self._decimal(strategy.get("start_new_high_avg_interval_months"), 1)]]
+        return [{"table": self._table(["指标", *self._benchmark_headers(runs), "策略"], rows)}]
 
     @classmethod
     def _metric_by_year(cls, items: Any, field: str) -> dict[str, Any]:
@@ -877,16 +1019,26 @@ class StrategyBacktestReportService:
         """处理_pct相关逻辑。"""
         return f"{cls._num(value):.2%}"
 
-    def _conclusion(self, metrics: dict[str, Any], result: Any, first_date: str, last_date: str) -> list[str]:
-        """处理_conclusion相关逻辑；累计回报与累计超额直接取自 V1 指标结果。"""
-        _ = result
-        index_return = self._num(metrics.get("index_cumulative_return"))
-        start_return = self._num(metrics.get("start_cumulative_return"))
-        excess_return = self._num(metrics.get("excess_cumulative_return"))
-        return [
-            f"本报告覆盖 {first_date} 至 {last_date}，指数累计回报率为 {index_return:.2%}，策略累计回报率为 {start_return:.2%}。",
-            f"策略相对指数的累计超额回报为 {excess_return:.2%}。",
+    def _conclusion(self, runs: list[_BenchmarkRun], first_date: str, last_date: str) -> list[str]:
+        """按基准循环生成结论；累计回报与累计超额直接取自 V1 指标结果。"""
+        strategy_return = self._num(runs[0].result.metrics.get("start_cumulative_return"))
+        if len(runs) <= 1:
+            index_return = self._num(runs[0].result.metrics.get("index_cumulative_return"))
+            excess_return = self._num(runs[0].result.metrics.get("excess_cumulative_return"))
+            return [
+                f"本报告覆盖 {first_date} 至 {last_date}，指数累计回报率为 {index_return:.2%}，策略累计回报率为 {strategy_return:.2%}。",
+                f"策略相对指数的累计超额回报为 {excess_return:.2%}。",
+            ]
+        paragraphs = [
+            f"本报告覆盖 {first_date} 至 {last_date}，策略累计回报率为 {strategy_return:.2%}，"
+            f"基准指数为 {'、'.join(run.label for run in runs)}。"
         ]
+        for run in runs:
+            index_return = self._num(run.result.metrics.get("index_cumulative_return"))
+            excess_return = self._num(run.result.metrics.get("excess_cumulative_return"))
+            paragraphs.append(
+                f"{run.label}累计回报率为 {index_return:.2%}，策略相对其的累计超额回报为 {excess_return:.2%}。")
+        return paragraphs
 
     @staticmethod
     def _dates(frame: Any) -> list[date]:

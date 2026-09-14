@@ -132,7 +132,9 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
         },
     }
 
-    section = StrategyBacktestReportService()._return_section(metrics, result)
+    runs = [SimpleNamespace(code=None, label="指数", result=SimpleNamespace(metrics=metrics, index_df=result.index_df))]
+
+    section = StrategyBacktestReportService()._return_section(runs)
     rolling_rows = section[2]["table"]["rows"]
 
     assert rolling_rows == [
@@ -140,7 +142,7 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
         ["6个月滚动（数据不足5年，当前仅3.1年）", "-", "-", "-"],
         ["12个月滚动（数据不足5年，当前仅3.1年）", "-", "-", "-"],
     ]
-    excess_rows = StrategyBacktestReportService()._excess_section(metrics, result)[2]["table"]["rows"]
+    excess_rows = StrategyBacktestReportService()._excess_section(runs)[2]["table"]["rows"]
     assert excess_rows == [
         # 1 个月窗口没有 V1 滚动序列，且无月度超额数据时显示占位。
         ["1个月", "-", "-"],
@@ -169,39 +171,63 @@ def test_weight_allocation_marks_selected_index_from_list():
     ]
 
 
-def test_resolve_returns_injects_benchmark_index_by_date(monkeypatch):
-    """指数注入按日期对齐：组合独有日期保留默认基准，修复按位 zip 的日历错位。"""
+class _StubAnalyzer:
+    """记录引擎入参并返回占位结果，用于断言 runs 构建的轴对齐与循环次数。"""
+
+    def __init__(self):
+        self.calls = []
+
+    def get_calculate_metrics_v1_with_dataframes(self, rows, runtime=None):
+        self.calls.append(rows)
+        return SimpleNamespace(
+            metrics={},
+            index_df=pd.DataFrame({"date": pd.to_datetime([row["date"] for row in rows])}),
+        )
+
+
+def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypatch):
+    """统一日期轴 = 组合日期 ∩ 基准日期；基准缺失的交易日整行剔除。"""
     service = StrategyBacktestReportService()
     combined = [
         {"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10},
         {"date": "2024-01-03", "index_return": 0.40, "start_return": 0.12},
+        {"date": "2024-01-06", "index_return": 0.50, "start_return": 0.15},
     ]
     monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
     request = type("Request", (), {
         "report_type": "RPT-M",
+        "runtime_params": {},
         "index_stock_code": ["0700.HK"],
         "products": [{
             "stock_code": "0700.HK",
             "returns": [
                 {"date": "2024-01-01", "index_return": 0.10, "start_return": 0.01},
                 {"date": "2024-01-02", "index_return": 0.20, "start_return": 0.02},
+                {"date": "2024-01-06", "index_return": 0.25, "start_return": 0.03},
             ],
         }],
     })()
 
-    data = service._resolve_returns(request)
+    runs = service._build_benchmark_runs(request)
 
-    assert data[0]["index_return"] == 0.20
-    assert data[1]["index_return"] == 0.40
+    assert [row["date"] for row in stub.calls[0]] == ["2024-01-02", "2024-01-06"]
+    assert [row["index_return"] for row in stub.calls[0]] == [0.20, 0.25]
+    assert [row["start_return"] for row in stub.calls[0]] == [0.10, 0.15]
+    assert runs[0].label == "指数"
 
 
-def test_resolve_returns_interim_uses_first_selected_benchmark(monkeypatch):
-    """多基准组装交付前，多选暂取首个选中项渲染。"""
+def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatch):
+    """多选逐基准运行引擎，标签用 指数(代码) 自描述；策略列各次运行一致。"""
     service = StrategyBacktestReportService()
     combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
     monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
     request = type("Request", (), {
         "report_type": "RPT-M",
+        "runtime_params": {},
         "index_stock_code": ["AAA.US", "BBB.US"],
         "products": [
             {"stock_code": "AAA.US", "returns": [{"date": "2024-01-02", "index_return": 0.11, "start_return": 0.01}]},
@@ -209,9 +235,67 @@ def test_resolve_returns_interim_uses_first_selected_benchmark(monkeypatch):
         ],
     })()
 
-    data = service._resolve_returns(request)
+    runs = service._build_benchmark_runs(request)
 
-    assert data[0]["index_return"] == 0.11
+    assert len(stub.calls) == 2
+    assert [run.label for run in runs] == ["指数(AAA.US)", "指数(BBB.US)"]
+    assert stub.calls[0][0]["index_return"] == 0.11
+    assert stub.calls[1][0]["index_return"] == 0.22
+    assert stub.calls[0][0]["start_return"] == stub.calls[1][0]["start_return"] == 0.10
+
+
+def test_return_section_expands_columns_per_benchmark():
+    runs = [
+        SimpleNamespace(code="AAA.US", label="指数(AAA.US)", result=SimpleNamespace(metrics={
+            "index_cumulative_return": 0.10, "start_cumulative_return": 0.30,
+            "excess_cumulative_return": 0.20})),
+        SimpleNamespace(code="BBB.US", label="指数(BBB.US)", result=SimpleNamespace(metrics={
+            "index_cumulative_return": 0.05, "start_cumulative_return": 0.30,
+            "excess_cumulative_return": 0.25})),
+    ]
+
+    core = StrategyBacktestReportService()._return_section(runs)[0]["table"]
+
+    assert core["columns"] == ["指标", "指数(AAA.US)", "指数(BBB.US)", "策略", "超额(AAA.US)", "超额(BBB.US)"]
+    assert core["rows"][0] == ["累计回报率", "10.00%", "5.00%", "30.00%", "20.00%", "25.00%"]
+
+
+def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
+    runs = [
+        SimpleNamespace(code="AAA.US", label="指数(AAA.US)", result=SimpleNamespace(metrics={
+            "excess_sharpe": 0.5, "excess_sortino": 0.7})),
+        SimpleNamespace(code="BBB.US", label="指数(BBB.US)", result=SimpleNamespace(metrics={
+            "excess_sharpe": 0.6, "excess_sortino": 0.8})),
+    ]
+
+    table = StrategyBacktestReportService()._risk_adjusted_section(runs)[0]["table"]
+
+    assert table["columns"] == ["指标", "指数(AAA.US)", "指数(BBB.US)", "策略"]
+    assert [row[0] for row in table["rows"]] == [
+        "夏普比率", "卡玛比率", "索提诺比率",
+        "超额夏普比率(AAA.US)", "超额索提诺比率(AAA.US)",
+        "超额夏普比率(BBB.US)", "超额索提诺比率(BBB.US)",
+    ]
+
+
+def test_conclusion_expands_per_benchmark_for_multiple_runs():
+    runs = [
+        SimpleNamespace(code="AAA.US", label="指数(AAA.US)", result=SimpleNamespace(metrics={
+            "index_cumulative_return": 0.10, "start_cumulative_return": 0.30,
+            "excess_cumulative_return": 0.20})),
+        SimpleNamespace(code="BBB.US", label="指数(BBB.US)", result=SimpleNamespace(metrics={
+            "index_cumulative_return": 0.05, "start_cumulative_return": 0.30,
+            "excess_cumulative_return": 0.25})),
+    ]
+
+    paragraphs = StrategyBacktestReportService()._conclusion(runs, "2024-01-01", "2024-12-31")
+
+    assert paragraphs[0] == (
+        "本报告覆盖 2024-01-01 至 2024-12-31，策略累计回报率为 30.00%，"
+        "基准指数为 指数(AAA.US)、指数(BBB.US)。"
+    )
+    assert paragraphs[1] == "指数(AAA.US)累计回报率为 10.00%，策略相对其的累计超额回报为 20.00%。"
+    assert paragraphs[2] == "指数(BBB.US)累计回报率为 5.00%，策略相对其的累计超额回报为 25.00%。"
 
 
 class _StubKlineService:

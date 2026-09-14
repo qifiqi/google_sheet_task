@@ -53,6 +53,23 @@ def _report_analysis_result():
     return SimpleNamespace(metrics={}, index_df=index_df, start_df=start_df)
 
 
+def _default_run(result=None):
+    """单基准 runs 形态的便捷构造（code=None 表示默认组合基准）。"""
+    return [SimpleNamespace(code=None, label="指数", result=result or _report_analysis_result())]
+
+
+def _source_args(request):
+    """顶层三选一收益来源解析入参（RPT-S/V2 路径）。"""
+    return {
+        "returns": request.returns,
+        "task_id": request.task_id,
+        "return_series_id": request.return_series_id,
+        "google_sheet_url": request.google_sheet_url,
+        "spreadsheet_id": request.spreadsheet_id,
+        "google_sheet_name": request.google_sheet_name,
+    }
+
+
 def test_backtest_word_report_defaults_single_product_to_rpt_s():
     request = StrategyBacktestReportSchema.model_validate(_report_payload())
 
@@ -110,7 +127,7 @@ def test_backtest_word_report_id_uses_report_type(
 
     report_data = strategy_backtest_report_service._build_report_data(
         request,
-        _report_analysis_result(),
+        _default_run(),
     )
 
     assert report_data["blocks"][0]["items"][0]["value"] == expected_report_id
@@ -122,7 +139,7 @@ def test_v2_json_returns_are_normalized_without_a_product():
     })
 
     assert request.report_type == "RPT-S"
-    assert strategy_backtest_report_service._resolve_returns(request) == _report_payload()["returns"]
+    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
 
 
 def test_v2_google_sheet_returns_are_normalized(monkeypatch):
@@ -139,7 +156,7 @@ def test_v2_google_sheet_returns_are_normalized(monkeypatch):
         "google_sheet_name": "回测",
     })
 
-    assert strategy_backtest_report_service._resolve_returns(request) == _report_payload()["returns"]
+    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
 
 
 def test_single_product_task_uses_linked_return_series(app_factory):
@@ -167,10 +184,18 @@ def test_single_product_task_uses_linked_return_series(app_factory):
 
         request = StrategyBacktestReportSchema.model_validate({"task_id": task.id})
 
-        assert strategy_backtest_report_service._resolve_returns(request) == _report_payload()["returns"]
+        assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
 
 
-def test_multi_product_returns_are_weighted_as_daily_returns():
+def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        "app.services.strategy_backtest_report_service.performance_analyzer",
+        SimpleNamespace(get_calculate_metrics_v1_with_dataframes=lambda rows, runtime=None: (
+            captured.append(rows),
+            SimpleNamespace(metrics={}, index_df=None),
+        )[1]),
+    )
     request = StrategyBacktestReportSchema.model_validate({
         "report_type": "RPT-M",
         "products": [
@@ -191,8 +216,10 @@ def test_multi_product_returns_are_weighted_as_daily_returns():
         ],
     })
 
-    returns = strategy_backtest_report_service._resolve_returns(request)
+    runs = strategy_backtest_report_service._build_benchmark_runs(request)
 
+    assert len(runs) == 1 and runs[0].label == "指数"
+    returns = captured[0]
     assert returns[0]["index_return"] == pytest.approx(0.075)
     assert returns[0]["start_return"] == pytest.approx(0.15)
     assert returns[1]["index_return"] == pytest.approx(0.101875)
@@ -200,7 +227,7 @@ def test_multi_product_returns_are_weighted_as_daily_returns():
 
 
 def test_word_report_uses_full_template_sections_and_cumulative_nav():
-    result = SimpleNamespace(
+    runs = _default_run(SimpleNamespace(
         metrics={
             "index_cumulative_return": -0.01,
             "start_cumulative_return": -0.01,
@@ -225,11 +252,12 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
         excess_df=_Frame({
             "date": _Column([datetime(2026, 8, 20), datetime(2026, 8, 21)]),
             "excess_return": _Column([0.01, 0.0]),
+            "daily_return": _Column([0.005, -0.005]),
         }),
-    )
+    ))
 
-    sections = strategy_backtest_report_service._sections(result.metrics, result)
-    chart_data = strategy_backtest_report_service._build_chart_data(result)
+    sections = strategy_backtest_report_service._sections(runs)
+    chart_data = strategy_backtest_report_service._build_chart_data(runs[0].result)
 
     assert [section["title"] for section in sections] == [
         "一、收益类指标",
@@ -267,7 +295,8 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     assert all(len(row) == 3 for row in excess_distribution["rows"])
     assert chart_data["index_nav"] == [1.01, 0.99]
     assert chart_data["strategy_nav"] == [1.02, 0.99]
-    assert chart_data["excess_nav"] == [1.01, 1.0]
+    # 390510a 起 excess_nav 使用超额收益原值列，不再复利成净值。
+    assert chart_data["excess_nav"] == [0.01, 0.0]
 
 
 def _page_user_headers(app, username="xpl-page-user"):
