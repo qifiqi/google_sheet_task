@@ -27,7 +27,11 @@ from app.utils.value_parser import parse_float
 
 
 # Word 模板按 6 英寸宽插图；240 DPI 对应约 1440 像素，打印和 PDF 缩放都足够清晰。
+# 单指数图保持既有 3.17 英寸高度；多序列图为独立顶部图例多留高度。
 FIGURE_SIZE = (6, 3.17)
+MULTI_SERIES_FIGURE_HEIGHT = 3.6
+EXTERNAL_LEGEND_MIN_SERIES = 3
+EXTERNAL_LEGEND_COLUMNS = 2
 CHART_DPI = 240
 NAVY = "#1F4E79"
 BLUE = "#4472C4"
@@ -215,11 +219,48 @@ def _ensure_fonts_available() -> None:
         raise FileNotFoundError(f"报告图表字体文件不存在: {', '.join(map(str, missing_paths))}")
 
 
-def _new_figure() -> Figure:
+def _new_figure(*, height: float | None = None) -> Figure:
     """创建独立 Figure，避免 pyplot 全局状态影响后台并发任务。"""
-    figure = Figure(figsize=FIGURE_SIZE, dpi=CHART_DPI, facecolor=BACKGROUND)
+    figure = Figure(
+        figsize=(FIGURE_SIZE[0], FIGURE_SIZE[1] if height is None else height),
+        dpi=CHART_DPI,
+        facecolor=BACKGROUND,
+    )
     FigureCanvasAgg(figure)
     return figure
+
+
+def _legend_layout(series_count: int) -> tuple[int, float, float]:
+    """返回 Legend 列数、图表高度与绘图区顶部坐标。
+
+    单/双序列保持历史的轴内单行 Legend；3~4 条序列改用图片顶部独立
+    两列 Legend，避免压缩或覆盖绘图区。Schema 限制最多 3 个基准，连同
+    策略最多 4 条，因此无需额外多行布局分支。
+    """
+    if series_count < EXTERNAL_LEGEND_MIN_SERIES:
+        return series_count, FIGURE_SIZE[1], 0.96
+    return EXTERNAL_LEGEND_COLUMNS, MULTI_SERIES_FIGURE_HEIGHT, 0.84
+
+
+def _place_legend(figure: Figure, axis: Any, series_count: int) -> float:
+    """放置自适应图例，返回绘图区顶部坐标供调用方传给 subplots_adjust。"""
+    columns, _height, top = _legend_layout(series_count)
+    if series_count < EXTERNAL_LEGEND_MIN_SERIES:
+        axis.legend(frameon=False, loc="upper left", ncol=columns, prop=_font(8))
+    else:
+        handles, labels = axis.get_legend_handles_labels()
+        figure.legend(
+            handles,
+            labels,
+            frameon=False,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.985),
+            ncol=columns,
+            prop=_font(8),
+            columnspacing=1.5,
+            handlelength=2.0,
+        )
+    return top
 
 
 def _save_figure(figure: Figure, path: Path) -> None:
@@ -262,7 +303,8 @@ def _draw_line_chart(
     *,
     percent: bool = False,
 ) -> None:
-    figure = _new_figure()
+    _columns, height, _top = _legend_layout(len(series))
+    figure = _new_figure(height=height)
     axis = figure.subplots()
     for name, values, color in series:
         axis.plot(dates, values, label=name, color=color, linewidth=LINE_WIDTH)
@@ -276,8 +318,8 @@ def _draw_line_chart(
         _set_percent_axis(axis, "y")
     _style_axis(axis)
     # 图表标题由 Word 模板的 Heading 2 提供，PNG 内不重复绘制标题。
-    axis.legend(frameon=False, loc="upper left", ncol=len(series), prop=_font(8))
-    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
+    legend_top = _place_legend(figure, axis, len(series))
+    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=legend_top)
     figure.autofmt_xdate(rotation=0, ha="center")
     _save_figure(figure, path)
 
@@ -297,7 +339,8 @@ def _draw_drawdown_area_chart(
     便于在 generate_report_charts 入口通过 DRAWDOWN_CHART_STYLE 一键切换。
     图例只保留填充色的一个条目，描边线不再重复注册 label。
     """
-    figure = _new_figure()
+    _columns, height, _top = _legend_layout(len(series))
+    figure = _new_figure(height=height)
     axis = figure.subplots()
     for name, values, color in series:
         axis.fill_between(dates, values, 0, label=name, color=color, alpha=0.4, linewidth=0)
@@ -311,8 +354,8 @@ def _draw_drawdown_area_chart(
     if percent:
         _set_percent_axis(axis, "y")
     _style_axis(axis)
-    axis.legend(frameon=False, loc="upper left", ncol=len(series), prop=_font(8))
-    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
+    legend_top = _place_legend(figure, axis, len(series))
+    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=legend_top)
     figure.autofmt_xdate(rotation=0, ha="center")
     _save_figure(figure, path)
 
@@ -388,7 +431,8 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
     entries.append(("策略", _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
     count = len(entries)
     bar_width = 0.8 / count
-    figure = _new_figure()
+    _columns, height, _top = _legend_layout(count)
+    figure = _new_figure(height=height)
     axis = figure.subplots()
     positions = list(range(len(years)))
     # 各组柱以同一年度为中心对称排列，便于同年度直接横向比较。
@@ -400,8 +444,8 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
     _set_axis_labels(axis, y_label="收益率（%）")
     _set_percent_axis(axis, "y")
     _style_axis(axis)
-    axis.legend(frameon=False, loc="upper left", ncol=count, prop=_font(8))
-    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
+    legend_top = _place_legend(figure, axis, count)
+    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=legend_top)
     _save_figure(figure, path)
 
 

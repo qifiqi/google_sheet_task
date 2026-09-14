@@ -94,6 +94,7 @@ def test_generate_report_charts_outputs_all_pngs_with_static_fonts(tmp_path: Pat
     assert charts.FONT_BOLD_PATH.is_file()
     for path in paths.values():
         image = mpimg.imread(path)
+        # 单基准图保留历史尺寸；相关性热力图以独立测试覆盖。
         assert image.shape[:2] == (760, 1440)
 
 
