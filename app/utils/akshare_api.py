@@ -82,7 +82,7 @@ class AkshareApi:
     ) -> List[Dict]:
         """按市场分发到对应 akshare 接口，返回按日期升序的标准 K 线行。
 
-        stock_code 传项目统一代码（可带 .SS/.SZ/.HK 后缀）；fund 市场为 6 位基金代码。
+        stock_code 传项目统一代码（可带 .SH/.SZ/.HK 后缀）；fund 市场为 6 位基金代码。
         """
         market = str(market_type or "").strip().lower()
         code = str(stock_code or "").strip().upper().split(".")[0]
@@ -115,6 +115,11 @@ class AkshareApi:
             rows = rows[-max(1, int(limit or 1)):]
         self.logger.info("AKShare %s 最终返回 %d 条", code, len(rows))
         return rows
+
+    def get_total_assets(self, stock_code: str, market_type: str | None = None) -> Optional[float]:
+        """A股 ETF 资产总数：数据源暂未接入，保留调用位置（None 时上层展示 "-"）。"""
+        # TODO: A股数据源确定后在此实现；签名即最终契约，返回 None 表示非 ETF/取不到。
+        return None
 
     def _fetch_sina_daily(self, fetcher, symbol: str) -> List[Dict]:
         """新浪 A股/ETF 日 K：英文列 date/open/high/low/close/volume/amount，量纲已是股/元。"""

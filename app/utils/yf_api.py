@@ -28,6 +28,16 @@ class YFApi:
         data = self.parse_multiple_tickers(data, adjust_type=adjust_type, ticker_hint=stock_code)
         return data
 
+    def get_total_assets(self, ticker):
+        """Yahoo totalAssets（ETF 资产总数，基金计价货币原值）；非 ETF/取不到返回 None。"""
+        try:
+            info = yf.Ticker(ticker).info or {}
+            value = info.get('totalAssets')
+            return float(value) if value is not None else None
+        except Exception as exc:
+            self.logger.warning(f"Yahoo totalAssets 获取失败 {ticker}: {str(exc)}")
+            return None
+
     def _adjust_ticker_frame(self, ticker_data, adjust_type=None):
         normalized_adjust_type = normalize_kline_adjustment(adjust_type)
         if not isinstance(ticker_data, pd.DataFrame) or ticker_data.empty:
