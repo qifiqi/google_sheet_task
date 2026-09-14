@@ -105,7 +105,6 @@ class StrategyBacktestReportSchema(APIModel):
         self._validate_source({
             "task_id": self.task_id,
             "return_series_id": self.return_series_id,
-            "index_return_id": self.index_return_id,
             "spreadsheet_id": self.spreadsheet_id,
             "google_sheet_url": self.google_sheet_url,
             "google_sheet_name": self.google_sheet_name,
