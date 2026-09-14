@@ -518,7 +518,7 @@ async function exportWordDirectly(indexStockCode) {
             ratios,
         };
         if (indexStockCode) {
-            payload.index_stock_code = indexStockCode;
+            payload.index_stock_code = [indexStockCode];
         }
 
         const response = await Api.endpoints.export.wordReport(payload);

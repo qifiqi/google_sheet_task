@@ -7,7 +7,7 @@ from app.services.strategy_backtest_report_service import StrategyBacktestReport
 
 def test_single_product_report_defaults_weight_to_100_percent():
     service = StrategyBacktestReportService()
-    request = type("Request", (), {"products": [], "weight_allocation": None, "index_stock_code": None})()
+    request = type("Request", (), {"products": [], "weight_allocation": None, "index_stock_code": []})()
 
     allocation = service._weight_allocation(request, "RPT-S")
 
@@ -19,7 +19,7 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
     request = type("Request", (), {
         "products": [{"stock_code": "SCHD.US", "product_name": "SCHD.US"}],
         "weight_allocation": None,
-        "index_stock_code": None,
+        "index_stock_code": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -32,7 +32,7 @@ def test_weight_allocation_adds_percent_suffix():
     request = type("Request", (), {
         "products": [{"stock_code": "600519", "product_name": "贵州茅台", "ratio": "100"}],
         "weight_allocation": None,
-        "index_stock_code": None,
+        "index_stock_code": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -48,7 +48,7 @@ def test_weight_allocation_drops_zero_ratio_products():
             {"stock_code": "SOXX", "product_name": "半导体ETF", "ratio": "0"},
         ],
         "weight_allocation": None,
-        "index_stock_code": None,
+        "index_stock_code": [],
     })()
 
     allocation = service._weight_allocation(request, "RPT-M")
@@ -127,3 +127,67 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
         ["6个月（数据不足5年，当前仅3.1年）", "-", "-"],
         ["12个月（数据不足5年，当前仅3.1年）", "-", "-"],
     ]
+
+
+def test_weight_allocation_marks_selected_index_from_list():
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [
+            {"stock_code": "AAA.US", "product_name": "A", "ratio": "50"},
+            {"stock_code": "BBB.US", "product_name": "B", "ratio": "50"},
+        ],
+        "weight_allocation": None,
+        "index_stock_code": ["BBB.US"],
+    })()
+
+    allocation = service._weight_allocation(request, "RPT-M")
+
+    assert allocation["rows"] == [
+        ["AAA.US", "A", "50%"],
+        ["BBB.US (指数)", "B", "50%"],
+    ]
+
+
+def test_resolve_returns_injects_benchmark_index_by_date(monkeypatch):
+    """指数注入按日期对齐：组合独有日期保留默认基准，修复按位 zip 的日历错位。"""
+    service = StrategyBacktestReportService()
+    combined = [
+        {"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10},
+        {"date": "2024-01-03", "index_return": 0.40, "start_return": 0.12},
+    ]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "index_stock_code": ["0700.HK"],
+        "products": [{
+            "stock_code": "0700.HK",
+            "returns": [
+                {"date": "2024-01-01", "index_return": 0.10, "start_return": 0.01},
+                {"date": "2024-01-02", "index_return": 0.20, "start_return": 0.02},
+            ],
+        }],
+    })()
+
+    data = service._resolve_returns(request)
+
+    assert data[0]["index_return"] == 0.20
+    assert data[1]["index_return"] == 0.40
+
+
+def test_resolve_returns_interim_uses_first_selected_benchmark(monkeypatch):
+    """多基准组装交付前，多选暂取首个选中项渲染。"""
+    service = StrategyBacktestReportService()
+    combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "index_stock_code": ["AAA.US", "BBB.US"],
+        "products": [
+            {"stock_code": "AAA.US", "returns": [{"date": "2024-01-02", "index_return": 0.11, "start_return": 0.01}]},
+            {"stock_code": "BBB.US", "returns": [{"date": "2024-01-02", "index_return": 0.22, "start_return": 0.02}]},
+        ],
+    })()
+
+    data = service._resolve_returns(request)
+
+    assert data[0]["index_return"] == 0.11

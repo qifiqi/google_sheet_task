@@ -475,7 +475,7 @@ async function confirmExportWord() {
       ratios: collectRatioPayload(),
     }
     if (selectedStockCode.value) {
-      payload.index_stock_code = selectedStockCode.value
+      payload.index_stock_code = [selectedStockCode.value]
     }
     // 文件名优先取响应 Content-Disposition，回退 RPT-M_{code|all}.docx（静态版同口径）
     const { blob, filename } = await exportWordReportDownload(payload, `RPT-M_${selectedStockCode.value || 'all'}.docx`)

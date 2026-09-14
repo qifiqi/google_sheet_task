@@ -112,16 +112,35 @@ class StrategyBacktestReportService:
         suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
         return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
 
+    @staticmethod
+    def _benchmark_codes(payload: StrategyBacktestReportSchema) -> list[str]:
+        """本次渲染采用的基准代码；接口已列表化，多基准组装交付前暂取首个选中项。"""
+        return list(payload.index_stock_code[:1])
+
     def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
         if request.report_type == "RPT-M":
             data = self._combine_product_returns(request)
-            # 指定指数列
-            if request and request.index_stock_code:
-                product_list = [product for product in request.products if product.get("stock_code","").strip() == request.index_stock_code.strip()]
-                returns = product_list[0].get("returns", [])
-                for i in range(len(data)):
-                    data[i]["index_return"] = returns[i].get("index_return", 0)
+            # 指定指数列：按日期对齐注入选中产品的 index_return（标的自身基准列），
+            # 缺失日期保留组合默认基准；修复旧实现按位置 zip 在日历错位时的静默错位。
+            benchmark_codes = self._benchmark_codes(request)
+            if benchmark_codes:
+                code = benchmark_codes[0]
+                product = next(
+                    (item for item in request.products
+                     if str(item.get("stock_code") or "").strip() == code),
+                    None,
+                )
+                if product is None:
+                    raise ValueError(f"指数代码 {code} 不在产品列表中")
+                index_by_date = {}
+                for row in product.get("returns") or []:
+                    parsed = parse_date(row.get("date") or row.get("stock_date"))
+                    if parsed is not None:
+                        index_by_date[parsed.isoformat()] = row.get("index_return", 0)
+                for row in data:
+                    if row["date"] in index_by_date:
+                        row["index_return"] = index_by_date[row["date"]]
 
             return data
 
@@ -296,7 +315,7 @@ class StrategyBacktestReportService:
                     if report_type == "RPT-S" and not weight:
                         weight = "100.00%"
                     stock_code = str(product.get("stock_code") or product.get("product_name") or "未命名")
-                    if payload.index_stock_code and payload.index_stock_code == stock_code:
+                    if stock_code in StrategyBacktestReportService._benchmark_codes(payload):
                         stock_code = f"{stock_code} (指数)"
                     rows.append([
                         stock_code,

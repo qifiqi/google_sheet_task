@@ -34,7 +34,8 @@ class StrategyBacktestReportSchema(APIModel):
     returns: list[dict[str, Any]] = []
     # 单品任务来源；return_series_id 在一个 task 有多条结果时用于精确指定。
     task_id: str | None = None
-    index_stock_code: str | None = None
+    # RPT-M 基准指数（产品代码数组，去重保序，最多 3 个；空 = 默认组合index）。
+    index_stock_code: list[str] = []
     return_series_id: int | None = Field(default=None, gt=0)
     # V2 Google Sheet 来源；spreadsheet_id 可以由 google_sheet_url 解析得到。
     google_sheet_url: str | None = None
@@ -70,6 +71,21 @@ class StrategyBacktestReportSchema(APIModel):
         """对齐原 DTO 语义：显式 null 与缺失一样按空容器处理。"""
         return [] if value is None else value
 
+    @field_validator("index_stock_code", mode="before")
+    @classmethod
+    def _normalize_index_stock_codes(cls, value):
+        """列表化归一：null 视为空选；去空、去重保序；上限 3 个保证表格与图例可读。"""
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("index_stock_code 必须是股票代码数组")
+        codes = list(dict.fromkeys(
+            code for code in (str(item).strip() for item in value) if code
+        ))
+        if len(codes) > 3:
+            raise ValueError("基准指数最多支持选择 3 个")
+        return codes
+
     @field_validator("metadata", "runtime_params", mode="before")
     @classmethod
     def _none_dict_to_empty(cls, value):
@@ -89,6 +105,7 @@ class StrategyBacktestReportSchema(APIModel):
                     raise ValueError("RPT-M 的收益来源必须配置在每个 products 项中")
                 for index, product in enumerate(self.products, start=1):
                     self._validate_source(product, product.get("returns") or [], label=f"products[{index}]")
+                self._validate_index_codes_unique_hit()
                 return self
             # group_key 形态（前端全局预览页直传，export_service 按任务构建 products）。
             if not self.task_id:
@@ -110,6 +127,20 @@ class StrategyBacktestReportSchema(APIModel):
             "google_sheet_name": self.google_sheet_name,
         }, self.returns)
         return self
+
+    def _validate_index_codes_unique_hit(self) -> None:
+        """基准指数必须唯一命中产品代码：0 命中是未知代码，多命中是同码歧义。"""
+        if not self.index_stock_code:
+            return
+        product_codes = [
+            str(product.get("stock_code") or "").strip() for product in self.products
+        ]
+        for code in self.index_stock_code:
+            hits = product_codes.count(code)
+            if hits == 0:
+                raise ValueError(f"指数代码 {code} 不在产品列表中")
+            if hits > 1:
+                raise ValueError(f"指数代码 {code} 命中多个产品，存在歧义，请检查产品配置")
 
     @staticmethod
     def _validate_source(source: dict[str, Any], returns: Any, *, label: str = "请求") -> None:
