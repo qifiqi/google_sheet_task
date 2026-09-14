@@ -605,11 +605,21 @@ class StrategyBacktestReportService:
         """指数列头：单基准保持现状文案"指数"，多基准用 指数(代码) 自描述。"""
         return [run.label for run in runs]
 
+    def _benchmark_tag(self, runs: list[_BenchmarkRun], run: _BenchmarkRun) -> str:
+        """多基准场景的区分标记：同股只展示比例，异股展示 代码 比例%。
+
+        与指数列头规则对称，供超额列/胜率列/月度超额标题等统一消费。
+        """
+        percent = self._weight_percent_text(run.weight)
+        if len({other.code for other in runs}) <= 1:
+            return f"{percent}%"
+        return f"{run.code} {percent}%"
+
     def _excess_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
-        """超额列头：单基准保持现状文案"超额(策略-指数)"，多基准用 超额(代码)。"""
+        """超额列头：单基准保持现状文案"超额(策略-指数)"；多基准同股只展示比例。"""
         if len(runs) <= 1:
             return ["超额(策略-指数)"]
-        return [f"超额({run.code})" for run in runs]
+        return [f"超额({self._benchmark_tag(runs, run)})" for run in runs]
 
     def _return_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造一、收益类指标章节的全部表格；数值统一取自 V1 指标结果。
@@ -636,7 +646,8 @@ class StrategyBacktestReportService:
             for months in (3, 6, 12)
         ]
         rolling_index_headers = [f"{run.label}平均收益" for run in runs] if len(runs) > 1 else ["指数平均收益"]
-        rolling_win_headers = [f"策略胜率(跑赢{run.code})" for run in runs] if len(runs) > 1 else ["策略胜率(跑赢指数)"]
+        rolling_win_headers = ([f"策略胜率(跑赢{self._benchmark_tag(runs, run)})" for run in runs]
+                               if len(runs) > 1 else ["策略胜率(跑赢指数)"])
         return [
             {"title": "1.1 核心收益", "table": self._table(
                 ["指标", *benchmark_headers, "策略", *excess_headers], [
@@ -708,7 +719,8 @@ class StrategyBacktestReportService:
         daily_drawdown_threshold = strategy.get("daily_drawdown_threshold")
         if daily_drawdown_threshold is None:
             daily_drawdown_threshold = MetricsRuntimeParamsDTO().daily_drawdown_threshold
-        drawdown_excess_headers = [f"超额回撤({run.code})" for run in runs] if len(runs) > 1 else ["超额回撤(策略-指数)"]
+        drawdown_excess_headers = ([f"超额回撤({self._benchmark_tag(runs, run)})" for run in runs]
+                                   if len(runs) > 1 else ["超额回撤(策略-指数)"])
         return [
             {"title": "2.1 回撤指标", "table": self._table(
                 ["指标", *benchmark_headers, "策略"], [
@@ -735,7 +747,8 @@ class StrategyBacktestReportService:
         metrics_list = self._run_metrics_list(runs)
         strategy = metrics_list[0]
         benchmark_headers = self._benchmark_headers(runs)
-        excess_row_suffixes = [f"({run.code})" for run in runs] if len(runs) > 1 else [""]
+        excess_row_suffixes = ([f"({self._benchmark_tag(runs, run)})" for run in runs]
+                               if len(runs) > 1 else [""])
         rows = [
             ["夏普比率",
              *[self._decimal(self._year_all(m.get("index_sharpe_ratios"), "sharpe_ratio")) for m in metrics_list],
@@ -870,7 +883,7 @@ class StrategyBacktestReportService:
         """构造六、超额收益分析章节的全部表格；数值按基准逐列展开。"""
         metrics_list = self._run_metrics_list(runs)
         multiple = len(runs) > 1
-        value_headers = [f"超额({run.code})" for run in runs] if multiple else ["数值"]
+        value_headers = [f"超额({self._benchmark_tag(runs, run)})" for run in runs] if multiple else ["数值"]
         annualized_list = [self._year_all(m.get("excess_returns"), "annualized_return_diff") for m in metrics_list]
         distribution_labels = ["<-2%", "-2%~0%", "0%~2%", "2%~5%", ">5%"]
         distribution_counts = [self._num_list(m.get("excess_distribution")) for m in metrics_list]
@@ -892,9 +905,11 @@ class StrategyBacktestReportService:
         excess_rolling_rows = [self._excess_rolling_row(runs, months) for months in (1, 3, 6, 12)]
         if multiple:
             distribution_headers = [header for run in runs
-                                    for header in (f"月数({run.code})", f"占比({run.code})")]
+                                    for header in (f"月数({self._benchmark_tag(runs, run)})",
+                                                   f"占比({self._benchmark_tag(runs, run)})")]
             rolling_headers = ["滚动窗口", *[header for run in runs
-                                             for header in (f"平均超额({run.code})", f"正超额概率({run.code})")]]
+                                             for header in (f"平均超额({self._benchmark_tag(runs, run)})",
+                                                            f"正超额概率({self._benchmark_tag(runs, run)})")]]
         else:
             distribution_headers = ["月数", "占比"]
             rolling_headers = ["滚动窗口", "平均超额", "正超额概率"]
@@ -940,7 +955,8 @@ class StrategyBacktestReportService:
         metrics_list = self._run_metrics_list(runs)
         strategy = metrics_list[0]
         benchmark_headers = self._benchmark_headers(runs)
-        stage_excess_headers = [f"超额({run.code})" for run in runs] if len(runs) > 1 else ["超额"]
+        stage_excess_headers = ([f"超额({self._benchmark_tag(runs, run)})" for run in runs]
+                                if len(runs) > 1 else ["超额"])
         downturn_threshold = strategy.get("market_downturn_threshold")
         if downturn_threshold is None:
             downturn_threshold = MetricsRuntimeParamsDTO().market_downturn_threshold
@@ -1160,8 +1176,6 @@ class StrategyBacktestReportService:
         excess_series = []
         monthly_excess = []
         benchmark_annuals = []
-        # 同股不同比例时，图表标签只展示比例（与表格列头规则一致）。
-        same_code = len({run.code for run in runs}) <= 1
         for run in runs:
             run_result = run.result
             benchmark_nav = self._net_values(run_result.index_df, "index_return")
@@ -1174,16 +1188,13 @@ class StrategyBacktestReportService:
                 "daily_returns": daily_returns,
             })
             daily_panels.append({"label": run.label, "values": daily_returns})
-            percent = self._weight_percent_text(run.weight)
+            tag = self._benchmark_tag(runs, run)
             excess_series.append({
-                "label": (f"超额({percent}%)" if same_code else f"超额({run.code} {percent}%)")
-                         if len(runs) > 1 else "累计超额收益",
+                "label": f"超额({tag})" if len(runs) > 1 else "累计超额收益",
                 "values": run_result.excess_df["excess_return"].tolist(),
             })
             monthly_excess.append({
-                "title": (f"月度超额分布（{percent}%）" if same_code
-                          else f"月度超额分布（{run.code} {percent}%）")
-                         if len(runs) > 1 else "月度超额分布",
+                "title": f"月度超额分布（{tag}）" if len(runs) > 1 else "月度超额分布",
                 "values": [self._num(item.get("monthly_excess_return_diff")) for item in
                            run_result.metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
             })

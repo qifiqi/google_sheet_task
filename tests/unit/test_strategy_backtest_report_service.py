@@ -337,35 +337,49 @@ def test_weight_allocation_shows_strategy_rows_and_index_ratio_rows():
 
 def test_return_section_expands_columns_per_benchmark():
     runs = [
-        SimpleNamespace(code="AAA.US", label="指数(AAA.US)", result=SimpleNamespace(metrics={
+        SimpleNamespace(code="AAA.US", weight=1, label="指数(AAA.US 100%)", result=SimpleNamespace(metrics={
             "index_cumulative_return": 0.10, "start_cumulative_return": 0.30,
             "excess_cumulative_return": 0.20})),
-        SimpleNamespace(code="BBB.US", label="指数(BBB.US)", result=SimpleNamespace(metrics={
+        SimpleNamespace(code="BBB.US", weight=0.3, label="指数(BBB.US 30%)", result=SimpleNamespace(metrics={
             "index_cumulative_return": 0.05, "start_cumulative_return": 0.30,
             "excess_cumulative_return": 0.25})),
     ]
 
     core = StrategyBacktestReportService()._return_section(runs)[0]["table"]
 
-    assert core["columns"] == ["指标", "指数(AAA.US)", "指数(BBB.US)", "策略", "超额(AAA.US)", "超额(BBB.US)"]
+    assert core["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略",
+                               "超额(AAA.US 100%)", "超额(BBB.US 30%)"]
     assert core["rows"][0] == ["累计回报率", "10.00%", "5.00%", "30.00%", "20.00%", "25.00%"]
+
+
+def test_excess_headers_follow_same_code_ratio_rule():
+    """同股不同比例只展示比例；异股展示 代码 比例%，与指数列头对称。"""
+    service = StrategyBacktestReportService()
+    runs_same = [SimpleNamespace(code="QQQ.US", weight=0.5),
+                 SimpleNamespace(code="QQQ.US", weight=1)]
+    runs_mixed = [SimpleNamespace(code="QQQ.US", weight=1),
+                  SimpleNamespace(code="SOXX.US", weight=0.3)]
+
+    assert service._excess_headers(runs_same) == ["超额(50%)", "超额(100%)"]
+    assert service._excess_headers(runs_mixed) == ["超额(QQQ.US 100%)", "超额(SOXX.US 30%)"]
+    assert service._excess_headers(runs_same[:1]) == ["超额(策略-指数)"]
 
 
 def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
     runs = [
-        SimpleNamespace(code="AAA.US", label="指数(AAA.US)", result=SimpleNamespace(metrics={
+        SimpleNamespace(code="AAA.US", weight=1, label="指数(AAA.US 100%)", result=SimpleNamespace(metrics={
             "excess_sharpe": 0.5, "excess_sortino": 0.7})),
-        SimpleNamespace(code="BBB.US", label="指数(BBB.US)", result=SimpleNamespace(metrics={
+        SimpleNamespace(code="BBB.US", weight=0.3, label="指数(BBB.US 30%)", result=SimpleNamespace(metrics={
             "excess_sharpe": 0.6, "excess_sortino": 0.8})),
     ]
 
     table = StrategyBacktestReportService()._risk_adjusted_section(runs)[0]["table"]
 
-    assert table["columns"] == ["指标", "指数(AAA.US)", "指数(BBB.US)", "策略"]
+    assert table["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略"]
     assert [row[0] for row in table["rows"]] == [
         "夏普比率", "卡玛比率", "索提诺比率",
-        "超额夏普比率(AAA.US)", "超额索提诺比率(AAA.US)",
-        "超额夏普比率(BBB.US)", "超额索提诺比率(BBB.US)",
+        "超额夏普比率(AAA.US 100%)", "超额索提诺比率(AAA.US 100%)",
+        "超额夏普比率(BBB.US 30%)", "超额索提诺比率(BBB.US 30%)",
     ]
     # 超额行的指数列占位随基准数补足，行宽与列数严格一致。
     assert all(len(row) == 4 for row in table["rows"])
@@ -461,11 +475,11 @@ def _rich_metrics(tag: float) -> dict:
 
 
 def _benchmark_runs_for_alignment(tag_a=0.0, tag_b=None):
-    runs = [SimpleNamespace(code="AAA.US", label="指数(AAA.US)",
+    runs = [SimpleNamespace(code="AAA.US", weight=1, label="指数(AAA.US 100%)",
                             result=SimpleNamespace(metrics=_rich_metrics(tag_a), index_df=pd.DataFrame(
                                 {"date": pd.to_datetime(["2024-01-02", "2024-01-03"])})))]
     if tag_b is not None:
-        runs.append(SimpleNamespace(code="BBB.US", label="指数(BBB.US)",
+        runs.append(SimpleNamespace(code="BBB.US", weight=0.3, label="指数(BBB.US 30%)",
                                     result=SimpleNamespace(metrics=_rich_metrics(tag_b), index_df=pd.DataFrame(
                                         {"date": pd.to_datetime(["2024-01-02", "2024-01-03"])}))))
     return runs
