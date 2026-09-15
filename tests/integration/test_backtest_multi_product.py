@@ -1160,6 +1160,21 @@ def test_global_preview_word_export_uses_current_ratio_portfolio_returns(app_fac
 
         assert response.status_code == 200
         assert [product["ratio"] for product in captured["payload"].products] == ["50", "50"]
+        # 组合指数开关默认开启，且经任务重建载荷后仍随请求透传。
+        assert captured["payload"].include_composite_benchmark is True
+
+        toggle_response = client.post(
+            "/api/exports/backtest-reports/word",
+            json={
+                "report_type": "RPT-M",
+                "task_id": task.id,
+                "group_key": "0",
+                "ratios": [{"ratio": 50}, {"ratio": 50}],
+                "include_composite_benchmark": False,
+            },
+        )
+        assert toggle_response.status_code == 200
+        assert captured["payload"].include_composite_benchmark is False
 
 
 def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_factory, monkeypatch):

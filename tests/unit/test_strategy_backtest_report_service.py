@@ -16,9 +16,10 @@ def test_single_product_report_defaults_weight_to_100_percent():
     service = StrategyBacktestReportService()
     request = type("Request", (), {"products": [], "weight_allocation": None, "index_benchmarks": []})()
 
-    allocation = service._weight_allocation(request, "RPT-S")
+    blocks = service._weight_allocation_blocks(request, "RPT-S")
 
-    assert allocation["rows"] == [["单品", "", "100.00%", "-", "-"]]
+    assert [block["title"] for block in blocks] == ["策略权重"]
+    assert blocks[0]["rows"] == [["单品", "", "100.00%", "-", "-"]]
 
 
 def test_single_product_report_defaults_missing_product_weight_to_100_percent():
@@ -29,9 +30,9 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
         "index_benchmarks": [],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-S")
+    blocks = service._weight_allocation_blocks(request, "RPT-S")
 
-    assert allocation["rows"] == [["SCHD.US", "SCHD.US", "100.00%", "-", "-"]]
+    assert blocks[0]["rows"] == [["SCHD.US", "SCHD.US", "100.00%", "-", "-"]]
 
 
 def test_weight_allocation_adds_percent_suffix():
@@ -42,9 +43,9 @@ def test_weight_allocation_adds_percent_suffix():
         "index_benchmarks": [],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-S")
+    blocks = service._weight_allocation_blocks(request, "RPT-S")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "100%", "-", "-"]]
+    assert blocks[0]["rows"] == [["600519", "贵州茅台", "100%", "-", "-"]]
 
 
 def test_weight_allocation_drops_zero_ratio_products():
@@ -58,12 +59,12 @@ def test_weight_allocation_drops_zero_ratio_products():
         "index_benchmarks": [],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-M")
+    blocks = service._weight_allocation_blocks(request, "RPT-M")
 
-    assert allocation["rows"] == [["600519", "贵州茅台", "50%", "-", "-"]]
+    assert blocks[0]["rows"] == [["600519", "贵州茅台", "50%", "-", "-"]]
 
 
-def test_etf_total_assets_text_abbreviates_large_values(monkeypatch):
+def test_etf_total_assets_detail_abbreviates_large_values(monkeypatch):
     """资产总数按中文习惯缩写（亿/万），避免长数字撑爆表格列宽。"""
     cases = [
         (488981004288, "4889.81亿"),
@@ -73,12 +74,12 @@ def test_etf_total_assets_text_abbreviates_large_values(monkeypatch):
         (None, "-"),
     ]
     for value, expected in cases:
-        monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *a, **k: value)
-        assert StrategyBacktestReportService._etf_total_assets_text({"stock_code": "QQQ.US"}) == expected
+        monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *a, _v=value, **k: (_v, True))
+        assert StrategyBacktestReportService._etf_total_assets_detail({"stock_code": "QQQ.US"}) == (expected, True)
 
 
 def test_weight_allocation_fills_etf_total_assets_column():
-    """ETF资产总数列按代码标签回填；未提供的标的显示 "-"。"""
+    """资产总数列按代码标签回填；未提供的标的显示 "-"。"""
     service = StrategyBacktestReportService()
     request = type("Request", (), {
         "products": [
@@ -89,20 +90,36 @@ def test_weight_allocation_fills_etf_total_assets_column():
         "index_benchmarks": [],
     })()
 
-    allocation = service._weight_allocation(
+    blocks = service._weight_allocation_blocks(
         request, "RPT-M",
-        volumes={"600519": "2,000,000", "0700.HK": "3,000,000"},
+        amounts={"600519": "10.00亿", "0700.HK": "300.00亿"},
         assets={"600519": "1,234,567,890"},
     )
 
-    assert allocation["columns"] == ["股票代码", "股票名", "权重", "平均成交量(股)", "ETF资产总数"]
-    assert allocation["rows"] == [
-        ["600519", "贵州茅台", "50%", "2,000,000", "1,234,567,890"],
-        ["0700.HK", "腾讯控股", "50%", "3,000,000", "-"],
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "ETF资产总数"]
+    assert blocks[0]["rows"] == [
+        ["600519", "贵州茅台", "50%", "10.00亿", "1,234,567,890"],
+        ["0700.HK", "腾讯控股", "50%", "300.00亿", "-"],
     ]
 
 
-def test_weight_allocation_fills_average_volume_by_code_label():
+def test_weight_allocation_uses_net_asset_header_when_all_stocks():
+    """全部为个股（无任何 ETF 资产值）时，资产列头改为 净资产。"""
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [{"stock_code": "AAPL.US", "product_name": "苹果", "ratio": "100"}],
+        "weight_allocation": None,
+        "index_benchmarks": [],
+    })()
+
+    blocks = service._weight_allocation_blocks(
+        request, "RPT-S", assets_header="净资产",
+    )
+
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "净资产"]
+
+
+def test_weight_allocation_fills_average_amount_by_code_label():
     service = StrategyBacktestReportService()
     request = type("Request", (), {
         "products": [
@@ -113,14 +130,18 @@ def test_weight_allocation_fills_average_volume_by_code_label():
         "index_benchmarks": [_entry("0700.HK")],
     })()
 
-    allocation = service._weight_allocation(
-        request, "RPT-M", {"600519": "2,000,000", "0700.HK (指数)": "5,000,000"}
+    blocks = service._weight_allocation_blocks(
+        request, "RPT-M", {"600519": "10.00亿", "0700.HK (指数)": "150.00亿"}
     )
 
-    assert allocation["rows"] == [
-        ["600519", "贵州茅台", "50%", "2,000,000", "-"],
+    assert [block["title"] for block in blocks] == ["策略权重", "指数权重"]
+    assert blocks[0]["rows"] == [
+        ["600519", "贵州茅台", "50%", "10.00亿", "-"],
         ["0700.HK", "腾讯控股", "50%", "-", "-"],
-        ["0700.HK (指数)", "腾讯控股", "100%", "5,000,000", "-"],
+    ]
+    # 指数表代码列不再重复 "(指数)" 后缀。
+    assert blocks[1]["rows"] == [
+        ["0700.HK", "腾讯控股", "100%", "150.00亿", "-"],
     ]
 
 
@@ -210,12 +231,14 @@ def test_weight_allocation_marks_selected_index_from_list():
         "index_benchmarks": [_entry("BBB.US")],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-M")
+    blocks = service._weight_allocation_blocks(request, "RPT-M")
 
-    assert allocation["rows"] == [
+    assert blocks[0]["rows"] == [
         ["AAA.US", "A", "50%", "-", "-"],
         ["BBB.US", "B", "50%", "-", "-"],
-        ["BBB.US (指数)", "B", "100%", "-", "-"],
+    ]
+    assert blocks[1]["rows"] == [
+        ["BBB.US", "B", "100%", "-", "-"],
     ]
 
 
@@ -248,6 +271,7 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
         "report_type": "RPT-M",
         "runtime_params": {},
         "index_benchmarks": [_entry("0700.HK")],
+        "include_composite_benchmark": False,
         "products": [{
             "stock_code": "0700.HK",
             "returns": [
@@ -277,6 +301,7 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
         "report_type": "RPT-M",
         "runtime_params": {},
         "index_benchmarks": [_entry("AAA.US"), _entry("BBB.US")],
+        "include_composite_benchmark": False,
         "products": [
             {"stock_code": "AAA.US", "returns": [{"date": "2024-01-02", "index_return": 0.11, "start_return": 0.01}]},
             {"stock_code": "BBB.US", "returns": [{"date": "2024-01-02", "index_return": 0.22, "start_return": 0.02}]},
@@ -288,8 +313,59 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
     assert len(stub.calls) == 2
     assert [run.label for run in runs] == ["指数(AAA.US 100%)", "指数(BBB.US 100%)"]
     assert stub.calls[0][0]["index_return"] == 0.11
-    assert stub.calls[1][0]["index_return"] == 0.22
+
+
+def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
+    """组合指数开关默认开启：组合列在前且列头为无标记的"指数"。
+
+    自定义满配单条本会得到裸"指数"列头，与组合列撞名时改用 指数(代码) 消歧。
+    """
+    service = StrategyBacktestReportService()
+    combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "runtime_params": {},
+        "index_benchmarks": [_entry("0700.HK")],
+        "products": [{
+            "stock_code": "0700.HK",
+            "returns": [{"date": "2024-01-02", "index_return": 0.20, "start_return": 0.02}],
+        }],
+    })()
+
+    runs = service._build_benchmark_runs(request)
+
+    assert [run.label for run in runs] == ["指数", "指数(0700.HK)"]
+    assert runs[0].code is None and runs[1].code == "0700.HK"
+    # 组合列吃原始组合收益（index_return=0.30），自定义列吃注入缩放序列（0.20）。
+    assert stub.calls[0][0]["index_return"] == 0.30
+    assert stub.calls[1][0]["index_return"] == 0.20
+    # start_return 两列都用组合收益（策略指标各次运行一致）。
     assert stub.calls[0][0]["start_return"] == stub.calls[1][0]["start_return"] == 0.10
+
+
+def test_build_benchmark_runs_composite_falls_back_when_disabled_without_custom(monkeypatch):
+    """开关关闭且未选自定义指数时回落组合指数，保证报告恒有基准。"""
+    service = StrategyBacktestReportService()
+    combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
+    monkeypatch.setattr(service, "_combine_product_returns", lambda request: combined)
+    stub = _StubAnalyzer()
+    monkeypatch.setattr(report_module, "performance_analyzer", stub)
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "runtime_params": {},
+        "index_benchmarks": [],
+        "include_composite_benchmark": False,
+        "products": [],
+    })()
+
+    runs = service._build_benchmark_runs(request)
+
+    assert [run.label for run in runs] == ["指数"]
+    assert runs[0].code is None
+    assert len(stub.calls) == 1
 
 
 def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
@@ -306,6 +382,7 @@ def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
         "report_type": "RPT-M",
         "runtime_params": {},
         "index_benchmarks": [_entry("QQQ.US", ratio=50)],
+        "include_composite_benchmark": False,
         "products": [{
             "stock_code": "QQQ.US",
             "returns": [
@@ -336,6 +413,7 @@ def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatc
         "report_type": "RPT-M",
         "runtime_params": {},
         "index_benchmarks": [_entry("QQQ.US", ratio=50), _entry("QQQ.US", ratio=100)],
+        "include_composite_benchmark": False,
         "products": [{
             "stock_code": "QQQ.US",
             "returns": [{"date": "2024-01-02", "index_return": 0.10, "start_return": 0.01}],
@@ -352,10 +430,10 @@ def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatc
 
 
 def test_weight_allocation_shows_strategy_rows_and_index_ratio_rows():
-    """无后缀行 = 策略权重；(指数) 行 = 指数自身的比例权重（真实值）。
+    """策略表 = 策略权重；指数表 = 指数自身的比例权重（真实值）。
 
     策略比例为 0 的产品不进入策略行；被选为指数的标的按其比例权重
-    以 "(指数)" 行展示（含与策略同股的情况，如 QQQ 30% 与 QQQ 100%）。
+    展示在指数表（含与策略同股的情况，如 QQQ 30% 与 QQQ 100%）。
     """
     service = StrategyBacktestReportService()
     request = type("Request", (), {
@@ -367,12 +445,16 @@ def test_weight_allocation_shows_strategy_rows_and_index_ratio_rows():
         "index_benchmarks": [_entry("QQQ.US"), _entry("SOXX.US", 30)],
     })()
 
-    allocation = service._weight_allocation(request, "RPT-M")
+    blocks = service._weight_allocation_blocks(request, "RPT-M")
 
-    assert allocation["rows"] == [
+    assert blocks[0]["title"] == "策略权重"
+    assert blocks[0]["rows"] == [
         ["QQQ.US", "纳指ETF", "30%", "-", "-"],
-        ["QQQ.US (指数)", "纳指ETF", "100%", "-", "-"],
-        ["SOXX.US (指数)", "半导体ETF", "30%", "-", "-"],
+    ]
+    assert blocks[1]["title"] == "指数权重"
+    assert blocks[1]["rows"] == [
+        ["QQQ.US", "纳指ETF", "100%", "-", "-"],
+        ["SOXX.US", "半导体ETF", "30%", "-", "-"],
     ]
 
 
@@ -396,14 +478,28 @@ def test_return_section_expands_columns_per_benchmark():
 def test_excess_headers_follow_same_code_ratio_rule():
     """同股不同比例只展示比例；异股展示 代码 比例%，与指数列头对称。"""
     service = StrategyBacktestReportService()
-    runs_same = [SimpleNamespace(code="QQQ.US", weight=0.5),
-                 SimpleNamespace(code="QQQ.US", weight=1)]
-    runs_mixed = [SimpleNamespace(code="QQQ.US", weight=1),
-                  SimpleNamespace(code="SOXX.US", weight=0.3)]
+    runs_same = [SimpleNamespace(code="QQQ.US", weight=0.5, label="指数(50%)"),
+                 SimpleNamespace(code="QQQ.US", weight=1, label="指数(100%)")]
+    runs_mixed = [SimpleNamespace(code="QQQ.US", weight=1, label="指数(QQQ.US 100%)"),
+                  SimpleNamespace(code="SOXX.US", weight=0.3, label="指数(SOXX.US 30%)")]
 
     assert service._excess_headers(runs_same) == ["超额(50%)", "超额(100%)"]
     assert service._excess_headers(runs_mixed) == ["超额(QQQ.US 100%)", "超额(SOXX.US 30%)"]
     assert service._excess_headers(runs_same[:1]) == ["超额(策略-指数)"]
+
+
+def test_excess_headers_omit_marker_for_composite_run():
+    """组合指数的派生列头不带任何标记：超额列为裸"超额"，与"指数"列头对称。"""
+    service = StrategyBacktestReportService()
+    runs = [SimpleNamespace(code=None, weight=1, label="指数"),
+            SimpleNamespace(code="QQQ.US", weight=1, label="指数(QQQ.US)")]
+
+    assert service._excess_headers(runs) == ["超额", "超额(QQQ.US)"]
+    assert service._tagged_header("超额回撤", runs, runs[0]) == "超额回撤"
+    assert service._tagged_header("月数", runs, runs[0]) == "月数"
+    # 胜率列的"跑赢"宾语不能省略，组合指数固定表述为"跑赢组合"。
+    assert service._benchmark_tag(runs, runs[0]) == ""
+    assert f"策略胜率(跑赢{service._benchmark_tag(runs, runs[0]) or '组合'})" == "策略胜率(跑赢组合)"
 
 
 def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
@@ -526,6 +622,64 @@ def _benchmark_runs_for_alignment(tag_a=0.0, tag_b=None):
     return runs
 
 
+def _all_stock_report_request():
+    return type("Request", (), {
+        "report_type": "RPT-M",
+        "title": "多基准报告",
+        "metadata": {},
+        "products": [
+            {"stock_code": "AAA.US", "product_name": "A", "ratio": "50"},
+            {"stock_code": "BBB.US", "product_name": "B", "ratio": "50"},
+        ],
+        "weight_allocation": None,
+        "index_benchmarks": [_entry("AAA.US"), _entry("BBB.US")],
+    })()
+
+
+def test_build_report_data_places_correlation_after_weight_tables(monkeypatch):
+    """相关系数热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
+    service = StrategyBacktestReportService()
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
+    # 资产值全部缺失（视为个股）时列头为 净资产。
+    monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
+    correlation_image = {
+        "type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c",
+    }
+
+    report_data = service._build_report_data(
+        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02), correlation_image,
+    )
+
+    blocks = report_data["blocks"]
+    assert [(block["type"], block.get("title")) for block in blocks[:4]] == [
+        ("metadata", None),
+        ("table", "策略权重"),
+        ("table", "指数权重"),
+        ("image", "权重日涨跌幅相关系数"),
+    ]
+    # 后续仍是各分析章节表格，热力图不得出现在图表区末尾。
+    assert blocks[4]["type"] == "heading"
+    assert all(not (block["type"] == "image" and block.get("title") == "权重日涨跌幅相关系数")
+               for block in blocks[4:])
+
+
+def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
+    """任一标的取到 ETF 资产值（totalAssets 命中）时，列头保持 ETF资产总数。"""
+    service = StrategyBacktestReportService()
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
+    monkeypatch.setattr(
+        report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (123.0, True),
+    )
+
+    report_data = service._build_report_data(
+        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02),
+    )
+
+    weight_blocks = [block for block in report_data["blocks"] if block["type"] == "table"][:2]
+    assert all(block["columns"][3] == "平均成交额" for block in weight_blocks)
+    assert all(block["columns"][4] == "ETF资产总数" for block in weight_blocks)
+
+
 def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
     """N=1/N=2 全部 table 区块 rows 与 columns 列数一致（生产模板校验器口径）。
 
@@ -537,7 +691,7 @@ def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
     # ETF 资产总数为外网络取数，列对齐测试统一桩掉（列宽覆盖不受影响）。
-    monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *args, **kwargs: None)
+    monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
     request = type("Request", (), {
         "report_type": "RPT-M",
         "title": "多基准报告",
@@ -706,8 +860,8 @@ def test_correlation_matrix_skipped_without_products():
     assert StrategyBacktestReportService()._correlation_matrix(request, result) is None
 
 
-def test_weight_metric_texts_single_fetch_covers_volume_and_amount(monkeypatch):
-    """单次 K 线取数同时产出平均成交量与平均成交额；同标的策略/指数行共享。"""
+def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
+    """单次 K 线取数产出平均成交额；同标的策略/指数行共享。"""
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
         _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
@@ -718,13 +872,8 @@ def test_weight_metric_texts_single_fetch_covers_volume_and_amount(monkeypatch):
     ])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    volumes, amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
 
-    assert volumes == {
-        "600519.SS": "200.00万",
-        "0700.HK": "200.00万",
-        "0700.HK (指数)": "200.00万",
-    }
     assert amounts == {
         "600519.SS": "10.00亿",
         "0700.HK": "10.00亿",
@@ -738,6 +887,24 @@ def test_weight_metric_texts_single_fetch_covers_volume_and_amount(monkeypatch):
     ]
 
 
+def test_weight_metric_texts_falls_back_to_volume_times_close(monkeypatch):
+    """K 线行缺成交额（如 Yahoo 源）时按 成交量×收盘价 逐行估算。"""
+    request = _correlation_request([
+        _cumulative_product("TLT.US", "TLT", "100", [0.01, 0.02, -0.015, 0.005]),
+    ])
+    stub = _StubKlineService(rows=[
+        {"volume": 1_000_000, "close": 90.0},
+        {"volume": 3_000_000, "close": 100.0},
+        {"volume": 2_000_000, "close": None},
+    ])
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
+
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+
+    # 仅取成交量与收盘价都齐全的行：(1_000_000×90 + 3_000_000×100)/2 = 1.95亿。
+    assert amounts == {"TLT.US": "1.95亿"}
+
+
 def test_weight_metric_texts_degrades_to_dash_when_kline_fails(monkeypatch):
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
@@ -745,8 +912,7 @@ def test_weight_metric_texts_degrades_to_dash_when_kline_fails(monkeypatch):
     stub = _StubKlineService(error=RuntimeError("kline unavailable"))
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    volumes, amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
 
-    assert volumes == {"600519.SS": "-"}
     assert amounts == {"600519.SS": "-"}
 

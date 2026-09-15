@@ -504,11 +504,17 @@ function exportReturnSeries() {
 // }
 
 
-// ===== 导出 Word 选股票弹窗（多选+比例，可为空；为空时后端用组合index） =====
+// ===== 导出 Word 选股票弹窗（多选+比例；组合指数是否并列由开关控制，默认开启） =====
 // 语义 A：每个基准条目 = {code, ratio}，基准序列按 比例×指数日收益+现金 缩放；
 // 同一产品可用不同比例添加多条（如 QQQ 50% 与 QQQ 100% 两条基准列）。
 const benchmarkEntries = [];
 const DEFAULT_BENCHMARK_RATIO = 100;
+
+// 组合指数开关：默认开启；开启时全部产品按比例组合为一个基准列，列头固定"指数"。
+function includeCompositeEnabled() {
+    const toggle = document.getElementById('includeCompositeBenchmark');
+    return !toggle || toggle.checked;
+}
 
 // ---- 公共导出函数（不弹窗时也用它）----
 async function exportWordDirectly(benchmarks) {
@@ -519,6 +525,7 @@ async function exportWordDirectly(benchmarks) {
             task_id: TASK_ID,
             group_key: activeGroupKey,
             ratios,
+            include_composite_benchmark: includeCompositeEnabled(),
         };
         if (Array.isArray(benchmarks) && benchmarks.length) {
             payload.index_benchmarks = benchmarks;
@@ -600,8 +607,8 @@ function renderStockList() {
     }
 
     let html = `
-        <div class="stock-option-row stock-default-row ${benchmarkEntries.length ? '' : 'is-selected'}">
-            <span class="flex-grow-1 text-body-secondary">不指定默认使用组合index</span>
+        <div class="stock-option-row stock-default-row">
+            <span class="flex-grow-1 text-body-secondary">组合指数由上方开关控制；未选股票时始终包含组合指数</span>
         </div>
     `;
 
@@ -648,7 +655,7 @@ function renderSelectedBenchmarks() {
         return;
     }
     if (!benchmarkEntries.length) {
-        container.innerHTML = '<div class="selected-empty">未选择基准，默认使用组合index（点击下方股票添加）</div>';
+        container.innerHTML = '<div class="selected-empty">未选择自定义指数（点击下方股票添加）；组合指数由上方开关控制</div>';
         return;
     }
     container.innerHTML = benchmarkEntries.map((entry, index) => `

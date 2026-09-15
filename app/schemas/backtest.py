@@ -62,6 +62,9 @@ class StrategyBacktestReportSchema(APIModel):
     weighting_mode: str = "daily_compound"
     # 市场阶段阈值交给 performance_analysis 的运行参数对象。
     runtime_params: dict[str, Any] = {}
+    # RPT-M 组合指数开关：是否把全部产品按比例组合作为一个基准列（列头固定为
+    # "指数"，无任何标记）；关闭且未选自定义指数时仍回落组合，保证报告恒有基准。
+    include_composite_benchmark: bool = True
     # group_key 形态专用字段（仅 export_service 消费，generate_word 不使用）。
     group_key: str | None = None
     ratios: Any = None
