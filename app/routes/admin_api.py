@@ -9,7 +9,9 @@ from flask import Blueprint, current_app, g, jsonify, request
 from app.services.model_summary_service import model_summary_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.extensions import limiter, rate_limit_config
-from app.schemas.admin import RebuildSchema
+from app.schemas.admin import RebuildSchema, WordExportCacheClearSchema
+from app.services.export_service import get_word_export_cache_ttl_seconds
+from app.utils.ttl_cache import clear_word_export_cache, list_word_export_cache
 from app.utils.request_parsing import parse_body
 from app.utils.api_response import success
 from app.utils.auth import admin_required, login_required
@@ -58,6 +60,28 @@ def rebuild_model_summary_api():
         created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
     )
     return success(data={'job': job})
+
+@admin_api_bp.route('/api/word-export-cache')
+@admin_required
+def word_export_cache_list_api():
+    """列出 Word 报告导出缓存条目（哈希键、任务/标的信息、大小与存活状态）。"""
+    ttl_seconds = get_word_export_cache_ttl_seconds()
+    return success(data={
+        'ttl_minutes': ttl_seconds // 60,
+        'entries': list_word_export_cache(ttl_seconds),
+    })
+
+@admin_api_bp.route('/api/word-export-cache/clear', methods=['POST'])
+@admin_required
+def word_export_cache_clear_api():
+    """清理 Word 报告导出缓存：默认全清，可按 task_id 定向或仅清过期条目。"""
+    data = parse_body(WordExportCacheClearSchema)
+    removed = clear_word_export_cache(task_id=data.task_id, only_expired=data.only_expired)
+    logger.info(
+        "清理 Word 导出缓存: task_id=%s only_expired=%s removed=%s",
+        data.task_id, data.only_expired, removed,
+    )
+    return success(data={'removed': removed})
 
 @admin_api_bp.route('/api/model-summary/rebuild/status')
 @login_required

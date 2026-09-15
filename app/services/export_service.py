@@ -33,11 +33,14 @@ from app.services.export_workbook_service import (
     build_task_export,
     sanitize_export_filename,
 )
+from app.services.config_manager import get_config_manager
 from app.services.model_summary_service import model_summary_service
 from app.services.task import task_manager
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
 from app.utils.logger import get_logger
+from app.utils.ttl_cache import WORD_EXPORT_TTL_SECONDS, get_or_build_word_export
+from app.utils.value_parser import parse_int
 
 logger = get_logger(__name__)
 
@@ -46,6 +49,22 @@ DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.
 ZIP_MIMETYPE = "application/zip"
 CSV_MIMETYPE = "text/csv; charset=utf-8"
 MAX_BATCH_TASKS = 10
+
+# Word 导出缓存 TTL 的系统配置键（分钟）；缺省回落到代码默认值。
+WORD_EXPORT_CACHE_TTL_CONFIG_KEY = "word_export_cache_ttl_minutes"
+
+
+def get_word_export_cache_ttl_seconds() -> int:
+    """Word 导出缓存 TTL（秒），走系统配置 word_export_cache_ttl_minutes。
+
+    <=0 表示关闭缓存（每次导出都重新生成）；读不到配置时用代码默认值。
+    """
+    default_minutes = WORD_EXPORT_TTL_SECONDS // 60
+    minutes = parse_int(
+        get_config_manager().get_config(WORD_EXPORT_CACHE_TTL_CONFIG_KEY, default_minutes),
+        default=default_minutes,
+    )
+    return (minutes if minutes is not None else default_minutes) * 60
 
 
 @dataclass(frozen=True)
@@ -287,6 +306,11 @@ class ExportService:
 
         请求边界校验由路由层 parse_body 完成；RPT-M 在此按任务构建
         products 载荷后再次过 Schema，generate_word 只接收校验后的模型。
+        相同查询条件（展开后的有效载荷一致）在 TTL 内直接回放缓存文件，
+        跳过指标计算与图表渲染；缓存落盘 data/word_export_cache/，重启后
+        依然有效。TTL 走系统配置 word_export_cache_ttl_minutes（分钟，
+        <=0 关闭缓存），缓存条目带 title/task_id/stock_codes 元数据，
+        支持管理端按任务定向清理。
         """
         payload = report_request
         if report_request.report_type == "RPT-M":
@@ -307,9 +331,28 @@ class ExportService:
 
         if report_request.index_benchmarks:
             payload.index_benchmarks = report_request.index_benchmarks
+        # 组合指数开关随请求透传：按任务构建的 word_payload 不含该字段，
+        # 不显式回填会丢失前端选择。
+        payload.include_composite_benchmark = report_request.include_composite_benchmark
 
-        filename, buffer = strategy_backtest_report_service.generate_word(payload)
-        return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
+        codes = {
+            str(product.get("stock_code") or "").strip()
+            for product in payload.products if isinstance(product, dict)
+        }
+        codes |= {str(item.stock_code or "").strip() for item in payload.index_benchmarks}
+        codes.discard("")
+        cache_meta = {
+            "title": payload.title,
+            "task_id": report_request.task_id,
+            "stock_codes": sorted(codes),
+        }
+        filename, buffer, file_size = get_or_build_word_export(
+            payload,
+            lambda: strategy_backtest_report_service.generate_word(payload),
+            ttl_seconds=get_word_export_cache_ttl_seconds(),
+            meta=cache_meta,
+        )
+        return GeneratedFile(filename, DOCX_MIMETYPE, buffer, file_size)
 
     def _get_task(self, task_id: str) -> Task:
         """按 ID 获取任务（实体供导出构造器消费）。"""

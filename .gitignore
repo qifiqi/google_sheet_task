@@ -121,6 +121,7 @@ data/token*.json
 data/google_sheet_tokens/*.json
 data/temp_token_*.json
 data/tasks.json
+data/word_export_cache/
 logs/*.log
 *.db
 *.sqlite

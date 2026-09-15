@@ -246,6 +246,10 @@ def init_config():
             'value': 10,
             'description': '导出端点限流：每分钟每用户次数（0=不限）。',
         },
+        'word_export_cache_ttl_minutes': {
+            'value': 10,
+            'description': 'Word 报告导出缓存时长（分钟）：相同查询条件在期内直接回放缓存文件，调大可延长缓存；0 或负数关闭缓存。',
+        },
         'watchdog_enabled': {
             'value': True,
             'description': '是否启用任务看门狗线程。',
