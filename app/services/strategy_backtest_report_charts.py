@@ -162,7 +162,10 @@ def generate_correlation_heatmap(
     FigureCanvasAgg(figure)
     axis = figure.subplots()
     values = [[float("nan") if cell is None else float(cell) for cell in row] for row in matrix]
-    image = axis.imshow(ma.masked_invalid(values), cmap=CORRELATION_CMAP, vmin=-1.0, vmax=1.0)
+    # origin="lower" 让矩阵第 0 行画在 y 轴最下方，两轴均从左下角开始排列。
+    image = axis.imshow(
+        ma.masked_invalid(values), cmap=CORRELATION_CMAP, vmin=-1.0, vmax=1.0, origin="lower",
+    )
     axis.set_xticks(range(count), labels, rotation=45, ha="right", fontproperties=_font(8))
     axis.set_yticks(range(count), labels, fontproperties=_font(8))
     axis.tick_params(colors=TEXT, length=0)
