@@ -113,7 +113,7 @@ def test_kline_dates_are_normalized_to_yyyy_mm_dd_before_range_filtering():
 
 def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
     service = KlineService(dfcf_api=_DfcfApi())
-    service.stock_client = type("Client", (), {
+    service.stock_api = type("Client", (), {
         "stock_data": type("Source", (), {"get_data_all_list": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not read"))})(),
         "stock_data_us": type("Source", (), {"get_data_all_list": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not read"))})(),
     })()
@@ -122,13 +122,13 @@ def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
     assert service.write_internal_kline_data([], stock_code="7203", market_type="jp", adjust_type="forward") == []
 
 
-def test_default_dfcf_source_uses_eastmoney_after_search():
+def test_dfcf_source_uses_eastmoney_after_search():
     dfcf = _DfcfApi()
     service = KlineService(dfcf_api=dfcf)
-    service.read_internal_kline_data = lambda **_kwargs: _rows("2024-01-01", "2024-01-31")
+    service.read_internal_kline_data = lambda **_kwargs: []
 
     rows = service.get_kline_data(
-        "600000", "cn", 100, start_date="2024-01-01", end_date="2024-01-31"
+        "600000", "cn", 100, data_source="dfcf", start_date="2024-01-01", end_date="2024-01-31"
     )
 
     assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
@@ -156,6 +156,7 @@ def test_external_source_is_normalized_and_persisted():
     dfcf = _DfcfApi()
     service = KlineService(dfcf_api=dfcf)
     persisted = []
+    service.read_internal_kline_data = lambda **_kwargs: []
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
     rows = service.get_kline_data("600000.SS", "cn", 100, data_source="dfcf")
@@ -261,6 +262,7 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
     _TdxClient.calls = []
     persisted = []
     service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: []
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
     rows = service.get_kline_data("600519.SS", "cn", 1, data_source="tdx", adjust_type="forward")
@@ -276,6 +278,7 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
 
 def test_tdx_source_rejects_non_cn_market():
     service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: []
 
     with pytest.raises(ValueError, match="仅支持 A股"):
         service.get_kline_data("AAPL", "en", 10, data_source="tdx")
@@ -292,6 +295,8 @@ def test_qq_source_passes_us_market_type_to_qq_api():
 
     qq_api = _QqApi()
     service = KlineService(dfcf_api=_DfcfApi(), qq_api=qq_api)
+    service.read_internal_kline_data = lambda **_kwargs: []
+    service.write_internal_kline_data = lambda rows, **kwargs: None
 
     rows = service.get_kline_data("AAPL.US", "en", 2, data_source="qq", exchange_market="105", stock_name="Apple")
 

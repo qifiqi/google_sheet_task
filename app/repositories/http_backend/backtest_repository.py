@@ -16,7 +16,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.repositories.sdk_client import SdkDuplicateKeyError, SdkNotFoundError
+from app.remote_api import RemoteApiDuplicateKeyError, RemoteApiNotFoundError
 
 
 _SUMMARY_GROUP = "param_task_result_summary_index"
@@ -47,9 +47,9 @@ class BacktestHttpRepository(HttpRepositoryBase):
         deleted = 0
         for record_id in ids:
             try:
-                self.client.call(group, "delete", {"id": self.normalize_id(record_id)})
+                self._controller(group).delete({"id": self.normalize_id(record_id)})
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 
@@ -89,15 +89,13 @@ class BacktestHttpRepository(HttpRepositoryBase):
 
     def get_task_result_pair(self, task_result_id):
         """(Task, TaskResult) 记录对（RemoteRecord 属性兼容 join 替代）。"""
-        result = self.client.call(
-            "param_task_results",
-            "get_info_by_id",
-            {"id": self.normalize_id(task_result_id)},
+        result = self.api.param_task_results.get_info_by_id(
+            {"id": self.normalize_id(task_result_id)}
         )
         if not isinstance(result, dict):
             return None
-        raw_task = self.client.call(
-            "param_tasks", "get_info_by_id", {"id": str(result.get("task_id"))}
+        raw_task = self.api.param_tasks.get_info_by_id(
+            {"id": str(result.get("task_id"))}
         )
         if not isinstance(raw_task, dict):
             return None
@@ -127,8 +125,8 @@ class BacktestHttpRepository(HttpRepositoryBase):
         if not matched_task_ids:
             return []
         if result_id:
-            row = self.client.call(
-                "param_task_results", "get_info_by_id", {"id": self.normalize_id(result_id)}
+            row = self.api.param_task_results.get_info_by_id(
+                {"id": self.normalize_id(result_id)}
             )
             if isinstance(row, dict) and row.get("task_id") in set(matched_task_ids) and row.get("success"):
                 return [RemoteRecord(dict(row))]
@@ -156,9 +154,7 @@ class BacktestHttpRepository(HttpRepositoryBase):
         for result in results:
             task_key = str(result.get("task_id"))
             if task_key not in task_cache:
-                raw_task = self.client.call(
-                    "param_tasks", "get_info_by_id", {"id": task_key}
-                )
+                raw_task = self.api.param_tasks.get_info_by_id({"id": task_key})
                 if not isinstance(raw_task, dict):
                     continue
                 task_cache[task_key] = RemoteRecord(dict(raw_task))
@@ -183,9 +179,7 @@ class BacktestHttpRepository(HttpRepositoryBase):
         for result in results:
             task_key = str(result.get("task_id"))
             if task_key not in task_cache:
-                raw_task = self.client.call(
-                    "param_tasks", "get_info_by_id", {"id": task_key}
-                )
+                raw_task = self.api.param_tasks.get_info_by_id({"id": task_key})
                 if not isinstance(raw_task, dict):
                     continue
                 task_cache[task_key] = RemoteRecord(dict(raw_task))
@@ -420,8 +414,8 @@ class BacktestHttpRepository(HttpRepositoryBase):
             return False
         payload = {"batch_id": batch_id, "cache_key": cache_key, **fields}
         try:
-            self.client.call(_CACHE_GROUP, "modify_or_add", dump_row(payload))
-        except SdkDuplicateKeyError:
+            self.api.param_backtest_product_result_cache.modify_or_add(dump_row(payload))
+        except RemoteApiDuplicateKeyError:
             return False
         return True
 
@@ -451,12 +445,12 @@ class BacktestHttpRepository(HttpRepositoryBase):
                 return True, None
             return False, existing.get("task_id")
         try:
-            self.client.call(_LOCK_GROUP, "modify_or_add", dump_row({
+            self.api.param_backtest_sheet_run_locks.modify_or_add(dump_row({
                 "spreadsheet_id": spreadsheet_id,
                 "task_id": task_id,
                 "task_type": task_type,
             }))
-        except SdkDuplicateKeyError:
+        except RemoteApiDuplicateKeyError:
             existing = self.get_lock(spreadsheet_id)
             return False, existing.get("task_id") if existing else None
         return True, None
@@ -471,8 +465,8 @@ class BacktestHttpRepository(HttpRepositoryBase):
         if lock.get("task_id") != task_id:
             return False
         try:
-            self.client.call(_LOCK_GROUP, "delete", {"id": self.normalize_id(lock["id"])})
-        except SdkNotFoundError:
+            self.api.param_backtest_sheet_run_locks.delete({"id": self.normalize_id(lock["id"])})
+        except RemoteApiNotFoundError:
             return False
         return True
 

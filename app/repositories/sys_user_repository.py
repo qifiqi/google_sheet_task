@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from app.repositories.sdk_client import SdkProtocolError, StockSdkAdapter
+from app.remote_api import RemoteApiProtocolError, StockApiClient, stock_api
 
 
 _ROLE_LIST_CACHE_TTL_SECONDS = 60
@@ -17,19 +17,20 @@ class SysUserRepository:
     """封装用户身份读取、路由表与登录接口，隔离远程响应格式。
 
     ``GetUserInfo`` / ``GetUserRoleList`` 的用户凭据只能走 ``Token``
-    请求头，因此身份读取方法都显式接收 ``token`` 参数，由 SDK 适配器
-    绑定到对应客户端；登录接口使用服务级客户端（不绑定用户 Token）。
+    请求头，因此身份读取方法都显式接收 ``token`` 参数，由统一调用器
+    路由到对应凭据的传输实例；登录接口使用服务级凭据（不绑定用户
+    Token）。
     """
 
-    def __init__(self, client: StockSdkAdapter | None = None) -> None:
-        """允许测试传入替身客户端，生产环境使用统一 SDK 适配器。"""
-        self.client = client or StockSdkAdapter()
+    def __init__(self, api: StockApiClient | None = None) -> None:
+        """允许测试传入替身调用器，生产环境使用统一远程调用器单例。"""
+        self.api = api or stock_api
         self._role_list_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}
         self._role_list_lock = threading.Lock()
 
     def get_by_id(self, user_id: int | str) -> dict[str, Any] | None:
         """按用户主键读取身份信息（旧网关模式兼容入口）。"""
-        raw = self.client.call("sys_user", "get_by_id", {"id": int(user_id)})
+        raw = self.api.sys_user.get_by_id({"id": int(user_id)})
         return dict(raw) if isinstance(raw, dict) else None
 
     def get_user_info(self, token: str) -> dict[str, Any] | None:
@@ -39,7 +40,7 @@ class SysUserRepository:
         字典（``userid`` / ``username`` / ``last_login_time`` 等），
         响应不是对象时返回 ``None``。
         """
-        raw = self.client.call("sys_user", "get_user_info", {}, token=token)
+        raw = self.api.sys_user.get_user_info(token=token)
         return dict(raw) if isinstance(raw, dict) else None
 
     def login(self, username: str, password: str) -> Any:
@@ -48,8 +49,8 @@ class SysUserRepository:
         返回原始 ``ret_obj``：可能是包含用户信息的对象，也可能是纯
         字符串 Token（不同远程版本返回结构不统一），由服务层提取。
         """
-        return self.client.call(
-            "sys_user", "login", {"user_name": username, "user_password": password}
+        return self.api.sys_user.login(
+            {"user_name": username, "user_password": password}
         )
 
     def get_user_role_list(
@@ -72,12 +73,7 @@ class SysUserRepository:
             if cached is not None:
                 return cached
 
-        raw = self.client.call(
-            "sys_user",
-            "get_user_role_list",
-            {},
-            token=token,
-        )
+        raw = self.api.sys_user.get_user_role_list(token=token)
         if raw is None:
             rows: list[dict[str, Any]] = []
         elif not isinstance(raw, list):

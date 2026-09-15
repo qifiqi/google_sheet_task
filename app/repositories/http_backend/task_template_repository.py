@@ -6,7 +6,7 @@ from typing import Any
 
 from app.exceptions import NotFoundError
 from app.repositories.http_backend.base import HttpRepositoryBase, dump_row
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class TaskTemplateHttpRepository(HttpRepositoryBase):
@@ -44,10 +44,10 @@ class TaskTemplateHttpRepository(HttpRepositoryBase):
 
     def get(self, template_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(template_id)}
+            raw = self.api.param_task_templates.get_info_by_id(
+                {"id": self.normalize_id(template_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self._normalize(dict(raw)) if isinstance(raw, dict) else None
 
@@ -78,7 +78,7 @@ class TaskTemplateHttpRepository(HttpRepositoryBase):
     def delete(self, template_id, commit=True):
         try:
             super().delete(template_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+from app.remote_api import RemoteApiError, RemoteApiOperationError
 from app.repositories.sys_user_repository import SysUserRepository
 
 
@@ -47,7 +47,7 @@ def _extract_login_token(ret_obj: Any) -> str:
     raise TokenIdentityError("远程登录接口未返回有效 Token")
 
 
-class TokenIdentityError(SdkDataAccessError):
+class TokenIdentityError(RemoteApiError):
     """Token 校验失败（无效、过期或远程身份服务不可用）。"""
 
 
@@ -112,13 +112,13 @@ class TokenIdentityService:
         """统一翻译数据层异常，保持鉴权调用方（401/503）契约不变。"""
         try:
             return func(*args, **kwargs)
-        except SdkOperationError as exc:
+        except RemoteApiOperationError as exc:
             if exc.code == _TOKEN_INVALID_CODE:
                 raise TokenInvalidError(str(exc) or "登录已失效, 请重新登陆") from exc
             raise TokenIdentityError(
                 f"远程身份接口失败 (ret_code={exc.code}): {exc}"
             ) from exc
-        except SdkDataAccessError as exc:
+        except RemoteApiError as exc:
             raise TokenIdentityError(f"远程身份服务暂不可用: {exc}") from exc
 
     def login(self, username: str, password: str) -> dict[str, Any]:
@@ -126,18 +126,18 @@ class TokenIdentityService:
 
         成功返回 ``{"token": str, "info": dict}``；账号密码被远程拒绝时抛
         :class:`TokenInvalidError`，远程服务不可用时抛
-        :class:`SdkDataAccessError`。
+        :class:`RemoteApiError`。
         """
         if not str(username or "").strip() or not str(password or ""):
             raise TokenInvalidError("请输入用户名和密码")
 
         try:
             ret_obj = self._repository.login(str(username).strip(), str(password))
-        except SdkOperationError as exc:
+        except RemoteApiOperationError as exc:
             # 远程以业务码表示账号密码错误等登录失败；消息原样透出。
             raise TokenInvalidError(str(exc) or "用户名或密码错误") from exc
-        except SdkDataAccessError as exc:
-            raise SdkDataAccessError(f"远程登录服务暂不可用: {exc}") from exc
+        except RemoteApiError as exc:
+            raise RemoteApiError(f"远程登录服务暂不可用: {exc}") from exc
 
         token = _extract_login_token(ret_obj)
         info = dict(ret_obj) if isinstance(ret_obj, dict) else {}

@@ -87,13 +87,13 @@ class BaseConfig:
 
     # Flask/前端使用的应用基础地址。
     BASE_URL = 'http://localhost:5000'
-    # 股票 SDK / K 线服务地址；为空时由 SDK 使用默认地址。
+    # 远程数据服务 DY.Stock.Api 服务地址；为空时远程数据访问不可用。
     STOCK_BASE_URL = ''
     # 数据访问后端开关（db-to-http 迁移，见 docs/design/db-to-http-migration/）：
     # http（默认，数据层全量走远程 DY.Stock.Api）或 db（本地 SQLAlchemy）。
     # 仅启动期读取，不做运行时热切换；db 模式为暂时保留的本地回退。
     DATA_ACCESS_MODE = os.environ.get('DATA_ACCESS_MODE', 'http').strip().lower()
-    # 远程数据服务凭据与超时（app/repositories/sdk_client.py 消费）。
+    # 远程数据服务凭据与超时（app/remote_api/client.py 统一调用器消费）。
     # Token 只能来自环境变量/密钥服务，禁止写入源码。
     STOCK_API_TOKEN = os.environ.get('STOCK_API_TOKEN', '')
     STOCK_API_TIMEOUT = float(os.environ.get('STOCK_API_TIMEOUT', '10'))
@@ -136,8 +136,8 @@ class BaseConfig:
         )
         cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
-        # 股票 SDK(StockClient/KlineService) 的服务地址，单一来源：环境变量 STOCK_BASE_URL。
-        # 未配置时保持空串，由 stock_sdk 使用其默认地址。
+        # 远程数据服务 DY.Stock.Api（app/remote_api 统一调用器）的服务地址，
+        # 单一来源：环境变量 STOCK_BASE_URL；未配置时远程数据访问不可用。
         cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
         # 主服务 SSO 配置：环境变量可覆盖默认值（多环境部署指向不同主服务）。
         cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)

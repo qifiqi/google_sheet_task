@@ -3,7 +3,7 @@
 鉴权模式（单 Token 子服务模式，2026-09 启用）:
 
 - 登录: 静态模板前端将账号密码提交到 ``POST /api/auth/login``，后端经
-  stock_sdk 代理远程 ``POST /api/SysUser/Login``（见
+  ``app/remote_api`` 代理远程 ``POST /api/SysUser/Login``（见
   ``app/services/token_identity_service.py``），成功后返回远程颁发的
   Token 并写入 ``access_token`` Cookie。
 - ``authenticate_current_request`` 按 ``Token`` 请求头 -> ``access_token``

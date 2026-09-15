@@ -1,10 +1,13 @@
 """HTTP 后端仓储的公共基类与协议工具。
 
-从 dev_vue_http 分支平移的 ``SdkCrudRepository`` 体系：把 DY.Stock.Api 的
+从 dev_vue_http 分支平移的 HTTP CRUD 仓储体系：把 DY.Stock.Api 的
 标准 CRUD 端点（Delete / GetDataByPageList / GetInfoById / ModifyOrAdd）
 转换成本项目仓储层语义的普通字典。与本地 ORM 仓储（app/repositories/*.py）
 保持同名同签名，由 app/repositories/__init__.py 按 ``DATA_ACCESS_MODE``
 绑定其中一个。
+
+远程调用统一经 ``app/remote_api`` 的具体接口函数（控制器分组 +
+``_make_request`` 通用调用器），本基类只做结果形态转换。
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.repositories.sdk_client import SdkProtocolError, StockSdkAdapter
+from app.remote_api import RemoteApiProtocolError, StockApiClient, stock_api
 
 
 class RemoteRecord(dict):
@@ -35,13 +38,23 @@ class RemoteRecord(dict):
 
 
 class HttpRepositoryBase:
-    """把 SDK 的标准 CRUD 接口转换成服务层使用的普通字典。"""
+    """把远程标准 CRUD 接口转换成服务层使用的普通字典。"""
 
     group_name = ""
 
-    def __init__(self, client: StockSdkAdapter | None = None) -> None:
-        """注入统一 SDK 适配器，便于测试替换远程客户端。"""
-        self.client = client or StockSdkAdapter()
+    def __init__(self, api: StockApiClient | None = None) -> None:
+        """注入统一远程调用器，便于测试替换远程客户端。"""
+        self.api = api or stock_api
+
+    def _controller(self, name: str | None = None) -> Any:
+        """取 group 名对应的控制器实例（具体接口函数见 app/remote_api/controllers）。"""
+        controller_name = name or self.group_name
+        controller = getattr(self.api, controller_name, None)
+        if controller is None:
+            raise RemoteApiProtocolError(
+                f"统一调用器上不存在远程控制器: {controller_name}"
+            )
+        return controller
 
     # ---- 实体流兼容出口（HTTP 后端无 ORM 会话，均为兼容性空实现） ----
 
@@ -102,9 +115,7 @@ class HttpRepositoryBase:
             body["order_field"] = order_field
         if order_type:
             body["order_type"] = order_type
-        raw, ret_count = self.client.call_with_count(
-            group or self.group_name, "get_data_by_page_list", body
-        )
+        raw, ret_count = self._controller(group).get_data_by_page_list(body)
         return self._normalize_page(raw, ret_count)
 
     def list_all(self, payload: Mapping[str, Any] | None = None, *, page_size: int = 200) -> list[dict[str, Any]]:
@@ -141,9 +152,7 @@ class HttpRepositoryBase:
 
     def get(self, record_id: int | str) -> dict[str, Any] | None:
         """按主键读取一条记录，未找到时返回 ``None``。"""
-        raw = self.client.call(
-            self.group_name, "get_info_by_id", {"id": self.normalize_id(record_id)}
-        )
+        raw = self._controller().get_info_by_id({"id": self.normalize_id(record_id)})
         if raw is None:
             return None
         return self.normalize_record(self._as_mapping(raw, "详情"))
@@ -153,17 +162,17 @@ class HttpRepositoryBase:
 
         部分远端 ``ModifyOrAdd`` 接口只返回成功信封
         （``ret_code`` / ``ret_msg`` / ``ret_count``），不携带 ``ret_obj``。
-        此时 SDK 适配器已经验证写入成功，返回本次提交的数据以兼容调用方。
+        此时调用器已经验证写入成功，返回本次提交的数据以兼容调用方。
         """
         api_payload = self.to_api_payload(payload)
-        raw = self.client.call(self.group_name, "modify_or_add", api_payload)
+        raw = self._controller().modify_or_add(api_payload)
         if raw is None:
             return self.normalize_record(api_payload)
         return self.normalize_record(self._as_mapping(raw, "保存结果"))
 
     def delete(self, record_id: int | str) -> None:
         """按主键删除远端记录。"""
-        self.client.call(self.group_name, "delete", {"id": self.normalize_id(record_id)})
+        self._controller().delete({"id": self.normalize_id(record_id)})
 
     @staticmethod
     def normalize_id(record_id: Any) -> int | str:
@@ -179,7 +188,7 @@ class HttpRepositoryBase:
         return dict(record)
 
     def _normalize_page(self, raw: Any, ret_count: int | None = None) -> dict[str, Any]:
-        """兼容 SDK 的列表或分页对象响应，统一输出 ``items`` 与 ``total``。"""
+        """兼容远程的列表或分页对象响应，统一输出 ``items`` 与 ``total``。"""
         if isinstance(raw, list):
             items = [
                 self.normalize_record(self._as_mapping(item, "列表项")) for item in raw
@@ -192,7 +201,7 @@ class HttpRepositoryBase:
             None,
         )
         if inner is None:
-            raise SdkProtocolError("远程分页响应缺少列表字段")
+            raise RemoteApiProtocolError("远程分页响应缺少列表字段")
         items = [self.normalize_record(self._as_mapping(item, "列表项")) for item in inner]
         total = next(
             (data[key] for key in ("total", "total_count", "count") if data.get(key) is not None),
@@ -202,9 +211,9 @@ class HttpRepositoryBase:
 
     @staticmethod
     def _as_mapping(value: Any, context: str) -> Mapping[str, Any]:
-        """校验 SDK 返回值为对象映射，否则抛出协议异常。"""
+        """校验远程返回值为对象映射，否则抛协议异常。"""
         if not isinstance(value, Mapping):
-            raise SdkProtocolError(f"远程{context}不是对象")
+            raise RemoteApiProtocolError(f"远程{context}不是对象")
         return value
 
 
@@ -250,5 +259,5 @@ def normalize_bool_fields(record: Mapping[str, Any], *field_names: str) -> dict[
 def require_remote_mapping(value: Any, context: str) -> dict[str, Any]:
     """断言远端返回对象并拷贝为字典；否则抛协议异常。"""
     if not isinstance(value, Mapping):
-        raise SdkProtocolError(f"远程{context}不是对象")
+        raise RemoteApiProtocolError(f"远程{context}不是对象")
     return dict(value)

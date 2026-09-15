@@ -13,7 +13,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
@@ -115,17 +115,17 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
 
     def get(self, token_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(token_id)}
+            raw = self.api.param_google_sheet_tokens.get_info_by_id(
+                {"id": self.normalize_id(token_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
     def delete(self, token_id, commit=True):
         try:
             super().delete(token_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True
 

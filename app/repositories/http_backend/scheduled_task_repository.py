@@ -15,7 +15,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class ScheduledTaskHttpRepository(HttpRepositoryBase):
@@ -57,10 +57,10 @@ class ScheduledTaskHttpRepository(HttpRepositoryBase):
 
     def get(self, task_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(task_id)}
+            raw = self.api.param_scheduled_tasks.get_info_by_id(
+                {"id": self.normalize_id(task_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
@@ -169,7 +169,7 @@ class ScheduledTaskHttpRepository(HttpRepositoryBase):
     def delete(self, task_id, commit=True):
         try:
             super().delete(task_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True
 

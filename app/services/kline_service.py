@@ -1,18 +1,19 @@
 """统一的股票 K 线数据入口。
 
 外部数据源只在本模块装配。业务服务不再关心 DFCF、腾讯或 Yahoo 的返回格式；
-内置数据库接口保留为可替换占位，接入真实数据库时只需覆盖两个方法。
+内置K线库经 ``app/remote_api`` 的 StockData/StockDataUs 具体接口函数读写。
 """
 
 from __future__ import annotations
 from app.utils.logger import get_logger
 
 import asyncio
-import os
 import random
 from datetime import datetime, timedelta
 from typing import Any, Callable, Iterable
-from stock_sdk import StockClient
+
+from app.remote_api import RemoteApiConfigError, StockApiClient
+from app.remote_api import stock_api as _default_stock_api
 
 from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
@@ -69,31 +70,19 @@ VALID_DATA_SOURCES = {
 }
 
 
-def _resolve_stock_base_url() -> str | None:
-    """STOCK_BASE_URL 单一来源：应用配置（由 config.py 从环境变量镜像）。
-
-    未配置时返回 None，交由 StockClient 使用 SDK 自身默认地址；
-    业务层不再硬编码兜底地址。
-    """
-    try:
-        from flask import current_app
-        configured = current_app.config.get("STOCK_BASE_URL", "")
-    except RuntimeError:
-        configured = ""
-    return configured or os.environ.get("STOCK_BASE_URL") or None
-
-
 class KlineService:
     """按统一格式读取、标准化并可回填 K 线数据。"""
 
-    def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None):
+    def __init__(
+        self,
+        dfcf_api: Any | None = None,
+        qq_api: Any | None = None,
+        yahoo_api: Any | None = None,
+        stock_api: StockApiClient | None = None,
+    ):
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
-        stock_base_url = _resolve_stock_base_url()
-        if stock_base_url:
-            self.stock_client = StockClient(base_url=stock_base_url)
-        else:
-            self.stock_client = StockClient()
+        self.stock_api = stock_api or _default_stock_api
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self._akshare_api = None
@@ -206,22 +195,31 @@ class KlineService:
         return f"{code}.未知"
 
     def read_internal_kline_data(self, **_kwargs: Any) -> list[dict[str, Any]]:
-        """读取内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
+        """读取内置 K 线库，返回统一字段格式的行列表。
+
+        内置库未配置（``STOCK_BASE_URL`` 为空）时视为未接入：返回空列表，
+        由调用方的"内置库不覆盖 → 外部源回退"既有流程兜底；已配置时的
+        网络错误不在此吞掉。
+        """
         if not supports_internal_kline(_kwargs.get("market_type")):
             return []
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
 
-        if str(stock_code).isdigit():
-            data = self.stock_client.stock_data.get_data_all_list({
-                "begin_date": _kwargs.get("start_date"),
-                "stock_code": self.get_stock_market(stock_code),
-            })
+        try:
+            if str(stock_code).isdigit():
+                data = self.stock_api.stock_data.get_data_all_list({
+                    "begin_date": _kwargs.get("start_date"),
+                    "stock_code": self.get_stock_market(stock_code),
+                })
 
-        else:
-            data = self.stock_client.stock_data_us.get_data_all_list({
-                "begin_date": _kwargs.get("start_date"),
-                "stock_code": stock_code,
-            })
+            else:
+                data = self.stock_api.stock_data_us.get_data_all_list({
+                    "begin_date": _kwargs.get("start_date"),
+                    "stock_code": stock_code,
+                })
+        except RemoteApiConfigError:
+            logger.warning("内置K线库未配置（STOCK_BASE_URL 为空），跳过内置K线读取")
+            return []
 
         data = [
             {
@@ -234,13 +232,16 @@ class KlineService:
                 "close": raw.get("stock_close"),
                 "volume": raw.get("stock_volume"),
                 "amount": raw.get("stock_volume_price")
-            } for raw in data.ret_obj
+            } for raw in data or []
         ]
 
         return data
 
     def write_internal_kline_data(self, rows: list[dict[str, Any]], **_kwargs: Any) -> list[Any]:
-        """写入内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
+        """回填外部拉取的K线到内置 K 线库（仅前复权）。
+
+        内置库未配置时视为未接入：直接跳过回填（同 ``read_internal_kline_data``）。
+        """
         if not supports_internal_kline(_kwargs.get("market_type")):
             return []
         if _kwargs.get("adjust_type") != 'forward':
@@ -248,18 +249,22 @@ class KlineService:
 
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
         if str(stock_code).isdigit(): # A 股美股不同接口
-            stock_data = self.stock_client.stock_data
+            controller = self.stock_api.stock_data
 
             stock_code = self.get_stock_market(stock_code)
         else:
-            stock_data = self.stock_client.stock_data_us
+            controller = self.stock_api.stock_data_us
 
-        data = stock_data.get_data_all_list({
-            "begin_date": rows[0]["stock_date"],
-            "end_time": rows[7]["stock_date"],
-            "stock_code": stock_code,
-        })
-        data = data.ret_obj
+        try:
+            data = controller.get_data_all_list({
+                "begin_date": rows[0]["stock_date"],
+                "end_time": rows[7]["stock_date"],
+                "stock_code": stock_code,
+            })
+        except RemoteApiConfigError:
+            logger.warning("内置K线库未配置（STOCK_BASE_URL 为空），跳过内置K线回填")
+            return []
+        data = data or []
 
         if data:
             rows = sorted(rows, key=lambda x: x["stock_date"],reverse=True)[:30]
@@ -280,7 +285,7 @@ class KlineService:
                 "stock_date": row.get("stock_date")
             }
             loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
+            res = await loop.run_in_executor(None, controller.modify_or_add, data)
             return res
 
         # 在 Flask 中获取当前事件循环

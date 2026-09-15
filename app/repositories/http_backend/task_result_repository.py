@@ -17,7 +17,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 # /api/results 列表的历史精简投影键（本地 _RESULT_SUMMARY_FIELDS 语义）。
 _RESULT_SUMMARY_KEYS = ("id", "task_id", "step_index", "success", "timestamp")
@@ -47,21 +47,19 @@ class TaskResultHttpRepository(HttpRepositoryBase):
 
     def _get_raw(self, result_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(result_id)}
+            raw = self.api.param_task_results.get_info_by_id(
+                {"id": self.normalize_id(result_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
     def _get_return_raw(self, pk):
-        raw = self.client.call(
-            self._RETURN_GROUP, "get_info_by_id", {"id": int(pk)}
-        )
+        raw = self.api.param_task_results_return.get_info_by_id({"id": int(pk)})
         return self._normalize_return(dict(raw)) if isinstance(raw, dict) else None
 
     def _task_exists(self, task_id) -> bool:
-        raw = self.client.call("param_tasks", "get_info_by_id", {"id": str(task_id)})
+        raw = self.api.param_tasks.get_info_by_id({"id": str(task_id)})
         return isinstance(raw, dict)
 
     def _results_by_task_ids(self, task_ids, *, success=None, order_desc=True):
@@ -102,8 +100,8 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         result = self._get_raw(result_id)
         if result is None:
             return None
-        raw_task = self.client.call(
-            "param_tasks", "get_info_by_id", {"id": str(result.get("task_id"))}
+        raw_task = self.api.param_tasks.get_info_by_id(
+            {"id": str(result.get("task_id"))}
         )
         result["task_type"] = raw_task.get("task_type") if isinstance(raw_task, dict) else None
         return result
@@ -321,8 +319,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         """
         return_series_id = None
         if return_fields:
-            saved_return = self.client.call(
-                self._RETURN_GROUP, "modify_or_add",
+            saved_return = self.api.param_task_results_return.modify_or_add(
                 dump_row(return_fields, datetime_fields=self._RETURN_DT_FIELDS),
             )
             if isinstance(saved_return, dict) and saved_return.get("id") is not None:
@@ -349,8 +346,8 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         if row is None:
             return False
         try:
-            self.client.call(self.group_name, "delete", {"id": self.normalize_id(result_id)})
-        except SdkNotFoundError:
+            self.api.param_task_results.delete({"id": self.normalize_id(result_id)})
+        except RemoteApiNotFoundError:
             return False
         return True
 
@@ -359,9 +356,9 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         deleted = 0
         for row in list(self.iter_pages({"task_id": task_id})):
             try:
-                self.client.call(self.group_name, "delete", {"id": self.normalize_id(row["id"])})
+                self.api.param_task_results.delete({"id": self.normalize_id(row["id"])})
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 
@@ -421,9 +418,9 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         deleted = 0
         for record_id in ids:
             try:
-                self.client.call(self.group_name, "delete", {"id": self.normalize_id(record_id)})
+                self.api.param_task_results.delete({"id": self.normalize_id(record_id)})
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 
@@ -431,10 +428,10 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         deleted = 0
         for row in list(self.iter_pages({"task_id": task_id}, group=self._RETURN_GROUP)):
             try:
-                self.client.call(
-                    self._RETURN_GROUP, "delete", {"id": self.normalize_id(row["id"])}
+                self.api.param_task_results_return.delete(
+                    {"id": self.normalize_id(row["id"])}
                 )
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.repositories.http_backend.base import HttpRepositoryBase
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class SystemConfigHttpRepository(HttpRepositoryBase):
@@ -64,6 +64,6 @@ class SystemConfigHttpRepository(HttpRepositoryBase):
             return False
         try:
             super().delete(row["id"])
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True

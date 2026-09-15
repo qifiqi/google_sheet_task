@@ -8,12 +8,12 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 
 目录速览：
 
-- `app/` — Flask 应用主体（routes / services / repositories / schemas / exceptions / utils）
+- `app/` — Flask 应用主体（routes / services / repositories / remote_api / schemas / exceptions / utils）
 - `app/services/task/` — 任务主控门面（facade/runtime/creation/restart/occupancy/query/results）
 - `templates/` + `static/` — Jinja2 服务端渲染页面（Bootstrap 5 + 大量内联 JS） 
 - `frontend/` — Vue 3 SPA（Vite + Element Plus/Naive UI，开发中） 处理时统一排除这个
 - `ding_stream_service/` — 钉钉 Stream 独立微服务（不挂载到 run.py）
-- `stock_sdk/` — 内置K线库读写客户端（wire 字段 `stock_open/stock_max/...`）
+- `app/remote_api/` — DY.Stock.Api 远程接口客户端：`client.py` 统一调用器 + `controllers/` 按 URL 控制器拆分的具体接口函数（wire 字段 `stock_open/stock_max/...` 的翻译在 `KlineService.read/write_internal_kline_data`）
 - `tests/`、`docs/`、`docs/design/`、`migrations/`、`scripts/`
 
 任何修改优先考虑：线程生命周期、数据库与内存状态一致性、Token/Sheet 占用释放、失败后可恢复性、网络抖动重试重连。
@@ -83,6 +83,7 @@ Get-Content .\run.py -Encoding UTF8
 
 - Google Sheet IO 底层在 `app/services/google_sheet_client.py`（gspread，timeout/代理/重试/重连，可恢复错误抛 `RetryableNetworkTaskError`）。网络问题优先改这里，不要在上层散加 try/except。
 - 东方财富/股票：`app/utils/dfcf_api.py`（搜索 codetable 优先、suggest 回退；K线拉取）、`app/utils/proxy_manager.py`；K线代理开关 `SystemConfig.dfcf_kline_proxy_enabled`；fake 搜索结果必须含 `code/market/status/shortName`（`StockSearchService._normalize_result` 契约）。
+- DY.Stock.Api 远程数据服务唯一出口在 `app/remote_api/`：新增远程接口 = 在对应控制器文件加一个具体函数（docstring 带 curl 示例），方法体一行 `_make_request(method, path, payload)`；**禁止手写 `/api/*` URL、禁止 resurrect `(group, operation)` 字符串注册表**。Repository 与 KlineService 经单例 `stock_api.<controller>.<op>()` 调用，保证 IDE 可检索调用链。出站载荷布尔 → 0/1 编码只在统一调用器出口做一次。
 
 ## 配置系统
 

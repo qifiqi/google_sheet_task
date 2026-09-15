@@ -13,7 +13,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class GoogleSheetHttpRepository(HttpRepositoryBase):
@@ -112,10 +112,10 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
 
     def get(self, sheet_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(sheet_id)}
+            raw = self.api.param_google_sheet.get_info_by_id(
+                {"id": self.normalize_id(sheet_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
@@ -133,7 +133,7 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
     def delete(self, sheet_id, commit=True):
         try:
             super().delete(sheet_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True
 

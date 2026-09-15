@@ -19,7 +19,12 @@ app/repositories/__init__.py        ← 唯一绑定点（模块级单例，启�
         │ DATA_ACCESS_MODE=http（默认）→ http_backend/<name>_repository.py（同签名孪生）
         │ DATA_ACCESS_MODE=db          → <name>_repository.py（本地 ORM，原样保留）
         ▼
-app/repositories/sdk_client.py      ← 唯一 HTTP 出口：端点注册表 + Token 头 + 信封解包 + 异常映射
+app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构，替代原
+        │                              sdk_client 端点注册表与 stock_sdk）
+        │ client.py     统一调用器 StockApiClient：Token 头 + 信封解包 + 异常映射
+        │               + 出站布尔 0/1 编码
+        └ controllers/  按 URL 控制器拆分的具体接口函数（一端点一具名函数，
+                        docstring 含 curl 示例）；仓储经 stock_api.<controller>.<op>() 调用
 ```
 
 - **路由单位是表**：同一张表的读写永远落在同一个后端，不做"写远端读本地"分家。
@@ -32,7 +37,7 @@ app/repositories/sdk_client.py      ← 唯一 HTTP 出口：端点注册表 + T
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `DATA_ACCESS_MODE` | `http` | `http`/`db` 数据访问后端 |
-| `STOCK_BASE_URL` | 空（必填） | 远端服务地址，仅允许 http/https（sdk_client 构造时校验） |
+| `STOCK_BASE_URL` | 空（必填） | 远端服务地址，仅允许 http/https（remote_api 统一调用器构造传输时校验） |
 | `STOCK_API_TOKEN` | 空 | 服务级凭据（Token 请求头） |
 | `STOCK_API_TIMEOUT` | `10` | 请求超时（秒） |
 
@@ -97,7 +102,7 @@ app/repositories/sdk_client.py      ← 唯一 HTTP 出口：端点注册表 + T
 
 - `tests/conftest.py` 固定 `DATA_ACCESS_MODE=db`：全量回归跑本地后端，零网络依赖。
 - HTTP 仓储可在单测中注入假 adapter（各孪生构造函数接受 `client` 参数）。
-- 已验证：双模式 `create_app()` 启动；sdk_client 端点注册表 97 条路径全部存在于最新 swagger；分页 total 派生、config JSON 解析、404→False 映射（内联桩测试）。
+- 已验证：双模式 `create_app()` 启动；原 sdk_client 端点注册表 97 条路径全部移植为 `app/remote_api/controllers/` 的具体接口函数（2026-09-16 重构，见 `docs/model_update/2026-09-16-remote-api-refactor.md`）；分页 total 派生、config JSON 解析、404→False 映射（内联桩测试）。
 - 退役特性的既有测试（本地 JWT/RBAC/SSO 共 5 个模块）标注 skip；`test_unified_envelope`/`test_rate_limiting` 等走 HTTP client 的用例改用 `AUTH_ENABLED=false` mock 用户验证契约。
 - 已知与迁移无关的既有失败（改动前后一致，见基线核对）：`test_kline_service` 5 例、`test_c_series_services` 日期相关 1 例、`test_global_preview` excess_sharpe 1 例等共 16 例。
 

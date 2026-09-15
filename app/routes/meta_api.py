@@ -21,7 +21,7 @@ from app.models import (
     TaskStatus,
     TaskType,
 )
-from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+from app.remote_api import RemoteApiError, RemoteApiOperationError
 from app.utils.api_response import success
 from app.utils.auth import login_required, get_request_token
 
@@ -73,7 +73,7 @@ def get_nav():
         from app.services.token_identity_service import get_token_identity_service
 
         rows = get_token_identity_service().get_user_role_list(token)
-    except (SdkDataAccessError, SdkOperationError):
+    except (RemoteApiError, RemoteApiOperationError):
         return {'code': 503, 'data': None, 'message': '远程菜单服务暂不可用'}, 503
     return success(data={"items": _build_menu_tree(rows), "page_permissions": []})
 

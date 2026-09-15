@@ -11,7 +11,7 @@ from typing import Any
 
 from app.models import TaskLog
 from app.repositories.http_backend.base import HttpRepositoryBase, dump_row
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 class TaskLogHttpRepository(HttpRepositoryBase):
@@ -105,7 +105,7 @@ class TaskLogHttpRepository(HttpRepositoryBase):
             try:
                 super().delete(row["id"])
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 
@@ -119,7 +119,7 @@ class TaskLogHttpRepository(HttpRepositoryBase):
             try:
                 super().delete(row["id"])
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 
@@ -144,7 +144,7 @@ class TaskLogHttpRepository(HttpRepositoryBase):
             try:
                 super().delete(record_id)
                 deleted += 1
-            except SdkNotFoundError:
+            except RemoteApiNotFoundError:
                 continue
         return deleted
 

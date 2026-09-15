@@ -16,7 +16,7 @@ from app.repositories.http_backend.base import (
     RemoteRecord,
     dump_row,
 )
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 
 
 # 与本地模型/服务层任务状态字面量一致（task 状态机全集）。
@@ -59,10 +59,10 @@ class TaskHttpRepository(HttpRepositoryBase):
 
     def _get_raw(self, task_id):
         try:
-            raw = self.client.call(
-                self.group_name, "get_info_by_id", {"id": self.normalize_id(task_id)}
+            raw = self.api.param_tasks.get_info_by_id(
+                {"id": self.normalize_id(task_id)}
             )
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
@@ -477,6 +477,6 @@ class TaskHttpRepository(HttpRepositoryBase):
             return False
         try:
             super().delete(task_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.repositories.http_backend.base import HttpRepositoryBase, dump_row
-from app.repositories.sdk_client import SdkNotFoundError
+from app.remote_api import RemoteApiNotFoundError
 from app.utils.market import normalize_stock_code
 
 
@@ -87,6 +87,6 @@ class StockMetadataHttpRepository(HttpRepositoryBase):
     def delete_by_id(self, record_id):
         try:
             super().delete(record_id)
-        except SdkNotFoundError:
+        except RemoteApiNotFoundError:
             return False
         return True

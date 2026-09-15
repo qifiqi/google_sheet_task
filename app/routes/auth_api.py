@@ -3,7 +3,8 @@
 鉴权模式（单 Token 子服务模式，2026-09 启用）:
 
 - 静态模板前端的登录走本服务后端: ``POST /api/auth/login`` 接收
-  账号密码，后端经 stock_sdk 代理远程 ``POST /api/SysUser/Login``
+  账号密码，后端经 ``app/remote_api`` 具体接口函数代理远程
+  ``POST /api/SysUser/Login``
   完成校验（见 ``app/services/token_identity_service.py``），成功后
   返回远程颁发的 Token 并写入 ``access_token`` Cookie，供后续页面
   导航在网关侧完成认证。
@@ -26,7 +27,7 @@ from flask import Blueprint, g, jsonify, request
 from app.utils.auth import AUTH_COOKIE_NAME, login_required
 from app.utils.api_response import error, success
 from app.services.token_identity_service import (
-    SdkDataAccessError,
+    RemoteApiError,
     TokenIdentityError,
     TokenInvalidError,
     get_token_identity_service,
@@ -72,7 +73,7 @@ legacy_identity_bp = Blueprint('legacy_identity', __name__)
 
 @auth_api_bp.route('/auth/login', methods=['POST'])
 def login():
-    """账号密码登录: 后端经 stock_sdk 代理远程 ``SysUser/Login``。
+    """账号密码登录: 后端经 ``app/remote_api`` 代理远程 ``SysUser/Login``。
 
     成功返回远程颁发的 Token（``data.access_token``，兼容 ``data.token``）
     和用户信息，并写入 ``access_token`` Cookie 供页面导航使用；
@@ -88,7 +89,7 @@ def login():
         result = get_token_identity_service().login(username, password)
     except TokenInvalidError as exc:
         return error(str(exc) or '用户名或密码错误', http_status=401)
-    except (TokenIdentityError, SdkDataAccessError) as exc:
+    except (TokenIdentityError, RemoteApiError) as exc:
         return error(f'登录服务暂不可用: {exc}', http_status=503)
 
     token = result['token']
@@ -158,15 +159,15 @@ def logout():
 #
 #     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
 #         # 网关登录实现保留为开关分支，后续无需恢复已删除的代码。
-#         from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+#         from app.remote_api import RemoteApiError, RemoteApiOperationError
 #         from app.repositories.sys_user_repository import SysUserRepository
 #         from app.services.remote_identity_service import RemoteIdentityService
 #
 #         try:
 #             remote_record = SysUserRepository().login(username, password)
-#         except SdkOperationError:
+#         except RemoteApiOperationError:
 #             return error('用户名或密码错误', http_status=401)
-#         except SdkDataAccessError:
+#         except RemoteApiError:
 #             return error('远程用户服务暂不可用', http_status=503)
 #         if not remote_record:
 #             return error('用户名或密码错误', http_status=401)
@@ -215,7 +216,7 @@ def logout():
 #         return error('无效刷新令牌', http_status=401)
 #
 #     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
-#         from app.repositories.sdk_client import SdkDataAccessError
+#         from app.remote_api import RemoteApiError
 #         from app.services.remote_identity_service import RemoteIdentityService
 #
 #         user_id = payload.get('user_id', payload.get('userid'))
@@ -223,7 +224,7 @@ def logout():
 #             return error('令牌缺少用户标识', http_status=401)
 #         try:
 #             user = RemoteIdentityService().get_user(user_id)
-#         except SdkDataAccessError:
+#         except RemoteApiError:
 #             return error('远程用户服务暂不可用', http_status=503)
 #         if not user:
 #             return error('用户不存在或已禁用', http_status=401)
