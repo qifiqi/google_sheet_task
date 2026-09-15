@@ -19,18 +19,20 @@ admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
 logger = get_logger(__name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 
-@admin_api_bp.route('/api/dashboard/overview')
-@login_required
-def dashboard_overview():
-    """管理后台仪表盘总览数据
-
-    响应契约由 runtime_view 服务定义（task/runtime_view.py），本路由保持透传。
-    """
-    return success(
-        data=runtime_view_service.build_dashboard_overview(
-            getattr(g, "current_user", None),
-        )
-    )
+# 仪表盘总览接口已停用（2026-09，db-to-http 迁移）：聚合统计依赖本地 SQL，
+# 远端数据访问模式下不再提供；恢复时取消注释。
+# @admin_api_bp.route('/api/dashboard/overview')
+# @login_required
+# def dashboard_overview():
+#     """管理后台仪表盘总览数据
+#
+#     响应契约由 runtime_view 服务定义（task/runtime_view.py），本路由保持透传。
+#     """
+#     return success(
+#         data=runtime_view_service.build_dashboard_overview(
+#             getattr(g, "current_user", None),
+#         )
+#     )
 
 @admin_api_bp.route('/api/model-summary')
 @login_required

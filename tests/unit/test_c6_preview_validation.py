@@ -63,27 +63,19 @@ def test_normalize_multi_product_config_rejects_single_product():
         })
 
 
-def test_calculate_ratios_with_bad_ratio_returns_400(app_factory):
+def test_calculate_ratios_with_bad_ratio_returns_400(app_factory, monkeypatch):
     """P1 回归守卫：非法比例在 calculate-ratios 端点保持 400 + 用户文案，
     不得落入全局兜底变 500。"""
+    # 单 Token 模式：网关远程校验不可达，以免鉴权 mock 用户验证 400 契约。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     app = app_factory
     with app.app_context():
         _make_bmp_task("bmp-ratio-task")
 
     client = app.test_client()
-    with app.app_context():
-        from app.utils.auth import create_access_token
-        from app.models import User
-        from werkzeug.security import generate_password_hash
-
-        user = User(username="ratio-user", password_hash="x", is_active=True)
-        db.session.add(user)
-        db.session.commit()
-        token = create_access_token(user.id)
 
     resp = client.post(
         "/backtest-multi-product/api/global-preview/bmp-ratio-task/calculate-ratios",
-        headers={"Authorization": f"Bearer {token}"},
         json={"ratios": [{"ratio": "not-a-number"}]},
     )
     assert resp.status_code == 400

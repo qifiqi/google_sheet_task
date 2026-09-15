@@ -41,12 +41,12 @@ def _auth(token):
 
 
 @pytest.fixture()
-def auth_client(app_factory):
+def auth_client(app_factory, monkeypatch):
+    # 单 Token 模式：本地登录已退役，免鉴权 mock 用户替代。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     app = app_factory
-    _create_user(app, "tpl_user")
     client = app.test_client()
-    token = _login(client, "tpl_user")
-    return client, _auth(token)
+    return client, {}
 
 
 def test_template_crud_envelope(auth_client):

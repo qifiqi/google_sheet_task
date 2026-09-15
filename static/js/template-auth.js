@@ -62,13 +62,14 @@
     function setTokens(accessToken, refreshToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
-            // 同步写入 cookie：页面导航请求无法携带 Authorization 头，
-            // 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
-            // 名字须与后端 ACCESS_TOKEN_COOKIE(gsc_access_token) 一致：cookie 不按
-            // 端口隔离，通用名会被本机其他服务的同名（HttpOnly）cookie 顶死。
+            // 同步写入 cookie：页面导航请求无法携带 Token 请求头，
+            // 服务端网关（authenticate_current_request）据此回退读取。
+            // 名字与后端 AUTH_COOKIE_NAME(access_token) 一致；单 Token
+            // 子服务模式下登录接口也会下发同名 HttpOnly cookie，此处
+            // 写入非 HttpOnly 同名值仅作兜底。
             const securePart = window.location.protocol === "https:" ? "; Secure" : "";
             document.cookie =
-                "gsc_access_token=" + encodeURIComponent(accessToken) +
+                "access_token=" + encodeURIComponent(accessToken) +
                 "; path=/; SameSite=Lax" + securePart;
         }
         if (refreshToken) {
@@ -77,7 +78,8 @@
     }
 
     function clearAccessTokenCookie() {
-        // 置空并立即过期，清除页面鉴权用的访问令牌 cookie。
+        // 置空并立即过期；同时清理旧版 gsc_access_token 命名，避免残留。
+        document.cookie = "access_token=; path=/; SameSite=Lax; Max-Age=0";
         document.cookie = "gsc_access_token=; path=/; SameSite=Lax; Max-Age=0";
     }
 
@@ -272,32 +274,9 @@
     }
 
     async function performRefresh() {
-        const refreshToken = getRefreshToken();
-        if (!refreshToken) {
-            throw new Error("missing refresh token");
-        }
-
-        const response = await originalFetch("/api/auth/refresh", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-
-        const payload = parseJsonSafely(await response.text());
-        if (!response.ok || !payload || payload.code !== 0) {
-            throw new Error((payload && payload.message) || "refresh failed");
-        }
-
-        const data = payload.data || {};
-        // 后端会轮换 refresh_token（滑动续期），一并更新；兼容旧版仅返回 access_token 的情况。
-        setTokens(data.access_token, data.refresh_token || refreshToken);
-        currentUser = data.user || currentUser;
-        currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : currentPermissions;
-        updateUserPanels();
-        applyPermissionNodes();
-        return data.access_token;
+        // 单 Token 子服务模式（2026-09）：本服务不再签发/刷新 JWT，
+        // 本地 /api/auth/refresh 接口已停用；Token 失效直接走清态重登。
+        throw new Error("refresh disabled in single-token mode");
     }
 
     async function refreshAccessToken() {
@@ -323,7 +302,8 @@
         const headers = new Headers(request.headers || (resource instanceof Request ? resource.headers : undefined) || undefined);
 
         if (attachAuth && getToken() && !authExemptPaths.has(path)) {
-            headers.set("Authorization", `Bearer ${getToken()}`);
+            // 单 Token 子服务模式：凭据走 ``Token`` 请求头（与主 Web 一致）。
+            headers.set("Token", getToken());
         }
         request.headers = headers;
 
@@ -338,14 +318,8 @@
         }
 
         try {
-            const newToken = await refreshAccessToken();
-            const retryHeaders = new Headers(headers);
-            retryHeaders.set("Authorization", `Bearer ${newToken}`);
-            return originalFetch(resource, {
-                ...request,
-                _retry: true,
-                headers: retryHeaders,
-            });
+            // 本地刷新接口已停用：401 一律清态回登录页。
+            throw new Error("single-token mode does not refresh");
         } catch (_error) {
             clearAuthState();
             redirectToLogin();
@@ -742,8 +716,11 @@
             return;
         }
 
-        // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
-        const ssoToken = consumeSsoTokenFromHash();
+        // SSO 换票分支已随本地登录停用（单 Token 子服务模式，2026-09）：
+        // /api/auth/sso/exchange 不再注册，携带 sso_token 进入时直接走
+        // 账号密码登录。恢复 SSO 时取消下方注释。
+        // const ssoToken = consumeSsoTokenFromHash();
+        const ssoToken = null;
         if (ssoToken) {
             performSsoExchange(ssoToken)
                 .then(() => {

@@ -29,18 +29,17 @@ def _login(client, username, password="secret123"):
     return resp.get_json()["data"]["access_token"]
 
 
-def _auth_client(app_factory):
+def _auth_client(app_factory, monkeypatch=None):
+    # 单 Token 模式：本地登录退役，以免鉴权 mock 用户替代。
+    if monkeypatch is not None:
+        monkeypatch.setenv("AUTH_ENABLED", "false")
     app = app_factory
-    _create_user(app, "sheet_admin")
-    client = app.test_client()
-    token = _login(client, "sheet_admin")
-    client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {token}"
-    return client
+    return app.test_client()
 
 
 class TestGoogleSheetsEndpoint:
-    def test_list_sheets_success_envelope(self, app_factory):
-        client = _auth_client(app_factory)
+    def test_list_sheets_success_envelope(self, app_factory, monkeypatch):
+        client = _auth_client(app_factory, monkeypatch)
 
         resp = client.get("/api/google-sheets")
         assert resp.status_code == 200
@@ -49,8 +48,8 @@ class TestGoogleSheetsEndpoint:
         assert body["code"] == 0
         assert body["data"]["items"] == []
 
-    def test_table_type_normalized(self, app_factory):
-        client = _auth_client(app_factory)
+    def test_table_type_normalized(self, app_factory, monkeypatch):
+        client = _auth_client(app_factory, monkeypatch)
 
         # c31 归一化为 c3；非法值归一化为 None，都不应 500
         for raw in ("c31", "not-a-type", ""):

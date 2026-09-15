@@ -1,46 +1,66 @@
-"""JWT 认证、权限装饰器与密码策略"""
+"""JWT 认证与权限装饰器。
+
+鉴权模式（单 Token 子服务模式，2026-09 启用）:
+
+- 登录: 静态模板前端将账号密码提交到 ``POST /api/auth/login``，后端经
+  stock_sdk 代理远程 ``POST /api/SysUser/Login``（见
+  ``app/services/token_identity_service.py``），成功后返回远程颁发的
+  Token 并写入 ``access_token`` Cookie。
+- ``authenticate_current_request`` 按 ``Token`` 请求头 -> ``access_token``
+  Cookie -> ``?token=`` 查询参数的顺序取 Token，转发给远程
+  ``POST /api/SysUser/GetUserInfo`` 校验，通过后构造 ``RemoteTokenUser``
+  写入 ``g.current_user``，Token 保留在 ``g.current_token`` 供路由表等
+  接口复用。
+- 页面导航（静态模板前端，GET + Accept: text/html）缺失或 Token 失效时
+  重定向到 ``/login?next=...``；API 调用返回 401 JSON，由前端跳转。
+- 路由表/菜单权限由 ``POST /api/SysUser/GetUserRoleList`` 提供，
+  见 ``app/routes/meta_api.py``。
+- 原本地 JWT 签发/解析、本地 ``User`` 表校验、本地 RBAC mock 用户查询
+  等实现全部注释保留，便于后续需要独立登录能力时重新启用。
+"""
 import os
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib.parse import quote
 
 import jwt
-from flask import request, g, redirect
+from flask import current_app, redirect, request, g, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
 
-from app.exceptions import ForbiddenError, UnauthorizedError
-from app.repositories import auth_repository
 from app.services.config_manager import get_config_manager
+from app.extensions import db
+from app.utils.api_response import error
 
 # 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
 DEFAULT_JWT_SECRET = 'change-me-in-production-secure-key'
 SAFE_AUTH_DISABLED_ENVS = {'development'}
-
-# 页面导航请求无法携带 Authorization 头，登录后由前端把访问令牌同步写入该 cookie，
-# 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
-# cookie 不按端口隔离，名字必须带项目前缀：本机其他服务签发的同名（尤其 HttpOnly）
-# cookie 无法被前端 JS 覆盖，会把页面登录锁死在 302 循环（2026-09 实测踩坑）。
-ACCESS_TOKEN_COOKIE = 'gsc_access_token'
+# 浏览器页面导航使用的登录 Cookie 名（与 localStorage 的 access_token 同义）。
+AUTH_COOKIE_NAME = 'access_token'
+RETIRED_LOCAL_IDENTITY_PREFIXES = (
+    '/admin/users',
+    '/admin/roles',
+    '/admin/navigation',
+    '/api/admin/users',
+    '/api/admin/roles',
+    '/api/admin/permissions',
+    '/api/auth/password',
+    '/api/navigation-menu-items',
+)
 
 
 def _get_secret():
-    """JWT 签名密钥：优先环境变量（部署时固定，重启/换库不变），其次数据库配置，最后默认值。
-
-    启动期 validate_auth_runtime_settings 与本函数读取同一环境变量，
-    避免出现"校验用 A、签名用 B"的断裂。
-    """
-    env_secret = os.environ.get('JWT_SECRET_KEY', '').strip()
-    if env_secret:
-        return env_secret
+    """从集中配置读取 JWT 签名密钥。"""
     cm = get_config_manager()
-    # 环境变量未配置时回退数据库配置/默认值（生产环境应由
-    # validate_auth_runtime_settings 在启动期拒绝默认密钥）。
     return cm.get_config('JWT_SECRET_KEY', DEFAULT_JWT_SECRET)
 
 
 def is_auth_enabled() -> bool:
+    """读取认证开关；未配置时默认启用认证。"""
     return os.environ.get('AUTH_ENABLED', 'true').lower() == 'true'
 
 
 def get_app_env() -> str:
+    """读取当前应用环境，并保证返回非空的小写名称。"""
     return os.environ.get('APP_ENV', 'development').strip().lower() or 'development'
 
 
@@ -49,10 +69,9 @@ def validate_auth_runtime_settings(
     auth_enabled: bool | None = None,
     app_env: str | None = None,
 ) -> None:
-    """Fail fast on unsafe auth settings outside development.
+    """在非开发环境中尽早拒绝不安全的认证配置。
 
-    This validation only uses startup-time configuration (environment variables),
-    so it can run before Flask extensions and database-backed config are ready.
+    本校验只依赖启动期环境变量，因此可在 Flask 扩展和数据库配置初始化前执行。
     """
     resolved_env = (app_env or get_app_env()).strip().lower() or 'development'
     resolved_secret = secret if secret is not None else os.environ.get('JWT_SECRET_KEY')
@@ -76,91 +95,70 @@ def validate_auth_runtime_settings(
         )
 
 
-def create_access_token(user_id, token_version=0, expires_hours=2):
-    payload = {
-        'user_id': user_id,
-        'token_version': int(token_version or 0),
-        'type': 'access',
-        'exp': datetime.utcnow() + timedelta(hours=expires_hours),
-        'iat': datetime.utcnow(),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm='HS256')
+# ---------- 本地 JWT 签发/解析（单 Token 子服务模式下停用，保留以便恢复） ----------
+# def create_access_token(user_id, token_version=0, expires_hours=2):
+#     """签发包含用户与令牌版本信息的短期访问令牌。"""
+#     payload = {
+#         'user_id': user_id,
+#         'token_version': int(token_version or 0),
+#         'type': 'access',
+#         'exp': datetime.utcnow() + timedelta(hours=expires_hours),
+#         'iat': datetime.utcnow(),
+#     }
+#     return jwt.encode(payload, _get_secret(), algorithm='HS256')
+#
+#
+# def create_refresh_token(user_id, token_version=0, expires_days=7):
+#     """签发用于换取访问令牌的长期刷新令牌。"""
+#     payload = {
+#         'user_id': user_id,
+#         'token_version': int(token_version or 0),
+#         'type': 'refresh',
+#         'exp': datetime.utcnow() + timedelta(days=expires_days),
+#         'iat': datetime.utcnow(),
+#     }
+#     return jwt.encode(payload, _get_secret(), algorithm='HS256')
+#
+#
+# def decode_token(token):
+#     """使用当前 JWT 密钥校验并解码令牌。"""
+#     return jwt.decode(token, _get_secret(), algorithms=['HS256'])
+#
+#
+# def extract_token_version(payload):
+#     """从令牌载荷读取版本号，不合法的值视为无效令牌。"""
+#     version = payload.get('token_version', 0)
+#     try:
+#         return int(version)
+#     except (TypeError, ValueError):
+#         raise jwt.InvalidTokenError('invalid token version')
 
 
-def create_refresh_token(user_id, token_version=0, expires_days=7):
-    payload = {
-        'user_id': user_id,
-        'token_version': int(token_version or 0),
-        'type': 'refresh',
-        'exp': datetime.utcnow() + timedelta(days=expires_days),
-        'iat': datetime.utcnow(),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm='HS256')
-
-
-def decode_token(token):
-    return jwt.decode(token, _get_secret(), algorithms=['HS256'])
-
-
-def extract_token_version(payload):
-    version = payload.get('token_version', 0)
-    try:
-        return int(version)
-    except (TypeError, ValueError):
-        raise jwt.InvalidTokenError('invalid token version')
-
-
-# ==================== 密码策略 ====================
-# 强密码策略：8-64 位，且须同时包含大写字母、小写字母、数字、特殊字符。
-PASSWORD_MIN_LENGTH = 8
-PASSWORD_MAX_LENGTH = 64
-
-
-def validate_password_strength(password: str) -> str | None:
-    """强密码校验：合格返回 None，不合格返回用户可读的错误文案。
-
-    纯函数（不抛异常），由服务层决定如何包装成 ValidationError。
-    """
-    if not password:
-        return "密码不能为空"
-    if len(password) < PASSWORD_MIN_LENGTH:
-        return f"密码长度不能少于{PASSWORD_MIN_LENGTH}位"
-    if len(password) > PASSWORD_MAX_LENGTH:
-        return f"密码长度不能超过{PASSWORD_MAX_LENGTH}位"
-
-    missing = []
-    if not any(c.isupper() for c in password):
-        missing.append("大写字母")
-    if not any(c.islower() for c in password):
-        missing.append("小写字母")
-    if not any(c.isdigit() for c in password):
-        missing.append("数字")
-    if not any(not c.isalnum() for c in password):
-        missing.append("特殊字符")
-    if missing:
-        return "密码须包含" + "、".join(missing)
-    return None
+def is_retired_local_identity_path(path: str) -> bool:
+    """确保已废弃的本地身份与 RBAC 接口不会重新暴露。"""
+    return any(path == prefix or path.startswith(f'{prefix}/') for prefix in RETIRED_LOCAL_IDENTITY_PREFIXES)
 
 
 def _inject_mock_user():
-    """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
+    """AUTH_ENABLED=false 时注入一个免鉴权 mock 用户，避免下游 g.current_user 报错"""
     if hasattr(g, 'current_user'):
         return
 
+    # 原实现读取本地 Permission 表取全量权限码；单 Token 子服务模式下
+    # 本地 RBAC 已停用，mock 用户持有空权限集即可（接口权限校验本就放行）。
+    # from app.models import Permission
     class _MockUser:
         id = 0
         username = 'anonymous'
         is_active = True
         roles = []
-        _perms = None
 
         def get_permissions(self):
-            if self._perms is None:
-                # 权限缓存仍留在 auth 层，编码列表来自 repository。
-                self._perms = set(auth_repository.list_permission_codes())
-            return self._perms
+            """为关闭认证时的模拟用户返回空权限集（接口鉴权已停用）。"""
+            return set()
 
         def to_dict(self, include_permissions=False):
+            """将关闭认证时的模拟用户转换为兼容响应字典。"""
             d = {
                 'id': self.id,
                 'username': self.username,
@@ -176,104 +174,203 @@ def _inject_mock_user():
     g.current_user = _MockUser()
 
 
-def _extract_request_token():
-    """从请求提取访问令牌：优先 Authorization: Bearer 头，其次回退 cookie。
+def get_request_token():
+    """按 请求头 ``Token`` -> Cookie ``access_token`` -> ``?token=`` 取登录 Token。
 
-    cookie 回退仅用于页面导航请求（浏览器导航不带自定义头）；
-    令牌本就暴露在前端 localStorage，写入非 HttpOnly cookie 不增加暴露面。
+    API 调用方（含静态模板前端的 fetch 拦截层）使用请求头；浏览器页面
+    导航无法携带自定义请求头，使用登录后写入的 Cookie；主站跳转场景
+    兼容 ``?token=`` 查询参数。
     """
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        return auth_header[7:]
-    return request.cookies.get(ACCESS_TOKEN_COOKIE) or None
-
-
-def _resolve_request_user():
-    """解析并校验当前请求的用户。
-
-    成功返回 (user, None)；失败返回 (None, 用户可见的错误文案)。
-    """
-    token = _extract_request_token()
+    token = str(request.headers.get('Token', '') or '').strip()
     if not token:
-        return None, '未提供认证令牌'
+        token = str(request.cookies.get(AUTH_COOKIE_NAME, '') or '').strip()
+    if not token:
+        token = str(request.args.get('token', '') or '').strip()
+    return token
+
+
+def is_page_navigation() -> bool:
+    """判断当前请求是否为浏览器页面导航（静态模板前端的 GET 页面请求）。"""
+    if request.method != 'GET':
+        return False
+    return 'text/html' in str(request.headers.get('Accept', '') or '')
+
+
+def login_redirect_response():
+    """构造跳转登录页的 302 响应，携带当前地址作为回跳目标。"""
+    target = f"{request.path}?{request.query_string.decode('utf-8')}" if request.query_string else request.path
+    return redirect(f"/login?next={quote(target, safe='')}")
+
+
+def authenticate_current_request():
+    """校验登录 Token（单 Token 子服务模式）。
+
+    当前流程: 读取 Token（请求头/Cookie/查询参数）-> 调用远程 GetUserInfo
+    校验 -> 构造 ``RemoteTokenUser`` 写入 ``g.current_user``，Token 保留在
+    ``g.current_token`` 供路由表等接口复用。
+
+    页面导航缺失/失效时返回 302 到 /login；API 调用返回 401/503 JSON。
+
+    旧实现（本地 JWT 解析 + 本地 User 表校验 + REMOTE_IDENTITY_GATEWAY
+    分支）整体注释保留在下方，恢复独立登录能力时取消注释即可。
+    """
+    if hasattr(g, 'current_user'):
+        return None
+    if not is_auth_enabled():
+        _inject_mock_user()
+        return None
+
+    token = get_request_token()
+    if not token:
+        if is_page_navigation():
+            return login_redirect_response()
+        return error('未提供认证令牌', http_status=401)
+
+    from app.services.token_identity_service import (
+        RemoteTokenUser,
+        TokenIdentityError,
+        TokenInvalidError,
+        get_token_identity_service,
+    )
 
     try:
-        payload = decode_token(token)
-        if payload.get('type') != 'access':
-            raise UnauthorizedError('令牌类型错误')
-        token_version = extract_token_version(payload)
-    except jwt.ExpiredSignatureError:
-        return None, '令牌已过期'
-    except jwt.InvalidTokenError:
-        return None, '无效令牌'
+        info = get_token_identity_service().get_user_info(token)
+    except TokenInvalidError:
+        if is_page_navigation():
+            return login_redirect_response()
+        return error('登录已失效，请重新登录', http_status=401)
+    except TokenIdentityError as exc:
+        current_app.logger.error(f'Token 身份校验服务不可用: {exc}')
+        if is_page_navigation():
+            return login_redirect_response()
+        return error('身份校验服务暂不可用，请稍后重试', http_status=503)
 
-    user = auth_repository.get_user_entity(payload['user_id'])
-    if not user or not user.is_active:
-        return None, '用户不存在或已禁用'
-    if int(user.token_version or 0) != token_version:
-        return None, '登录状态已失效，请重新登录'
+    g.current_user = RemoteTokenUser(info)
+    g.current_token = token
+    return None
 
-    return user, None
+
+# ---------- 旧认证实现（本地 JWT + 本地用户表 + 主 Web 网关分支），注释保留 ----------
+# def authenticate_current_request():
+#     """校验当前 JWT；默认解析本地 User，网关开关开启时解析 sys_user。"""
+#     if hasattr(g, 'current_user'):
+#         return None
+#     if not is_auth_enabled():
+#         _inject_mock_user()
+#         return None
+#
+#     auth_header = request.headers.get('Authorization', '')
+#     if not auth_header.startswith('Bearer '):
+#         return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
+#
+#     try:
+#         payload = decode_token(auth_header[7:])
+#     except jwt.ExpiredSignatureError:
+#         return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
+#     except jwt.InvalidTokenError:
+#         return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+#
+#     if payload.get('type') not in (None, 'access'):
+#         return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
+#     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+#         # 主 Web 网关逻辑保留在此；切换开关后无需重新改动路由装饰器。
+#         user_id = payload.get('user_id', payload.get('userid'))
+#         if user_id is None:
+#             return jsonify({'code': 401, 'data': None, 'message': '令牌缺少用户标识'}), 401
+#         try:
+#             from app.services.remote_identity_service import RemoteIdentityService
+#             user = RemoteIdentityService().get_user(user_id, payload.get('username'))
+#         except Exception:
+#             return jsonify({'code': 401, 'data': None, 'message': '远程用户校验失败'}), 401
+#         if not user:
+#             return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+#         g.current_user = user
+#         from app.services.model_access_service import set_current_model_codes
+#         claim_name = current_app.config.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes')
+#         claimed_codes = payload.get(claim_name)
+#         if isinstance(claimed_codes, (list, tuple, set)):
+#             set_current_model_codes(claimed_codes)
+#         return None
+#
+#     try:
+#         token_version = extract_token_version(payload)
+#         user_id = payload['user_id']
+#     except (KeyError, jwt.InvalidTokenError):
+#         return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+#     from app.models import User
+#     user = db.session.get(User, user_id)
+#     if not user or not user.is_active:
+#         return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+#     if int(user.token_version or 0) != token_version:
+#         return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
+#     g.current_user = user
+#     return None
 
 
 def login_required(f):
+    """为路由添加统一认证前置校验。"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not is_auth_enabled():
-            _inject_mock_user()
-            return f(*args, **kwargs)
-
-        user, error = _resolve_request_user()
-        if user is None:
-            raise UnauthorizedError(error)
-
-        g.current_user = user
+        """认证成功后调用被装饰的路由函数。"""
+        auth_error = authenticate_current_request()
+        if auth_error:
+            return auth_error
         return f(*args, **kwargs)
     return decorated
 
 
-def page_login_required(f):
-    """页面路由鉴权：与 login_required 同一认证逻辑，未认证重定向登录页而非 401。"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not is_auth_enabled():
-            _inject_mock_user()
+# 兼容别名：当前分支页面路由/管理路由沿用旧装饰器名；单 Token 模式下
+# 页面导航 302 与 API 401 的分流已在 login_required 内按 Accept 头完成，
+# 管理接口权限统一上收主 Web 路由表（GetUserRoleList），本地不再二次拦截。
+page_login_required = login_required
+admin_required = login_required
+
+
+# def permission_required(*permission_codes):
+#     def decorator(f):
+#         @wraps(f)
+#         def decorated(*args, **kwargs):
+#             if not is_auth_enabled():
+#                 return f(*args, **kwargs)
+#
+#             user = getattr(g, 'current_user', None)
+#             if not user:
+#                 return jsonify({'code': 401, 'data': None, 'message': '未认证'}), 401
+#
+#             user_perms = user.get_permissions()
+#             required_permissions = [code for code in permission_codes if code]
+#             if not any(code in user_perms for code in required_permissions):
+#                 missing_permissions = [code for code in required_permissions if code not in user_perms]
+#                 if len(required_permissions) <= 1:
+#                     required_text = required_permissions[0] if required_permissions else "未配置"
+#                     message = f"权限不足，需要权限: {required_text}"
+#                 else:
+#                     required_text = " 或 ".join(required_permissions)
+#                     message = f"权限不足，需要以下任一权限: {required_text}"
+#                 if missing_permissions:
+#                     message = f"{message}；当前缺少: {'、'.join(missing_permissions)}"
+#                 return jsonify({
+#                     'code': 403,
+#                     'data': {
+#                         'required_permissions': required_permissions,
+#                         'missing_permissions': missing_permissions,
+#                     },
+#                     'message': message,
+#                 }), 403
+#
+#             return f(*args, **kwargs)
+#         return decorated
+#     return decorator
+
+def permission_required(*permission_codes):
+    """保留接口权限声明；本地模式仍以路由表页面权限控制可见性。"""
+    def decorator(f):
+        """包装路由以保持既有权限装饰器调用形式。"""
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            """执行路由；权限码用于菜单、页面和后续主 Web 权限映射。"""
+            # 原本地接口鉴权逻辑仍保留在上方注释中；旧版行为仅限制页面入口，
+            # 不对已登录用户的接口二次拦截，避免改变现有管理页调用方式。
             return f(*args, **kwargs)
-
-        user, error = _resolve_request_user()
-        if user is None:
-            next_value = request.full_path if request.query_string else request.path
-            from flask import url_for
-            return redirect(url_for('auth_pages.login_page', next=next_value))
-
-        g.current_user = user
-        return f(*args, **kwargs)
-    return decorated
-
-
-def _is_admin_user(user) -> bool:
-    """管理员判定：仅做"是否持有 admin 角色"的单一判断（细粒度权限随主服务接入统一解决）。"""
-    try:
-        return any(getattr(role, 'code', '') == 'admin' for role in (user.roles or []))
-    except Exception:
-        return False
-
-
-def admin_required(f):
-    """管理端鉴权：login_required 语义 + admin 角色判断；未认证 401，无权限 403。"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not is_auth_enabled():
-            # 开发环境关闭鉴权时注入的 mock 用户视为管理员。
-            _inject_mock_user()
-            return f(*args, **kwargs)
-
-        user, error = _resolve_request_user()
-        if user is None:
-            raise UnauthorizedError(error)
-        if not _is_admin_user(user):
-            raise ForbiddenError('需要管理员权限')
-
-        g.current_user = user
-        return f(*args, **kwargs)
-    return decorated
+        return decorated
+    return decorator

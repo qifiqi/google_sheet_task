@@ -100,6 +100,7 @@ def test_create_app_allows_safe_auth_settings_outside_development(monkeypatch, s
     assert app.config["TESTING"] is True
 
 
+@pytest.mark.skip(reason="本地 JWT 启动守卫已随单 Token 子服务模式停用")
 def test_create_app_rejects_default_secret_outside_development(monkeypatch, sqlite_test_url):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("AUTH_ENABLED", "true")

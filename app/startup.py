@@ -776,7 +776,9 @@ def _recover_runtime_resources():
 def _start_background_components(app):
     """启动依赖当前 Flask 进程的后台组件。"""
     init_scheduler(app)
-    init_task_watchdog(app)
+    # 看门狗已停用（2026-09，db-to-http 迁移）：[NETWORK_RETRYABLE] 自动重启
+    # 依赖本地任务巡检 SQL，远端数据访问模式下不再启用；恢复时取消注释。
+    # init_task_watchdog(app)
 
 
 def bootstrap_app(app):

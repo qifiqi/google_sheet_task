@@ -1,144 +1,434 @@
 """认证与用户/角色/权限管理 API。
 
-认证态与用户/角色/权限编排经 auth_service（token 签发与鉴权在
-app.utils.auth，缓存留在 auth 层）；路由层只做 HTTP 解析与统一信封。
-删用户的同事务原子性（user_roles 清理 + Task.created_by 置空）在服务层保持。
+鉴权模式（单 Token 子服务模式，2026-09 启用）:
+
+- 静态模板前端的登录走本服务后端: ``POST /api/auth/login`` 接收
+  账号密码，后端经 stock_sdk 代理远程 ``POST /api/SysUser/Login``
+  完成校验（见 ``app/services/token_identity_service.py``），成功后
+  返回远程颁发的 Token 并写入 ``access_token`` Cookie，供后续页面
+  导航在网关侧完成认证。
+- 其余在线接口:
+    - ``GET  /api/auth/me``      返回当前 Token 对应的远程用户身份;
+    - ``POST /api/auth/logout``  清除登录 Cookie（远程 Token 不吊销）。
+- Token 的传递: API 调用走 ``Token`` 请求头; 浏览器页面导航走
+  ``access_token`` Cookie（亦兼容 ``?token=`` 查询参数），由
+  ``app/utils/auth.py::authenticate_current_request`` 统一经远程
+  ``POST /api/SysUser/GetUserInfo`` 校验。
+- 原本地登录 / 刷新令牌 / 改密 / 用户管理 / 角色管理 / 权限管理接口
+  （本地 ``User`` / ``Role`` / ``Permission`` ORM 实现）全部注释保留，
+  恢复独立登录与本地 RBAC 能力时取消注释即可；对应 blueprint
+  ``legacy_identity_bp`` 仍保持注册（无路由时仅是空蓝图）。
+- 路由表/菜单权限改由 ``POST /api/SysUser/GetUserRoleList`` 提供，
+  见 ``app/routes/meta_api.py``。
 """
 
-from flask import Blueprint, request
-
-from app.services import auth_service
-from app.utils.api_response import success
-from app.utils.request_parsing import parse_body
-from app.utils.auth import login_required, admin_required
-from app.schemas.auth import (
-    ChangePasswordSchema,
-    CreateRoleSchema,
-    CreateUserSchema,
-    LoginSchema,
-    RefreshSchema,
-    UpdateRoleSchema,
-    UpdateUserSchema,
+from flask import Blueprint, g, jsonify, request
+from app.utils.auth import AUTH_COOKIE_NAME, login_required
+from app.utils.api_response import error, success
+from app.services.token_identity_service import (
+    SdkDataAccessError,
+    TokenIdentityError,
+    TokenInvalidError,
+    get_token_identity_service,
 )
 
+
 auth_api_bp = Blueprint('auth_api', __name__)
+legacy_identity_bp = Blueprint('legacy_identity', __name__)
+
+# 原本地 RBAC 辅助函数与全部旧接口实现注释保留在文件后半部分；
+# 取消注释同步恢复下方被注释的 import。
+# from datetime import datetime
+# from flask import current_app, request
+# from werkzeug.security import generate_password_hash, check_password_hash
+# from app.models import NavigationMenuItem, Permission, Role, Task, User, db, role_permissions, user_roles
+# from app.navigation import sync_navigation_permissions
+# from app.utils.auth import (
+#     create_access_token, create_refresh_token, decode_token,
+#     permission_required, extract_token_version,
+# )
+# from app.utils.api_response import error
+# import jwt
+#
+# DEV_ROLE_CODES = {'developer'}
+#
+#
+# def _is_dev_role(role):
+#     """判断角色是否为允许接收告警的开发者角色。"""
+#     return str(getattr(role, 'code', '') or '').strip().lower() in DEV_ROLE_CODES
+#
+#
+# def _can_alert_oncall(role_ids=None, user=None):
+#     """判断指定角色或用户是否具备值班告警资格。"""
+#     if role_ids is not None:
+#         if not role_ids:
+#             return False
+#         roles = Role.query.filter(Role.id.in_(role_ids)).all()
+#         return any(_is_dev_role(role) for role in roles)
+#     return any(_is_dev_role(role) for role in (user.roles if user else []))
 
 
-# ==================== Auth ====================
+# ==================== Auth（单 Token 子服务模式在线接口） ====================
 
 @auth_api_bp.route('/auth/login', methods=['POST'])
 def login():
-    data = parse_body(LoginSchema)
-    return success(data=auth_service.login_user(data.username.strip(), data.password))
+    """账号密码登录: 后端经 stock_sdk 代理远程 ``SysUser/Login``。
 
+    成功返回远程颁发的 Token（``data.access_token``，兼容 ``data.token``）
+    和用户信息，并写入 ``access_token`` Cookie 供页面导航使用；
+    账号密码错误返回 401，远程服务不可用返回 503。
+    """
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    password = str(data.get('password') or '')
+    if not username or not password:
+        return error('请输入用户名和密码', http_status=400)
 
-@auth_api_bp.route('/auth/refresh', methods=['POST'])
-def refresh():
-    data = parse_body(RefreshSchema)
-    return success(data=auth_service.refresh_tokens(data.refresh_token))
+    try:
+        result = get_token_identity_service().login(username, password)
+    except TokenInvalidError as exc:
+        return error(str(exc) or '用户名或密码错误', http_status=401)
+    except (TokenIdentityError, SdkDataAccessError) as exc:
+        return error(f'登录服务暂不可用: {exc}', http_status=503)
+
+    token = result['token']
+    info = result.get('info') or {}
+    user = {
+        'id': info.get('userid'),
+        'userid': info.get('userid'),
+        'username': info.get('username') or username,
+    }
+    response = jsonify({
+        'code': 0,
+        'data': {'access_token': token, 'token': token, 'user': user},
+        'message': '登录成功',
+    })
+    # Cookie 供静态模板前端的页面导航在网关侧完成认证；API 调用仍可
+    # 自行携带 ``Token`` 请求头。
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        max_age=7 * 24 * 3600,
+        httponly=True,
+        samesite='Lax',
+        path='/',
+    )
+    return response
 
 
 @auth_api_bp.route('/auth/me', methods=['GET'])
 @login_required
 def get_me():
-    from flask import g
-    return success(data=g.current_user.to_dict(include_permissions=True))
+    """返回当前请求头 Token 对应的远程用户身份。
+
+    单 Token 模式下用户身份在全局网关中经 GetUserInfo 校验并写入
+    ``g.current_user``（RemoteTokenUser）；本接口只做序列化输出。
+    """
+    user = g.current_user
+    return success(data=user.to_dict(include_permissions=True))
 
 
 @auth_api_bp.route('/auth/logout', methods=['POST'])
 @login_required
 def logout():
-    from flask import g
-    auth_service.logout_user(g.current_user)
-    return success(message='退出登录成功')
+    """退出登录: 清除登录 Cookie 并提示客户端丢弃本地 Token。
+
+    远程颁发的 Token 本服务无法吊销，退出后 Token 在主 Web 侧仍有效；
+    页面跳转由前端（template-auth.js）完成。
+    """
+    response = success(message='退出登录成功')
+    response.delete_cookie(AUTH_COOKIE_NAME, path='/')
+    return response
 
 
-@auth_api_bp.route('/auth/password', methods=['PUT'])
-@login_required
-def change_password():
-    from flask import g
-    data = parse_body(ChangePasswordSchema)
-    auth_service.change_password(g.current_user, data.old_password, data.new_password)
-    return success(message='密码修改成功，所有已登录会话已失效，请重新登录')
-
-
-# ==================== User Management ====================
-
-@auth_api_bp.route('/admin/users', methods=['GET'])
-@login_required
-def list_users():
-    return success(data=auth_service.list_users())
-
-
-@auth_api_bp.route('/admin/users', methods=['POST'])
-@admin_required
-def create_user():
-    data = parse_body(CreateUserSchema)
-    user = auth_service.create_user(
-        username=data.username.strip(),
-        password=data.password,
-        mobile=(data.mobile or '').strip() or None,
-        role_ids=data.role_ids,
-        is_active=data.is_active,
-        is_alert_oncall=data.is_alert_oncall,
-    )
-    return success(data=user, message='用户创建成功')
-
-
-@auth_api_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
-@admin_required
-def update_user(user_id):
-    data = parse_body(UpdateUserSchema)
-    updated = auth_service.update_user(user_id, data.model_dump(exclude_unset=True))
-    return success(data=updated, message='用户更新成功')
-
-
-@auth_api_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
-@admin_required
-def delete_user(user_id):
-    auth_service.delete_user(user_id)
-    return success(message='用户删除成功')
-
-
-# ==================== Role Management ====================
-
-@auth_api_bp.route('/admin/roles', methods=['GET'])
-@login_required
-def list_roles():
-    return success(data=auth_service.list_roles())
-
-
-@auth_api_bp.route('/admin/roles', methods=['POST'])
-@admin_required
-def create_role():
-    data = parse_body(CreateRoleSchema)
-    role = auth_service.create_role(
-        name=data.name.strip(),
-        code=data.code.strip(),
-        permission_ids=data.permission_ids,
-        description=data.description,
-    )
-    return success(data=role, message='角色创建成功')
-
-
-@auth_api_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
-@admin_required
-def update_role(role_id):
-    data = parse_body(UpdateRoleSchema)
-    updated = auth_service.update_role(role_id, data.model_dump(exclude_unset=True))
-    return success(data=updated, message='角色更新成功')
-
-
-@auth_api_bp.route('/admin/roles/<int:role_id>', methods=['DELETE'])
-@admin_required
-def delete_role(role_id):
-    auth_service.delete_role(role_id)
-    return success(message='角色删除成功')
-
-
-# ==================== Permission Query ====================
-
-@auth_api_bp.route('/admin/permissions', methods=['GET'])
-@login_required
-def list_permissions():
-    return success(data=auth_service.list_permissions_grouped())
+# ==================== 旧本地认证 / RBAC 实现（全部注释保留，便于恢复） ====================
+#
+# 说明: 以下接口依赖本地 ``User`` / ``Role`` / ``Permission`` 表与本地
+# JWT 签发（``create_access_token`` 等），单 Token 子服务模式下全部停用。
+# 恢复步骤: 取消本文件顶部 import 与下方接口的注释即可。
+#
+# @auth_api_bp.route('/auth/login', methods=['POST'])
+# def login():
+#     """默认校验本地用户；主 Web 网关开启时通过 sys_user 校验。"""
+#     data = request.get_json() or {}
+#     username = data.get('username', '').strip()
+#     password = data.get('password', '')
+#     if not username or not password:
+#         return error('用户名和密码不能为空')
+#
+#     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+#         # 网关登录实现保留为开关分支，后续无需恢复已删除的代码。
+#         from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+#         from app.repositories.sys_user_repository import SysUserRepository
+#         from app.services.remote_identity_service import RemoteIdentityService
+#
+#         try:
+#             remote_record = SysUserRepository().login(username, password)
+#         except SdkOperationError:
+#             return error('用户名或密码错误', http_status=401)
+#         except SdkDataAccessError:
+#             return error('远程用户服务暂不可用', http_status=503)
+#         if not remote_record:
+#             return error('用户名或密码错误', http_status=401)
+#         user_id = remote_record.get('userid', remote_record.get('id'))
+#         if user_id is None:
+#             return error('远程登录响应缺少用户标识', http_status=502)
+#         user = RemoteIdentityService().get_user(user_id, username)
+#         if not user:
+#             return error('账号不存在或已禁用', http_status=401)
+#         return success(data={
+#             'access_token': create_access_token(user.id),
+#             'refresh_token': create_refresh_token(user.id),
+#             'user': user.to_dict(include_permissions=True),
+#         })
+#
+#     user = User.query.filter_by(username=username).first()
+#     if not user or not check_password_hash(user.password_hash, password):
+#         return error('用户名或密码错误', http_status=401)
+#     if not user.is_active:
+#         return error('账号已被禁用')
+#     user.token_version = int(user.token_version or 0) + 1
+#     token_version = int(user.token_version or 0)
+#     user.last_login = datetime.utcnow()
+#     db.session.commit()
+#
+#     return success(data={
+#         'access_token': create_access_token(user.id, token_version=token_version),
+#         'refresh_token': create_refresh_token(user.id, token_version=token_version),
+#         'user': user.to_dict(include_permissions=True),
+#     })
+#
+#
+# @auth_api_bp.route('/auth/refresh', methods=['POST'])
+# def refresh():
+#     """默认校验本地刷新令牌；网关模式下校验远程用户仍可用。"""
+#     data = request.get_json() or {}
+#     token = data.get('refresh_token', '')
+#     try:
+#         payload = decode_token(token)
+#         if payload.get('type') != 'refresh':
+#             return error('令牌类型错误')
+#         token_version = extract_token_version(payload)
+#     except jwt.ExpiredSignatureError:
+#         return error('刷新令牌已过期', http_status=401)
+#     except jwt.InvalidTokenError:
+#         return error('无效刷新令牌', http_status=401)
+#
+#     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+#         from app.repositories.sdk_client import SdkDataAccessError
+#         from app.services.remote_identity_service import RemoteIdentityService
+#
+#         user_id = payload.get('user_id', payload.get('userid'))
+#         if user_id is None:
+#             return error('令牌缺少用户标识', http_status=401)
+#         try:
+#             user = RemoteIdentityService().get_user(user_id)
+#         except SdkDataAccessError:
+#             return error('远程用户服务暂不可用', http_status=503)
+#         if not user:
+#             return error('用户不存在或已禁用', http_status=401)
+#         return success(data={
+#             'access_token': create_access_token(user.id),
+#             'user': user.to_dict(include_permissions=True),
+#         })
+#
+#     user = User.query.get(payload['user_id'])
+#     if not user:
+#         return error('用户不存在或已禁用', http_status=401)
+#     if int(user.token_version or 0) != token_version:
+#         return error('登录状态已失效，请重新登录', http_status=401)
+#
+#     return success(data={
+#         'access_token': create_access_token(user.id, token_version=int(user.token_version or 0)),
+#         'user': user.to_dict(include_permissions=True),
+#     })
+#
+#
+# @auth_api_bp.route('/auth/password', methods=['PUT'])
+# @login_required
+# def change_password():
+#     """本地改密入口；单 Token 模式下改密应到主 Web 执行。"""
+#     data = request.get_json() or {}
+#     old_pwd = data.get('old_password', '')
+#     new_pwd = data.get('new_password', '')
+#     if not old_pwd or not new_pwd:
+#         return error('旧密码和新密码不能为空')
+#     if len(new_pwd) < 6:
+#         return error('新密码长度不能少于6位')
+#
+#     user = g.current_user
+#     if not check_password_hash(user.password_hash, old_pwd):
+#         return error('旧密码错误')
+#
+#     user.password_hash = generate_password_hash(new_pwd)
+#     db.session.commit()
+#     return success(message='密码修改成功')
+#
+#
+# # ==================== User Management ====================
+#
+# @legacy_identity_bp.route('/admin/users', methods=['GET'])
+# @login_required
+# @permission_required('user:view', 'user:manage')
+# def list_users():
+#     """本地用户列表。"""
+#     users = User.query.all()
+#     return success(data=[u.to_dict() for u in users])
+#
+#
+# @legacy_identity_bp.route('/admin/users', methods=['POST'])
+# @login_required
+# @permission_required('user:manage')
+# def create_user():
+#     """本地用户创建。"""
+#     data = request.get_json() or {}
+#     username = data.get('username', '').strip()
+#     password = data.get('password', '')
+#     mobile = (data.get('mobile') or '').strip() or None
+#     role_ids = data.get('role_ids', [])
+#
+#     if not username or not password:
+#         return error('用户名和密码不能为空')
+#     if User.query.filter_by(username=username).first():
+#         return error('用户名已存在')
+#
+#     user = User(
+#         username=username,
+#         password_hash=generate_password_hash(password),
+#         mobile=mobile,
+#         is_active=data.get('is_active', True),
+#         is_alert_oncall=bool(data.get('is_alert_oncall', False)) and _can_alert_oncall(role_ids=role_ids),
+#     )
+#     if role_ids:
+#         user.roles = Role.query.filter(Role.id.in_(role_ids)).all()
+#     db.session.add(user)
+#     db.session.commit()
+#     return success(data=user.to_dict(), message='用户创建成功')
+#
+#
+# @legacy_identity_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
+# @login_required
+# @permission_required('user:manage')
+# def update_user(user_id):
+#     """本地用户更新。"""
+#     user = User.query.get(user_id)
+#     if not user:
+#         return error('用户不存在', http_status=404)
+#
+#     data = request.get_json() or {}
+#     if 'mobile' in data:
+#         user.mobile = (data.get('mobile') or '').strip() or None
+#     if 'is_active' in data:
+#         user.is_active = data['is_active']
+#     if 'password' in data and data['password']:
+#         user.password_hash = generate_password_hash(data['password'])
+#     if 'role_ids' in data:
+#         user.roles = Role.query.filter(Role.id.in_(data['role_ids'])).all()
+#     if 'is_alert_oncall' in data or 'role_ids' in data:
+#         user.is_alert_oncall = bool(data.get('is_alert_oncall', user.is_alert_oncall)) and _can_alert_oncall(user=user)
+#     db.session.commit()
+#     return success(data=user.to_dict(), message='用户更新成功')
+#
+#
+# @legacy_identity_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
+# @login_required
+# @permission_required('user:manage')
+# def delete_user(user_id):
+#     """本地用户删除。"""
+#     user = User.query.get(user_id)
+#     if not user:
+#         return error('用户不存在', http_status=404)
+#     Task.query.filter_by(created_by_user_id=user.id).update(
+#         {Task.created_by_user_id: None},
+#         synchronize_session=False,
+#     )
+#     db.session.execute(user_roles.delete().where(user_roles.c.user_id == user.id))
+#     db.session.delete(user)
+#     db.session.commit()
+#     return success(message='用户删除成功')
+#
+#
+# # ==================== Role Management ====================
+#
+# @legacy_identity_bp.route('/admin/roles', methods=['GET'])
+# @login_required
+# @permission_required('user:view', 'user:manage')
+# def list_roles():
+#     """本地角色列表。"""
+#     roles = Role.query.all()
+#     return success(data=[r.to_dict(include_permissions=True) for r in roles])
+#
+#
+# @legacy_identity_bp.route('/admin/roles', methods=['POST'])
+# @login_required
+# @permission_required('user:manage')
+# def create_role():
+#     """本地角色创建。"""
+#     data = request.get_json() or {}
+#     name = data.get('name', '').strip()
+#     code = data.get('code', '').strip()
+#     if not name or not code:
+#         return error('角色名称和编码不能为空')
+#     if Role.query.filter_by(code=code).first():
+#         return error('角色编码已存在')
+#
+#     role = Role(name=name, code=code, description=data.get('description', ''))
+#     perm_ids = data.get('permission_ids', [])
+#     if perm_ids:
+#         role.permissions = Permission.query.filter(Permission.id.in_(perm_ids)).all()
+#     db.session.add(role)
+#     db.session.commit()
+#     return success(data=role.to_dict(include_permissions=True), message='角色创建成功')
+#
+#
+# @legacy_identity_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
+# @login_required
+# @permission_required('user:manage')
+# def update_role(role_id):
+#     """本地角色更新。"""
+#     role = Role.query.get(role_id)
+#     if not role:
+#         return error('角色不存在', http_status=404)
+#
+#     data = request.get_json() or {}
+#     if 'name' in data:
+#         role.name = data['name']
+#     if 'description' in data:
+#         role.description = data['description']
+#     if 'permission_ids' in data:
+#         role.permissions = Permission.query.filter(Permission.id.in_(data['permission_ids'])).all()
+#     db.session.commit()
+#     return success(data=role.to_dict(include_permissions=True), message='角色更新成功')
+#
+#
+# @legacy_identity_bp.route('/admin/roles/<int:role_id>', methods=['DELETE'])
+# @login_required
+# @permission_required('user:manage')
+# def delete_role(role_id):
+#     """本地角色删除。"""
+#     role = Role.query.get(role_id)
+#     if not role:
+#         return error('角色不存在', http_status=404)
+#     if role.is_system:
+#         return error('系统内置角色不可删除')
+#     db.session.execute(user_roles.delete().where(user_roles.c.role_id == role.id))
+#     db.session.execute(role_permissions.delete().where(role_permissions.c.role_id == role.id))
+#     db.session.delete(role)
+#     db.session.commit()
+#     return success(message='角色删除成功')
+#
+#
+# # ==================== Permission Query ====================
+#
+# @legacy_identity_bp.route('/admin/permissions', methods=['GET'])
+# @login_required
+# @permission_required('user:view', 'user:manage')
+# def list_permissions():
+#     """本地权限列表。"""
+#     sync_navigation_permissions(NavigationMenuItem.query.all())
+#     db.session.commit()
+#     perms = Permission.query.order_by(Permission.group, Permission.code).all()
+#     grouped = {}
+#     for p in perms:
+#         grouped.setdefault(p.group, []).append(p.to_dict())
+#     return success(data=grouped)

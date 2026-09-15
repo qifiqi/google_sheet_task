@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.skip(reason="本地 JWT 生命周期已随单 Token 子服务模式退役")
+
 """JWT 令牌生命周期回归测试。
 
 覆盖修复后的行为约定：

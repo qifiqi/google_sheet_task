@@ -29,8 +29,10 @@ def register_blueprints(app):
     from app.routes.backtest_api import bt_api_bp, bmp_api_bp
     from app.routes.global_preview_api import gp_api_bp
     from app.routes.meta_api import meta_api_bp
-    from app.routes.auth_api import auth_api_bp
-    from app.routes.sso import sso_bp
+    from app.routes.auth_api import auth_api_bp, legacy_identity_bp
+    # SSO 换票入口已随本地登录停用（单 Token 子服务模式，2026-09）；
+    # 恢复本地登录/SSO 时取消注释。
+    # from app.routes.sso import sso_bp
     from app.routes.export_api import export_api_bp
 
     # 页面蓝图（前缀在各蓝图内定义，与历史 URL 保持一致）
@@ -62,5 +64,7 @@ def register_blueprints(app):
     app.register_blueprint(gp_api_bp)
     app.register_blueprint(meta_api_bp, url_prefix='/api')
     app.register_blueprint(auth_api_bp, url_prefix='/api')
-    app.register_blueprint(sso_bp, url_prefix='/api')
+    # 旧本地 RBAC 接口蓝图（无路由时仅是空蓝图），保持注册便于恢复。
+    app.register_blueprint(legacy_identity_bp, url_prefix='/api')
+    # app.register_blueprint(sso_bp, url_prefix='/api')
     app.register_blueprint(export_api_bp, url_prefix='/api/exports')

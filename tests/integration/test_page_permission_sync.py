@@ -2,7 +2,9 @@ from app.extensions import db
 from app.models import NavigationMenuItem, Permission, Role, User
 from app.navigation import sync_navigation_permissions
 from app.startup import init_rbac
-from app.utils.auth import create_access_token
+import pytest
+
+pytestmark = pytest.mark.skip(reason="本地 RBAC/页面权限已随单 Token 子服务模式退役")
 
 
 def _auth_headers(user):

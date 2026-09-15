@@ -89,6 +89,14 @@ class BaseConfig:
     BASE_URL = 'http://localhost:5000'
     # 股票 SDK / K 线服务地址；为空时由 SDK 使用默认地址。
     STOCK_BASE_URL = ''
+    # 数据访问后端开关（db-to-http 迁移，见 docs/design/db-to-http-migration/）：
+    # http（默认，数据层全量走远程 DY.Stock.Api）或 db（本地 SQLAlchemy）。
+    # 仅启动期读取，不做运行时热切换；db 模式为暂时保留的本地回退。
+    DATA_ACCESS_MODE = os.environ.get('DATA_ACCESS_MODE', 'http').strip().lower()
+    # 远程数据服务凭据与超时（app/repositories/sdk_client.py 消费）。
+    # Token 只能来自环境变量/密钥服务，禁止写入源码。
+    STOCK_API_TOKEN = os.environ.get('STOCK_API_TOKEN', '')
+    STOCK_API_TIMEOUT = float(os.environ.get('STOCK_API_TIMEOUT', '10'))
     # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
     # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
     SSO_ENABLED = True

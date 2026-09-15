@@ -52,26 +52,20 @@ def _exportable_metrics():
     return result["results"]
 
 
-def test_export_preview_page_redirects_anonymous_and_serves_cookie_session(app_factory):
+def test_export_preview_page_redirects_anonymous_and_serves_cookie_session(app_factory, monkeypatch):
     """BUG-17 后页面由服务端守卫：匿名 302 登录页；cookie 会话可访问。"""
-    from app.extensions import db as _db
-    from app.models import User as _User
-    from app.utils.auth import ACCESS_TOKEN_COOKIE, create_access_token
-
-    client = app_factory.test_client()
-    response = client.get("/backtest-training/result/123/export-preview")
+    # 单 Token 模式：匿名守卫由全局网关承担（页面导航 302 到 /login）；
+    # 已登录分支以免鉴权 mock 用户替代本地 token（远程校验单测不可达）。
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    anon_client = app_factory.test_client()
+    response = anon_client.get(
+        "/backtest-training/result/123/export-preview",
+        headers={"Accept": "text/html"},
+    )
     assert response.status_code == 302
     assert "/login" in response.headers["Location"]
-
-    with app_factory.app_context():
-        from werkzeug.security import generate_password_hash as _gph
-
-        user = _User(username="preview-page-user", password_hash=_gph("pw"), is_active=True)
-        _db.session.add(user)
-        _db.session.commit()
-        token = create_access_token(user.id)
-
-    client.set_cookie(ACCESS_TOKEN_COOKIE, token)
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    client = app_factory.test_client()
     served = client.get("/backtest-training/result/123/export-preview")
     assert served.status_code == 200
     assert b"template-auth.js" in served.data

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
@@ -20,11 +21,6 @@ from app.models import (
 )
 from app.services import scheduled_task_worker
 from app.services.task.facade import TaskManager
-from app.utils.auth import create_access_token
-
-
-def _headers(user):
-    return {"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"}
 
 
 def _create_task_records(task_id="task-1"):
@@ -216,6 +212,8 @@ def test_result_cleanup_clears_summary_and_xpl_dependencies(app_factory, monkeyp
         assert db.session.execute(text("SELECT COUNT(*) FROM xpl_analysis_jobs")).scalar() == 0
 
 
+# 用户/角色删除 API 已随本地 RBAC 退役（单 Token 子服务模式，接口 404）。
+@pytest.mark.skip(reason="本地用户/角色管理接口已退役")
 def test_user_and_role_deletion_clear_business_associations(app_factory):
     app = app_factory
     with app.app_context():

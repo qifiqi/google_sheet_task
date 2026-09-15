@@ -21,6 +21,8 @@ def app_factory(monkeypatch, sqlite_test_url):
     monkeypatch.setenv("AUTH_ENABLED", "true")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-pytest")
     monkeypatch.setenv("DATABASE_URL", sqlite_test_url)
+    # 测试固定使用本地 DB 后端（http 模式依赖远程服务，单测不可达）。
+    monkeypatch.setenv("DATA_ACCESS_MODE", "db")
     monkeypatch.chdir(PROJECT_ROOT)
 
     from app import create_app

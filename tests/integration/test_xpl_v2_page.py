@@ -304,41 +304,26 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     assert chart_data["excess_series"][0]["values"] == [0.01, 0.0]
 
 
+def _auth_disabled(monkeypatch):
+    """单 Token 子服务模式：页面/接口认证走远程 GetUserInfo，单测不可达；
+    以 AUTH_ENABLED=false 注入 mock 用户验证业务逻辑本身。"""
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+
+
 def _page_user_headers(app, username="xpl-page-user"):
-    """构造 xpl 分析接口的登录态（页面守卫与 analyze API 均需认证）。"""
-    from werkzeug.security import generate_password_hash
-
-    from app.extensions import db as _db
-    from app.models import User as _User
-    from app.utils.auth import create_access_token
-
-    with app.app_context():
-        user = _User(username=username, password_hash=generate_password_hash("pw"), is_active=True)
-        _db.session.add(user)
-        _db.session.commit()
-        return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+    """单 Token 模式下不再本地发 token：配合 _auth_disabled 免鉴权调用。"""
+    return {}
 
 
 def _page_cookie_client(app, username="xpl-cookie-user"):
-    from werkzeug.security import generate_password_hash
-
-    from app.extensions import db as _db
-    from app.models import User as _User
-    from app.utils.auth import ACCESS_TOKEN_COOKIE, create_access_token
-
-    with app.app_context():
-        user = _User(username=username, password_hash=generate_password_hash("pw"), is_active=True)
-        _db.session.add(user)
-        _db.session.commit()
-        token = create_access_token(user.id)
     client = app.test_client()
-    client.set_cookie(ACCESS_TOKEN_COOKIE, token)
     return client
 
 
-def test_xpl_v2_page_exposes_all_data_sources(app_factory):
+def test_xpl_v2_page_exposes_all_data_sources(app_factory, monkeypatch):
     """F5 静态化后页面 JS 抽离至 static/js/pages/performance_analysis_v2.js：
     DOM 断言仍打 HTML，脚本内容断言改读 pages JS 文件（同一交付物）。"""
+    _auth_disabled(monkeypatch)
     client = _page_cookie_client(app_factory)
     response = client.get('/performance_analysis/v2')
 
@@ -366,7 +351,8 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     assert 'XLSX.writeFile(workbook, defaultFilename' in page_js
 
 
-def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
+def test_xpl_v2_accepts_portfolio_return_rows(app_factory, monkeypatch):
+    _auth_disabled(monkeypatch)
     client = app_factory.test_client()
     response = client.post('/performance_analysis/analyze', headers=_page_user_headers(app_factory), json={
         "data": "\n".join([

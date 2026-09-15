@@ -6,8 +6,6 @@
 import pytest
 
 from app.extensions import db
-from app.models import User
-from app.utils.auth import create_access_token
 
 # (页面 URL, 页面 JS 文件[, require_common_scripts])；随批次推进追加。
 # require_common_scripts=False 用于独立页（不加载 common/api.js）。
@@ -46,18 +44,14 @@ STATIC_PAGES = [
     # F4: global_preview 独立入口
     ("/global-preview/single_product", "/static/js/pages/global_preview_index.js"),
     # F5: admin 族 13 页（基座已内联展开 + admin-shell.js；导航条由 navbar.js 渲染）
-    ("/admin/", "/static/js/pages/admin_dashboard.js"),
     ("/admin/tasks", "/static/js/pages/admin_tasks.js"),
     ("/admin/config", "/static/js/pages/admin_config.js"),
     ("/admin/logs", "/static/js/pages/admin_logs.js"),
     ("/admin/results", "/static/js/pages/admin_results.js"),
-    ("/admin/navigation", "/static/js/pages/admin_navigation.js"),
     ("/admin/templates", "/static/js/pages/admin_templates.js"),
     ("/admin/scheduler", "/static/js/pages/admin_scheduler.js"),
     ("/admin/model-summary", "/static/js/pages/admin_model_summary.js"),
     ("/admin/google-sheets", "/static/js/pages/admin_google_sheets.js"),
-    ("/admin/roles", "/static/js/pages/admin_roles.js"),
-    ("/admin/users", "/static/js/pages/admin_users.js"),
     # /admin/eastmoney-kline 为纯 iframe 壳页，无页面 JS，仅断言 pages css 与零 Jinja
     ("/admin/eastmoney-kline", "/static/css/pages/admin_eastmoney_kline.css", False),
     # F5: xpl 两页（基座内联展开；CDN jquery/datatables/chart.js 保留外链；v1 页面链已删除）
@@ -74,13 +68,11 @@ STATIC_PAGES = [e if len(e) == 3 else (e[0], e[1], True) for e in STATIC_PAGES]
 
 
 @pytest.fixture()
-def _page_user(app_factory):
-    with app_factory.app_context():
-        user = User(username="static-page-user", password_hash="x")
-        db.session.add(user)
-        db.session.commit()
-        token = create_access_token(user.id, token_version=user.token_version)
-        yield {"headers": {"Authorization": f"Bearer {token}"}}
+def _page_user(app_factory, monkeypatch):
+    # 单 Token 子服务模式下页面鉴权走远程 GetUserInfo，单测不可达；
+    # 以 AUTH_ENABLED=false 注入 mock 用户，仅验证静态页面渲染本身。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    yield {"headers": {}}
 
 
 @pytest.mark.parametrize("url,page_js,require_common", STATIC_PAGES)

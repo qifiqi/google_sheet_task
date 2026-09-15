@@ -1,13 +1,20 @@
 """强密码策略 util 测试（app.utils.auth.validate_password_strength）。
 
 策略基线：8-64 位，且同时包含大写字母、小写字母、数字、特殊字符。
-"""
 
-from app.utils.auth import (
-    PASSWORD_MAX_LENGTH,
-    PASSWORD_MIN_LENGTH,
-    validate_password_strength,
-)
+2026-09 db-to-http 迁移：密码策略随本地登录退役（单 Token 子服务模式），
+整体 skip；恢复本地登录时解除。
+"""
+import pytest
+
+pytestmark = pytest.mark.skip(reason="本地密码策略已随单 Token 子服务模式退役")
+
+# 本地密码策略已随单 Token 子服务模式退役，导入注释保留。
+# from app.utils.auth import (
+#     PASSWORD_MAX_LENGTH,
+#     PASSWORD_MIN_LENGTH,
+#     validate_password_strength,
+# )
 
 
 def test_strong_password_passes():

@@ -1,7 +1,13 @@
 """A3 批次（BUG-10 ~ BUG-17）修复验收测试。
 
 对应 docs/design/code-audit-2026-09/01-bugs-and-fixes.md 各"验收标准"。
+
+2026-09 db-to-http 迁移：本模块覆盖的本地 JWT 签发/校验特性已随本地登录
+一并退役（单 Token 子服务模式），整体 skip；恢复本地登录时解除。
 """
+import pytest
+
+pytestmark = pytest.mark.skip(reason="本地 JWT 已随单 Token 子服务模式退役")
 import json
 from datetime import datetime
 
@@ -15,7 +21,7 @@ from app.services.config_manager import (
     get_config_manager,
     mask_config_value,
 )
-from app.utils.auth import create_access_token
+# from app.utils.auth import create_access_token  # 本地 JWT 已退役
 from app.utils.task_types import normalize_task_type
 
 

@@ -10,7 +10,9 @@ from app.extensions import limiter
 from app.utils.api_response import success
 
 
-def test_rate_limit_exceeded_returns_429_chinese_envelope(app_factory):
+def test_rate_limit_exceeded_returns_429_chinese_envelope(app_factory, monkeypatch):
+    # 单 Token 模式：网关需远程校验，限流用例以免鉴权 mock 用户验证 429 契约。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     app = app_factory
     app.config.update(RATELIMIT_ENABLED=True)
     # 共享 limiter 单例的 enabled 被 TestingConfig（False）的 init_app 锁定，
@@ -47,7 +49,8 @@ def test_testing_config_disables_rate_limit():
 
     assert TestingConfig.RATELIMIT_ENABLED is False
 
-def test_export_endpoint_rate_limited_by_user(app_factory):
+def test_export_endpoint_rate_limited_by_user(app_factory, monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     """真实导出路由挂载验证：rate_limit_export（10/min，user 键）。
 
     限流在视图前生效——前 10 次按业务返回 404（任务不存在），
@@ -69,8 +72,9 @@ def test_export_endpoint_rate_limited_by_user(app_factory):
         db.session.commit()
 
     client = app.test_client()
-    r = client.post("/api/auth/login", json={"username": "exporter", "password": pw})
-    headers = {"Authorization": "Bearer " + r.get_json()["data"]["access_token"]}
+    # 单 Token 模式：本地登录退役；AUTH_ENABLED=false 下以 mock 用户
+    # （限流键回落 anon）验证 429 契约。
+    headers = {}
 
     codes = [
         client.get("/api/exports/tasks/nonexistent", headers=headers).status_code

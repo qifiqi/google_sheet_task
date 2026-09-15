@@ -12,7 +12,10 @@ from app.utils.request_parsing import parse_body, parse_query
 
 
 @pytest.fixture()
-def client(app_factory):
+def client(app_factory, monkeypatch):
+    # 单 Token 模式下网关需远程校验 Token；本文件验证错误处理器契约，
+    # 以 AUTH_ENABLED=false 注入 mock 用户放行网关。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     return app_factory.test_client()
 
 
@@ -32,7 +35,7 @@ class TestUnifiedEnvelope:
         body = resp.get_json()
         assert body["status"] == "error"
         assert body["code"] == 400
-        assert body["message"] == "用户名和密码不能为空"
+        assert body["message"] == "请输入用户名和密码"  # 单 Token 模式登录契约文案
         assert body["data"] is None
 
     def test_app_exception_becomes_envelope_on_api_path(self, app_factory, client):
@@ -78,7 +81,10 @@ class TestUnifiedEnvelope:
         assert body["code"] == 500
         assert "secret" not in body["message"]
 
-    def test_login_required_401_envelope(self, client):
+    def test_login_required_401_envelope(self, app_factory, monkeypatch):
+        # 该用例验证网关 401 信封本身：临时恢复鉴权开关。
+        monkeypatch.setenv("AUTH_ENABLED", "true")
+        client = app_factory.test_client()
         # login_required 未带令牌 → UnauthorizedError → 全局处理器 401 信封
         resp = client.get("/api/auth/me")
         assert resp.status_code == 401

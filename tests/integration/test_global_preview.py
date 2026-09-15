@@ -58,8 +58,15 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
 
 
 def test_single_product_preview_page_redirects_anonymous(app_factory):
-    """BUG-17 后页面由服务端守卫：匿名访问 302 到登录页。"""
-    response = app_factory.test_client().get("/global-preview/single_product")
+    """BUG-17 后页面由服务端守卫：匿名访问 302 到登录页。
+
+    单 Token 模式下守卫由全局网关承担：页面导航（Accept: text/html）
+    缺 Token 时 302 到 /login?next=...。
+    """
+    response = app_factory.test_client().get(
+        "/global-preview/single_product",
+        headers={"Accept": "text/html"},
+    )
 
     assert response.status_code == 302
     assert "/login" in response.headers["Location"]
@@ -312,6 +319,8 @@ def test_global_preview_upgrades_legacy_metric_aliases(app_factory, monkeypatch)
 
 
 def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(app_factory, monkeypatch):
+    # 单 Token 模式：页面/接口网关需远程校验，以免鉴权 mock 用户验证业务逻辑。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     app = app_factory
     with app.app_context():
         observed = {}

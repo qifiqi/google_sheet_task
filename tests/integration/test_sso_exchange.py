@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.skip(reason="SSO 换票已随本地登录退役（单 Token 子服务模式）")
+
 """主服务 SSO 换票集成测试（docs/design/sso-integration-2026-09/）。
 
 覆盖：首次建号挂默认角色、同名合并保留既有角色、禁用账号拒绝、上游无效

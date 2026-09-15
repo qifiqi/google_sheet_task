@@ -15,6 +15,14 @@ logger = get_logger(__name__)
 RANDOM_TOKEN_VALUE = "__random__"
 
 
+def _token_is_available(token) -> bool:
+    """token 可用性判定；兼容 ORM 实体与 HTTP 后端的 dict 记录。"""
+    is_active = getattr(token, "is_active", None)
+    max_usage = int(getattr(token, "max_usage_count", 0) or 0)
+    in_use = int(getattr(token, "current_in_use_count", 0) or 0)
+    return bool(is_active) and (max_usage <= 0 or in_use < max_usage)
+
+
 class GoogleSheetTokenService:
     @staticmethod
     def _normalize_token_task_type(task_type: Optional[str], default: Optional[str] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value) -> Optional[str]:
@@ -170,7 +178,7 @@ class GoogleSheetTokenService:
         total_usage = google_sheet_token_repository.sum_field('task_usage_count')
         active_count = google_sheet_token_repository.count_active()
         available_count = sum(
-            1 for token in google_sheet_token_repository.list_active_entities().all() if token.is_available()
+            1 for token in google_sheet_token_repository.list_active_entities() if _token_is_available(token)
         )
         return {
             "current_total_in_use": int(current_total),
@@ -319,14 +327,15 @@ class GoogleSheetTokenService:
         snapshot = snapshot or self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
         normalized_task_type = self._normalize_token_task_type(task_type)
-        tokens = (
-            google_sheet_token_repository.list_active_entities(task_type=normalized_task_type)
-            .order_by(
-                GoogleSheetToken.current_in_use_count.asc(),
-                GoogleSheetToken.task_usage_count.asc(),
-                GoogleSheetToken.id.asc(),
-            )
-            .all()
+        tokens = google_sheet_token_repository.list_active_entities(task_type=normalized_task_type)
+        # 单 Token 排序键对齐原 ORM order_by（HTTP 后端返回 list，本地排序）。
+        tokens = sorted(
+            tokens,
+            key=lambda token: (
+                int(token.current_in_use_count or 0),
+                int(token.task_usage_count or 0),
+                int(token.id or 0),
+            ),
         )
         available = []
         for token in tokens:

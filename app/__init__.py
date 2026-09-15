@@ -49,7 +49,9 @@ def load_app_environment():
 
 def create_app():
     load_app_environment()
-    validate_auth_runtime_settings()
+    # 本地 JWT 密钥/认证开关校验已随本地登录一并停用（单 Token 子服务
+    # 模式不使用本地 JWT_SECRET_KEY）；恢复本地登录时一并取消注释。
+    # validate_auth_runtime_settings()
 
     from app.config import get_config_class
 
@@ -86,6 +88,39 @@ def create_app():
     get_config_manager().init_app(app)
 
     register_blueprints(app)
+
+    @app.before_request
+    def require_gateway_jwt():
+        """全局鉴权网关（单 Token 子服务模式，见 docs/design/db-to-http-migration/）。
+
+        静态资源与 /login 页面放行；其余请求读取 ``Token`` 请求头
+        （兼容 access_token Cookie / ?token= 参数）并经远程 GetUserInfo
+        校验，通过后 ``g.current_user`` / ``g.current_token`` 对全部业务
+        路由可见。已退役的本地身份/RBAC 接口直接 404。
+        """
+        from flask import abort, request
+
+        from app.utils.auth import (
+            authenticate_current_request,
+            is_retired_local_identity_path,
+        )
+
+        if request.path.startswith('/static/') or request.path == '/login':
+            return None
+        if is_retired_local_identity_path(request.path):
+            abort(404)
+        if request.path in {
+            '/api/auth/login',
+            '/api/auth/refresh',
+            # 登录页/前端启动所需的公共静态配置：无鉴权可读（与本地模式一致）。
+            '/api/meta/versions',
+            '/api/meta/enums',
+        }:
+            return None
+        auth_error = authenticate_current_request()
+        if auth_error:
+            return auth_error
+        return None
 
     @app.context_processor
     def inject_template_auth_context():
