@@ -105,6 +105,18 @@ function getCardSheetUrl(card) {
     return globalSheetUrlInput?.value.trim() || '';
 }
 
+// 市场联动数据源：A股保持当前数据源不变；改成除 A股以外的市场一律切 Yahoo。
+function syncCardDataSourceWithMarket(card, marketType) {
+    if (String(marketType || '').trim().toLowerCase() === 'cn') {
+        return;
+    }
+    const sourceSelect = card.querySelector('.kline-data-source');
+    if (sourceSelect) {
+        sourceSelect.value = 'yahoo';
+        card.dataset.sourceTouched = '1';
+    }
+}
+
 function getDefaultCommissionByMarket(marketType) {
     return stockMarkets.find((market) => market.value === marketType)?.default_commission || '';
 }
@@ -859,6 +871,7 @@ productsContainer.addEventListener('click', (event) => {
         card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
         card.dataset.exchangeMarket = stockItem.dataset.exchangeMarket || '';
         card.dataset.marketTouched = '1';
+        syncCardDataSourceWithMarket(card, card.querySelector('.market-type').value);
         syncEmptyCommissionRows(card);
         updateProductSummary(card);
         card.querySelector('.stock-search-results').classList.add('d-none');
@@ -892,6 +905,7 @@ productsContainer.addEventListener('change', (event) => {
     }
     if (event.target.closest('.market-type')) {
         card.dataset.marketTouched = '1';
+        syncCardDataSourceWithMarket(card, event.target.value);
         return;
     }
     if (event.target.closest('.kline-adjustment')) {
@@ -927,7 +941,10 @@ function applyGlobalSettingsToCards() {
         }
         if (card.dataset.sourceTouched !== '1') {
             const sourceSelect = card.querySelector('.kline-data-source');
-            if (sourceSelect) sourceSelect.value = globalKlineDataSourceSelect.value;
+            // 自定义了市场的卡片，数据源由卡片自己的市场联动决定，不被全局覆盖。
+            if (sourceSelect && card.dataset.marketTouched !== '1') {
+                sourceSelect.value = globalKlineDataSourceSelect.value;
+            }
         }
         updateProductSummary(card);
         if (!card.querySelector('.sheet-url').value.trim()) {
@@ -936,7 +953,13 @@ function applyGlobalSettingsToCards() {
     });
 }
 
-globalMarketTypeSelect?.addEventListener('change', applyGlobalSettingsToCards);
+// 全局市场联动全局数据源：非 A股统一切 Yahoo；A股则保持当前数据源不变。
+globalMarketTypeSelect?.addEventListener('change', () => {
+    if (globalKlineDataSourceSelect && globalMarketTypeSelect.value !== 'cn') {
+        globalKlineDataSourceSelect.value = 'yahoo';
+    }
+    applyGlobalSettingsToCards();
+});
 globalKlineAdjustmentSelect?.addEventListener('change', applyGlobalSettingsToCards);
 globalPriceModeSelect?.addEventListener('change', applyGlobalSettingsToCards);
 globalKlineDataSourceSelect?.addEventListener('change', applyGlobalSettingsToCards);

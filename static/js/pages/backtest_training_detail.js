@@ -312,10 +312,17 @@
             sp_price: '收盘价',
             ohlc_price: 'OHLC（开高低收）'
         };
+        // 与后端 app/utils/market.py MARKET_LABELS 保持同步。
+        const marketLabels = {
+            cn: 'A股', en: '美股', ca: '加拿大', kr: '韩国', jp: '日本',
+            hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
+            au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
+        };
+        const marketType = String(config.market_type || '').trim().toLowerCase();
         const items = [
             { label: '股票代码', value: config.stock_code },
             { label: '股票名称', value: config.stock_name },
-            { label: '市场类型', value: config.market_type },
+            { label: '市场类型', value: marketLabels[marketType] || config.market_type },
             { label: 'K线复权', value: klineAdjustmentLabels[config.kline_adjustment] || config.kline_adjustment },
             { label: '价格模式', value: priceModeLabels[config.price_mode] || config.price_mode },
             { label: 'K线数据源', value: config.kline_data_source },
