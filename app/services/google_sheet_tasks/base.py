@@ -221,7 +221,7 @@ class BaseGoogleSheetService:
         for attempt in range(60):
             # 定期刷新参数，防止模型卡顿
             if refresh_fn is not None and attempt != 0 and (attempt % 10 == 0 or attempt in [5, 15, 25, 35]):
-                self._log_info(f"刷新参数")
+                self._log_info("刷新参数")
                 refresh_fn(20)
 
             _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
@@ -454,7 +454,7 @@ class BaseGoogleSheetService:
         }
 
     def _expand_parameters(self, outer_param, parameters, batch):
-        """单外层参数 → (组合列表, A列长度, KLINE_DATA_MAP)；默认走 C5 签名。"""
+        """单外层参数 → (组合列表, A列长度, kline_data_map)；默认走 C5 签名。"""
         return self._get_all_parameters(
             outer_param,
             batch["count_mode"],
@@ -612,25 +612,26 @@ class BaseGoogleSheetService:
         )
         data = []
 
-        KLINE_DATA_MAP = {}
+        kline_data_map = {}
         if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
             for i, v1 in enumerate(parameters[1]):
                 for j, v2 in enumerate(parameters[2]):
                     Kline_key = f'{_end_year_1}-{_start_date}'
+                    # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
                     d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
                     if stock_name:
                         d['stock_name'] = stock_name
-                    if Kline_key not in KLINE_DATA_MAP:
-                        KLINE_DATA_MAP[Kline_key] = all_kline
+                    if Kline_key not in kline_data_map:
+                        kline_data_map[Kline_key] = all_kline
 
                     data.append(d)
 
         if count_mode != 'n_plus_1':
-            data, KLINE_DATA_MAP = self._expand_random_price_groups(
-                data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+            data, kline_data_map = self._expand_random_price_groups(
+                data, kline_data_map, price_mode, random_price_range, random_group_count
             )
-            data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
-            return data, len(all_kline) + 20,KLINE_DATA_MAP
+            data = self._deduplicate_parameter_combinations(data, kline_data_map)
+            return data, len(all_kline) + 20,kline_data_map
 
         if 'recent' in date_range_mode:
             # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
@@ -662,8 +663,8 @@ class BaseGoogleSheetService:
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                        if Kline_key not in kline_data_map:
+                            kline_data_map[Kline_key] = kline
 
                         data.append(d)
 
@@ -680,13 +681,13 @@ class BaseGoogleSheetService:
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                        if Kline_key not in kline_data_map:
+                            kline_data_map[Kline_key] = kline
 
                         data.append(d)
 
-        data, KLINE_DATA_MAP = self._expand_random_price_groups(
-            data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+        data, kline_data_map = self._expand_random_price_groups(
+            data, kline_data_map, price_mode, random_price_range, random_group_count
         )
 
         if not data:
@@ -695,8 +696,8 @@ class BaseGoogleSheetService:
                 f"请检查 start_date={start_date}, end_date={end_date}, date_range_mode={date_range_mode}"
             )
 
-        data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
-        return data, len(all_kline) + 20,KLINE_DATA_MAP
+        data = self._deduplicate_parameter_combinations(data, kline_data_map)
+        return data, len(all_kline) + 20,kline_data_map
 
     def _clear_input_columns(self, google_sheet, batch) -> None:
         """执行前清空输入列（C5 默认：A列行数<10 跳过；滞空 A~B 列）。"""
@@ -725,12 +726,12 @@ class BaseGoogleSheetService:
 
             for outer_param in parameters[0]:
                 if batch["kline_source"] == 'custom':
-                    combinations, column_A_length, KLINE_DATA_MAP = self._get_custom_parameters(
+                    combinations, column_A_length, kline_data_map = self._get_custom_parameters(
                         outer_param, parameters, batch["custom_kline_map"]
                     )
                 else:
-                    combinations, column_A_length, KLINE_DATA_MAP = self._expand_parameters(outer_param, parameters, batch)
-                precomputed_params.append((combinations, column_A_length, KLINE_DATA_MAP))
+                    combinations, column_A_length, kline_data_map = self._expand_parameters(outer_param, parameters, batch)
+                precomputed_params.append((combinations, column_A_length, kline_data_map))
                 total_combinations += len(combinations)
 
             # 更新任务总步数
@@ -764,7 +765,7 @@ class BaseGoogleSheetService:
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
-            for outer_idx, (combinations, column_A_length, KLINE_DATA_MAP) in enumerate(precomputed_params):
+            for outer_idx, (combinations, column_A_length, kline_data_map) in enumerate(precomputed_params):
                 for combination in combinations:
                     if self._is_cancel_requested():
                         return success_count, failed_count, 'cancelled'
@@ -787,7 +788,7 @@ class BaseGoogleSheetService:
 
                     current_step = processed_index + 1
 
-                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
+                    self._log_step(current_step, total_combinations, "开始执行参数组合")
 
                     # 推送执行进度
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
@@ -795,7 +796,7 @@ class BaseGoogleSheetService:
 
                     # 执行单个参数组合
                     try:
-                        success, result = self._execute_parameter_combination(column_A_length, combination, cache_parameters, config_data, KLINE_DATA_MAP)
+                        success, result = self._execute_parameter_combination(column_A_length, combination, cache_parameters, config_data, kline_data_map)
 
                         if success:
                             success_count += 1
@@ -809,7 +810,7 @@ class BaseGoogleSheetService:
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['Kline_key'], None)
                         combination['kline'] = [kline[0], kline[-1]]
 
                         self.send_stock_param_result_data(

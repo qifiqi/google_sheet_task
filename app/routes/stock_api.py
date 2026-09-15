@@ -1,6 +1,5 @@
 from flask import Blueprint, request
 
-from app.exceptions import ServiceError
 from app.services.stock_search_service import StockSearchService
 from app.utils.api_response import success
 from app.utils.auth import login_required

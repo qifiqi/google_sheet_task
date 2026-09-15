@@ -741,7 +741,6 @@ def _extract_summary_rows(calculate_metrics, model_name):
         index_profit_monthly_all = entries["index_profit_monthly_all"]
         start_profit_monthly_all = entries["start_profit_monthly_all"]
         index_kama_all = entries["index_kama_all"]
-        start_kama_all = entries["start_kama_all"]
         index_sortino_all = entries["index_sortino_all"]
         start_sortino_all = entries["start_sortino_all"]
         monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]

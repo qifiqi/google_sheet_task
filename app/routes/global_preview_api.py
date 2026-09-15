@@ -1,6 +1,6 @@
 """全局预览 API（自 global_preview.py 归位，URL 不变）。"""
 
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.exceptions import BadRequestError
 from app.schemas.backtest import PreviewGroupSchema

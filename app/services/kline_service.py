@@ -8,9 +8,8 @@ from __future__ import annotations
 from app.utils.logger import get_logger
 
 import asyncio
-import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, Iterable
 from stock_sdk import StockClient
 
@@ -19,7 +18,6 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.market import (
     exchange_market_from_stock_code,
     infer_market_type,
-    normalize_market_type,
     normalize_stock_code,
     strip_stock_code_suffix,
     supports_internal_kline,
@@ -80,7 +78,7 @@ def _resolve_stock_base_url() -> str | None:
         configured = current_app.config.get("STOCK_BASE_URL", "")
     except RuntimeError:
         configured = ""
-    return configured or os.environ.get("STOCK_BASE_URL") or None
+    return configured or None
 
 
 class KlineService:

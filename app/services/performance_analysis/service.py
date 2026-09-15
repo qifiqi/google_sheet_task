@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict
 
 from app.exceptions import ValidationError
 from app.repositories import task_repository, task_result_repository
-from app.services.performance_analysis.facade import calculate_v1_metrics
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.portfolio_combiner import combine_product_returns
@@ -126,7 +124,6 @@ class PerformanceAnalysisService:
 
     def analyze_sheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         spreadsheet_id = payload.get("spreadsheet_id", "")
-        google_sheet_url = payload.get("google_sheet_url", "")
         google_sheet_name = payload.get("google_sheet_name", "auto")
         runtime_params = _parse_runtime_params(payload.get("runtime_params"))
 

@@ -3,7 +3,6 @@
 可用性筛选、状态流转方法按 google_sheet_token_service 调用点定形后补入（B2）。
 """
 from app.extensions import db
-from app.exceptions import NotFoundError
 from app.models import GoogleSheetToken
 from app.repositories.base import BaseRepository
 

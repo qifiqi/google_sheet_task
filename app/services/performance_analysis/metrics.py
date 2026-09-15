@@ -6,7 +6,6 @@
 
 import json
 import math
-from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -180,9 +179,7 @@ class PerformanceMetricsMixin:
         # Calculate average monthly return
         avg_monthly_return = monthly_returns.mean()
 
-        # TODO
         # 计算月度收益率标准差（使用样本标准差）（月收益率标准差）
-        # Calculate monthly return standard deviation (population standard deviation)
         monthly_std = monthly_returns.std(ddof=1)
 
         # 计算年化标准差(年化波动率)
@@ -229,8 +226,6 @@ class PerformanceMetricsMixin:
                 if previous_month_data is None:
                     # 如果是第一个月，使用当月第一个数据点作为基准
                     # If it's the first month, use the first data point of the month as base
-                    # comparison_point = month_df.iloc[0]
-                    # comparison_point = comparison_point['net_value']
                     # TODO: 首月基准被硬编码为 1（而非当月第一个数据点的净值），
                     #  首月月度收益因此包含数据起点前的累计涨跌；有单测覆盖此问题（已 skip）。
                     comparison_point = 1

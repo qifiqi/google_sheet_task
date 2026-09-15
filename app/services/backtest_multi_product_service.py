@@ -27,20 +27,17 @@ from app.services.task.error_handling import (
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
     infer_market_type,
     normalize_market_type as normalize_supported_market_type,
     normalize_stock_code,
 )
 from app.services.performance_analysis.portfolio_combiner import (
-    cumulative_to_daily as _canonical_cumulative_to_daily,
-    daily_to_cumulative as _canonical_daily_to_cumulative,
     combine_product_returns as _canonical_combine_product_returns,
     normalize_weight,
     normalize_weighting_mode,
 )
-from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
+from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS  # noqa: F401  （预览模块从本模块转引）
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,

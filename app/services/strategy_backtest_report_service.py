@@ -12,8 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from app.repositories import task_repository, task_result_repository
-from app.models import TaskResult, TaskResultReturn
+from app.repositories import task_result_repository
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_charts import generate_correlation_heatmap, generate_report_charts

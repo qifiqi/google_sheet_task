@@ -123,10 +123,10 @@ class TaskWatchdog:
     def stop(self, timeout: float | None = 5.0):
         with self._lock:
             self._stop_event.set()
-            t = self._thread
+            thread = self._thread
 
-        if t and t.is_alive() and timeout is not None:
-            t.join(timeout=timeout)
+        if thread and thread.is_alive() and timeout is not None:
+            thread.join(timeout=timeout)
 
     def _get_config(self, app, key: str, default):
         with app.app_context():

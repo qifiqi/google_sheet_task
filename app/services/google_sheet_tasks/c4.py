@@ -1,14 +1,11 @@
-import json
 import time
 from typing import Dict, Any
 
-from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
-from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
@@ -19,7 +16,6 @@ from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields
@@ -147,7 +143,7 @@ class C4Service(BaseGoogleSheetService):
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
                 google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
 
-            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+            self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
             if not self._interruptible_sleep(20):
                 return success_count, failed_count, 'cancelled'
 
@@ -175,7 +171,7 @@ class C4Service(BaseGoogleSheetService):
 
                     current_step = processed_index + 1
 
-                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
+                    self._log_step(current_step, total_combinations, "开始执行参数组合")
 
                     # 推送执行进度
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
@@ -378,8 +374,6 @@ class C4Service(BaseGoogleSheetService):
                         _start_return = check_result(
                             google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
                         )
-                        _index_return_date = []
-                        _start_return_date = []
                         _return_data = []
                         for i in range(len(kline)):
                             _return_data.append({
@@ -401,7 +395,7 @@ class C4Service(BaseGoogleSheetService):
                         break
 
                 if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
+                    self._log_info("所有任务已完成")
                     return True, results
                 return False, None
 
@@ -486,11 +480,6 @@ class C4Service(BaseGoogleSheetService):
         if 'recent' in date_range_mode:
             if count_mode == 'n_plus_1':
                 for i in range(1, (_end_year_1 - _start_date) + 1):
-                    _i = i
-                    if i!=0:
-                        _i = i - 1
-
-                    _end_data = f"{_end_year_1-_i}{end_date[4:]}"
                     _start_data = f"{_end_year_1 - i}{end_date[4:]}"
                     d = {}
                     # 历史行为：此处原将日期串按位置传入 year 形参，年份匹配恒为空，保持现状

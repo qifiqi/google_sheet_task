@@ -1,5 +1,4 @@
 import time
-import traceback
 from typing import Optional
 
 import gspread
@@ -585,7 +584,6 @@ class GoogleSheet:
         Returns:
             操作结果
         """
-        last_exception = None
         for attempt in range(max_retries):
             try:
                 self._ensure_worksheet()
@@ -595,8 +593,7 @@ class GoogleSheet:
                 if not self._is_network_error(e):
                     # 不是网络错误，直接抛出
                     raise
-                
-                last_exception = e
+
                 if attempt < max_retries - 1:
                     wait_time = delay * (2 ** attempt)  # 指数退避
                     logger.warning(

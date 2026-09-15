@@ -1,5 +1,3 @@
-from flask import Blueprint
-
 def register_blueprints(app):
     """注册所有蓝图。页面（HTML）路由统一在 app/routes/pages/ 包，API 留在本级。"""
     # ---- 页面路由（HTML，app/routes/pages/）----

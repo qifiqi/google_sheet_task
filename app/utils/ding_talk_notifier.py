@@ -9,7 +9,6 @@ import requests
 from flask import current_app, has_app_context
 
 from app.repositories import auth_repository, task_repository
-from app.models import Task, User
 from app.utils.logger import get_logger
 
 

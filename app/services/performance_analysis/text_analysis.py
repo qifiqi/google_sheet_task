@@ -161,7 +161,7 @@ class TextReturnAnalysisMixin:
                     "start_return": start_return,  # 模型收益率 Start return
                 })
 
-            except (ValueError, IndexError) as e:
+            except (ValueError, IndexError):
                 logger.warning(f"解析行 {i + 1} 时出错: {line}")
                 continue
 

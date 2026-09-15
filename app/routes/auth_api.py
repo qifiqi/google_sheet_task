@@ -5,7 +5,7 @@ app.utils.auth，缓存留在 auth 层）；路由层只做 HTTP 解析与统一
 删用户的同事务原子性（user_roles 清理 + Task.created_by 置空）在服务层保持。
 """
 
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.services import auth_service
 from app.utils.api_response import success

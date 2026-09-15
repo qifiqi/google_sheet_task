@@ -12,7 +12,7 @@ except ImportError:
 
 from app.extensions import db, limiter, migrate
 from app.routes import register_blueprints
-from app.utils.auth import validate_auth_runtime_settings
+from app.utils.auth import is_auth_enabled, validate_auth_runtime_settings
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
@@ -90,7 +90,7 @@ def create_app():
     @app.context_processor
     def inject_template_auth_context():
         return {
-            'auth_enabled': os.environ.get('AUTH_ENABLED', 'true').lower() == 'true',
+            'auth_enabled': is_auth_enabled(),
         }
 
     app.notifier = DingTalkNotifier(

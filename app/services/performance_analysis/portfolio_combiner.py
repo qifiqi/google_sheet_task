@@ -8,15 +8,11 @@
 from __future__ import annotations
 
 import math
-import pandas as pd
 from typing import Any, Iterable
 from decimal import Decimal, InvalidOperation
 
-from app.schemas.backtest import StrategyBacktestReportSchema
-
 RATIO_BASE = Decimal("100")
 DEFAULT_WEIGHTING_MODE = "daily_compound"
-LEGACY_WEIGHTING_MODE = "legacy_cumulative"
 
 
 def normalize_weight(value: Any) -> Decimal:
@@ -38,19 +34,12 @@ def normalize_weight(value: Any) -> Decimal:
 
 
 def normalize_weighting_mode(mode: Any = None, *, legacy: Any = False) -> str:
-    """统一组合算法入口。
+    """组合算法归一化。
 
     旧版累计收益直接加权（legacy_cumulative）已停用，当前仅保留
-    日收益加权后复利（daily_compound）一种算法。
+    日收益加权后复利（daily_compound）一种算法，恒返回该默认值；
+    ``mode``/``legacy`` 形参仅为兼容既有调用方签名保留。
     """
-    # if mode in (None, ""):
-    #     return LEGACY_WEIGHTING_MODE if _coerce_bool(legacy) else DEFAULT_WEIGHTING_MODE
-    # normalized = str(mode).strip().lower()
-    # if normalized in {DEFAULT_WEIGHTING_MODE, "daily", "compound"}:
-    #     return DEFAULT_WEIGHTING_MODE
-    # if normalized in {LEGACY_WEIGHTING_MODE, "legacy", "cumulative"}:
-    #     return LEGACY_WEIGHTING_MODE
-    # raise ValueError(f"不支持的组合 weighting_mode: {mode}")
     _ = mode, legacy
     return DEFAULT_WEIGHTING_MODE
 
@@ -140,9 +129,8 @@ def combine_product_returns(
     if len(raw_weights) != len(product_list):
         raise ValueError("比例数量与产品数量不一致")
     normalized_weights = [normalize_weight(value) for value in raw_weights]
-    # 旧版累计收益直接加权算法已停用，仅保留日收益加权后复利。
-    # mode = normalize_weighting_mode(weighting_mode, legacy=legacy)
-    mode = DEFAULT_WEIGHTING_MODE
+    # 旧版累计收益直接加权算法（legacy_cumulative）已停用，仅保留日收益加权后复利；
+    # weighting_mode/legacy 形参仅为兼容调用方签名保留。
 
     product_maps: list[dict[str, dict[str, float]]] = []
     common_dates: set[str] | None = None
@@ -154,13 +142,11 @@ def combine_product_returns(
         dates = set(row_map)
         common_dates = dates if common_dates is None else common_dates & dates
         product_maps.append(row_map)
-        # pd.DataFrame(rows).to_csv(f"产品收益-{product.get('stock_code', '')}.csv",index=False)
 
     if not common_dates:
         return []
 
     ordered_dates = sorted(common_dates)
-    # if mode == DEFAULT_WEIGHTING_MODE:
     # 先截取共同日期，再从共同区间的初始净值 1.0 还原日收益，
     # 避免共同区间首日错误引用产品在区间外的前一日数据。
     daily_maps = []
@@ -170,11 +156,6 @@ def combine_product_returns(
             for date in ordered_dates
         ]
         daily_maps.append(_valid_rows(cumulative_to_daily(common_rows)))
-    # else:
-    #     daily_maps = [
-    #         {date: row_map[date] for date in ordered_dates}
-    #         for row_map in product_maps
-    #     ]
 
     weighted_rows = []
     for date in ordered_dates:
@@ -191,7 +172,5 @@ def combine_product_returns(
             "index_return": float(index_total),
             "start_return": float(start_total),
         })
-    # return weighted_rows if mode == LEGACY_WEIGHTING_MODE else daily_to_cumulative(weighted_rows)
     data = daily_to_cumulative(weighted_rows)
-    # pd.DataFrame(data).to_csv("组合收益.csv",index=False)
     return data

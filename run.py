@@ -22,11 +22,3 @@ if __name__ == '__main__':
         app.run(debug=debug_mode, host='0.0.0.0', port=os.getenv('PORT', 5000))
     except Exception as exc:
         logger.error(f'启动失败: {exc}', exc_info=True)
-
-
-
-# # 多产品自定义组合：
-#     1.多任务可以结果可以自由组合，设定权重
-#         1.选中task（多选）
-#         2.结果自定义（约束，只能参数一致，时间一致）
-#     2. 实现方式，先提供多选穿梭框（？） -》 展示所有结果，然后再度穿梭，选中结果最后跳转全局预览

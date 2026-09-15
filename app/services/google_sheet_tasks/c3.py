@@ -153,7 +153,7 @@ class C3Service(BaseGoogleSheetService):
             self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
             self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
 
-            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+            self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
             if not self._interruptible_sleep(20):
                 raise RuntimeError("task cancelled")
 
@@ -481,7 +481,6 @@ class C3Service(BaseGoogleSheetService):
 
                 name = task.name
                 self.task_name = name
-                sheet_name = config_data.get('sheet_name', "")
 
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
@@ -494,14 +493,12 @@ class C3Service(BaseGoogleSheetService):
                 # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
                 # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
                 self._log_info("开始执行参数批量处理（默认参数模式）")
-                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, task.current_step)
+                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
 
                 # 根据任务状态决定返回结果
                 if task_status == 'cancelled':
                     # 任务被取消，保持cancelled状态
                     self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    # # 推送任务取消通知
-                    # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
                     return 'error'
@@ -651,7 +648,7 @@ class C3Service(BaseGoogleSheetService):
 
         pass
 
-    def get_bdl(self, task, name, parameters, config_data, index_z=0):
+    def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
         try:
             # 计算总参数组合数（不生成实际组合，避免内存问题）
@@ -669,13 +666,13 @@ class C3Service(BaseGoogleSheetService):
             # 执行参数组合
             success_count = 0
             failed_count = 0
-            if index_z > total_combinations:
-                self._log_warning(f'任务数据库内条数:{index_z} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
+            if task.current_step > total_combinations:
+                self._log_warning(f'任务数据库内条数:{task.current_step} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
                 return 0, 0, 'completed'
 
 
-            # 检查是否从断点恢复
-            start_index = max(index_z, task.current_step - 1) if task.current_step >= 1 else index_z
+            # 检查是否从断点恢复（current_step 为已完成的组合数，从下一条继续）
+            start_index = task.current_step
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
             success_count = start_index # 成功执行计数器，从断点除重新来
 
@@ -688,7 +685,7 @@ class C3Service(BaseGoogleSheetService):
                     self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
                     self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
 
-                    self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                    self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
                     if not self._interruptible_sleep(20):
                         return success_count, failed_count, 'cancelled'
 
@@ -707,7 +704,7 @@ class C3Service(BaseGoogleSheetService):
                 if self._is_cancel_requested():
                     self._log_warning("task cancellation requested")
                     return success_count, failed_count, 'cancelled'
-                self._log_step(i + 1, total_combinations, f"开始执行参数组合")
+                self._log_step(i + 1, total_combinations, "开始执行参数组合")
 
                 # 按需计算参数组合，避免内存问题
                 combination = self._get_parameter_combination_by_index(parameters, i)

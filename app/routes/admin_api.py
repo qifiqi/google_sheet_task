@@ -4,7 +4,7 @@
 - rebuild 端点挂保护性限流（api-model-query-audit/06 §3，rate_limit_rebuild）。
 """
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, current_app, g, request
 
 from app.services.model_summary_service import model_summary_service
 from app.services.task import TaskRuntimeViewService, task_manager

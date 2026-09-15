@@ -4,7 +4,7 @@ CRUD 编排、payload 校验与权限同步在 navigation_service；
 路由层只做 HTTP 解析与统一信封。
 """
 
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.schemas.navigation import NavigationMenuPayloadSchema
 from app.utils.request_parsing import parse_body

@@ -194,8 +194,8 @@ class PerformanceReportExporterMixin:
              self._format_export_metric(start_kama_ratio, '.2')],
             ["比率", "索提诺比率", self._format_export_metric(index_sortino_ratio, '.2'),
              self._format_export_metric(start_sortino_ratio, '.2')],
-            ["夏普", "超额夏普", f"", self._format_export_metric(excess_sharpe, '.2')],
-            ["索提诺", "超额索提诺比率", f"", self._format_export_metric(excess_sortino, '.2')]
+            ["夏普", "超额夏普", "", self._format_export_metric(excess_sharpe, '.2')],
+            ["索提诺", "超额索提诺比率", "", self._format_export_metric(excess_sortino, '.2')]
         ]
 
         data_2_2d = [

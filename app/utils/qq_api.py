@@ -7,11 +7,10 @@
 单次最多获取 640 条，超出部分通过日期游标向前翻页获取。
 """
 
-import logging
 import random
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from app.utils.logger import get_logger
 from app.utils.kline_adjustment import sina_adjust
 

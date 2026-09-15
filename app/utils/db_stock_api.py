@@ -7,8 +7,7 @@ HTTP请求工具类
 
 import requests
 import json
-import time
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
