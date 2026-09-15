@@ -131,3 +131,4 @@ Get-Content .\run.py -Encoding UTF8
 - 鉴权：`docs/登录与鉴权指南.md`；部署：`docs/部署运维.md`；本地开发：`docs/本地开发指南.md`
 
 设计文档存放在 `docs/design/<主题目录>/` 下，每个主题独立建目录。
+每次大规模修改后都要在`docs/model_update/` 下提供修改文档
