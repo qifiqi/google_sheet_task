@@ -149,7 +149,7 @@ class PerformanceMetricsMixin:
         return annual_returns
 
     @staticmethod
-    def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12):
+    def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12, risk_free_rate=0.0):
         """
         # 定义计算指定时间段夏普比率的内部函数
         # Define inner function to calculate Sharpe ratio for a specific period
@@ -163,6 +163,8 @@ class PerformanceMetricsMixin:
                         Period name identifier
             annualization_factor: int，年化因子（默认12，用于月度数据）
                                 Annualization factor (default 12 for monthly data)
+            risk_free_rate: float，年化无风险利率（小数形式：3% 传 0.03），按月折算后计入分子
+                          Annualized risk-free rate (decimal: 3% -> 0.03), converted to monthly
 
         返回/Returns:
             float or None: 夏普比率值，如果数据不足则返回None
@@ -186,10 +188,13 @@ class PerformanceMetricsMixin:
         # Calculate annualized standard deviation
         annual_std = monthly_std * math.sqrt(annualization_factor)
 
-        # 计算夏普比率（假设无风险利率为0）
-        # Calculate Sharpe ratio (assuming risk-free rate is 0)
+        # 计算夏普比率：（年化收益 − 年化无风险利率）/ 年化波动率，rf 按月折算（rf/年化因子）；
+        # risk_free_rate=0 时与历史口径（平均月收益年化 / 年化波动率）完全一致。
+        # Calculate Sharpe ratio: (annualized return - risk-free rate) / annualized volatility
         if annual_std != 0:
-            sharpe_ratio = avg_monthly_return * annualization_factor / annual_std
+            sharpe_ratio = (
+                avg_monthly_return - risk_free_rate / annualization_factor
+            ) * annualization_factor / annual_std
         else:
             sharpe_ratio = 0
 
@@ -296,7 +301,7 @@ class PerformanceMetricsMixin:
 
         return weekly_data
 
-    def calculate_sharpe_ratios_by_periods(self, df):
+    def calculate_sharpe_ratios_by_periods(self, df, risk_free_rate=0.0):
         """
         计算不同时间段的夏普比率
         Calculate Sharpe ratios for different time periods
@@ -304,6 +309,8 @@ class PerformanceMetricsMixin:
         参数/Args:
             df: DataFrame，包含'date'、'net_value'、'year'、'year_month'列的数据框
                 DataFrame containing 'date', 'net_value', 'year', 'year_month' columns
+            risk_free_rate: float，年化无风险利率（小数形式），透传给各时间段夏普计算
+                          Annualized risk-free rate (decimal), forwarded to each period
 
         返回/Returns:
             dict: 包含不同时间段夏普比率的字典
@@ -332,7 +339,7 @@ class PerformanceMetricsMixin:
         logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
         # 计算全部数据的夏普比率
         # Calculate Sharpe ratio for all data
-        res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
+        res = self.calculate_sharpe_for_period(monthly_df, "all", 12, risk_free_rate)
         # 保存结果
         # Save results
         results = {}
@@ -349,7 +356,7 @@ class PerformanceMetricsMixin:
             if len(year_data) >= 3:  # 至少需要3个月的数据 Need at least 3 months of data
                 year_name = f"year_{i + 1}_{year}"  # 例如: year_1_2023
                 logger.debug(f"计算年份/Calculating year {year_name}, 总月数/Total months: {len(year_data)}")
-                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12, risk_free_rate)
                 results[year_name] = res
 
         # 计算滚动年份的夏普比率（前1年、前2年等）
@@ -361,7 +368,7 @@ class PerformanceMetricsMixin:
                 year_name = f"past_{i + 1}_years_since_{year}"  # 例如: past_1_years_since_2023
                 logger.debug(
                     f"计算滚动年份/Calculating rolling year {year_name}, 总月数/Total months: {len(year_data)}")
-                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12, risk_free_rate)
                 results[year_name] = res
 
         return results
@@ -945,11 +952,13 @@ class PerformanceMetricsMixin:
             # Calculate various metrics
             index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df)
             index_returns_rate = self.calculate_year_returns(index_df)
-            index_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(index_df)
+            index_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(
+                index_df, risk_free_rate=runtime_params.risk_free_rate)
 
             start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
             start_returns_rate = self.calculate_year_returns(start_df)
-            start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(start_df)
+            start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(
+                start_df, risk_free_rate=runtime_params.risk_free_rate)
 
             # 年化收益率
             index_annualized_rates = self.annualized_rate_return(index_df)

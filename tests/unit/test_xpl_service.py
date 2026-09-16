@@ -159,11 +159,13 @@ def test_runtime_params_from_raw_parses_and_validates():
         "market_upturn_threshold": 0.04,
         "daily_extreme_threshold": "0.03",
         "daily_drawdown_threshold": 0.08,
+        "risk_free_rate": "0.03",
     }) == MetricsRuntimeParamsDTO(
         market_downturn_threshold=-0.03,
         market_upturn_threshold=0.04,
         daily_extreme_threshold=0.03,
         daily_drawdown_threshold=0.08,
+        risk_free_rate=0.03,
     )
 
     with pytest.raises(ValueError):
@@ -172,6 +174,10 @@ def test_runtime_params_from_raw_parses_and_validates():
         MetricsRuntimeParamsDTO.from_raw({"market_downturn_threshold": "abc"})
     with pytest.raises(ValueError):
         MetricsRuntimeParamsDTO.from_raw({"daily_extreme_threshold": None})
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw({"risk_free_rate": "abc"})
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw({"risk_free_rate": float("nan")})
     with pytest.raises(ValueError):
         MetricsRuntimeParamsDTO.from_raw({
             "market_downturn_threshold": float("nan"),
@@ -268,6 +274,53 @@ def test_v1_metrics_applies_daily_thresholds():
     assert strict_metrics["index_dd_count"] == 19
     assert strict_metrics["daily_extreme_threshold"] == pytest.approx(0.05)
     assert strict_metrics["daily_drawdown_threshold"] == pytest.approx(0.02)
+
+
+def test_calculate_sharpe_for_period_subtracts_monthly_risk_free_rate():
+    """夏普公式：sharpe = (年化收益 − rf) / 年化波动率；rf=0 时退化为历史口径。"""
+    analyzer = PerformanceAnalyzer()
+    df = pd.DataFrame({
+        "monthly_return": [0.02, 0.03, 0.01, 0.04],
+        "year": [2024] * 4,
+        "date": pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30"]),
+    })
+
+    base = analyzer.calculate_sharpe_for_period(df, "all", 12)
+    with_rf = analyzer.calculate_sharpe_for_period(df, "all", 12, 0.03)
+
+    assert base["sharpe_ratio"] == pytest.approx(
+        base["avg_monthly_return"] * 12 / base["annual_std_dev"])
+    assert with_rf["sharpe_ratio"] == pytest.approx(
+        base["sharpe_ratio"] - 0.03 / base["annual_std_dev"])
+
+
+def test_v1_metrics_applies_risk_free_rate_to_sharpe():
+    """runtime_params.risk_free_rate 进入 V1 引擎的指数/策略夏普分子。"""
+    analyzer = PerformanceAnalyzer()
+    rows = []
+    index_net_value = start_net_value = 1.0
+    for current_date in pd.bdate_range("2024-01-01", periods=12 * 22):
+        index_net_value *= 1 + 0.001
+        start_net_value *= 1 + 0.0012
+        rows.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "index_return": index_net_value - 1,
+            "start_return": start_net_value - 1,
+        })
+
+    default_metrics = analyzer.get_calculate_metrics_v1(rows)
+    rf_metrics = analyzer.get_calculate_metrics_v1(rows, runtime_params={"risk_free_rate": 0.03})
+
+    for key in ("index_sharpe_ratios", "start_sharpe_ratios"):
+        base_entry = default_metrics[key]["all"]
+        rf_entry = rf_metrics[key]["all"]
+        assert base_entry["sharpe_ratio"] > 0
+        # rf=3% 时夏普严格下降 rf / 年化波动率，波动率与月均收益不受影响。
+        # rel 放宽到 1e-4：结果投影含 6 位小数舍入，默认容差会误报。
+        assert rf_entry["sharpe_ratio"] == pytest.approx(
+            base_entry["sharpe_ratio"] - 0.03 / base_entry["annual_std_dev"], rel=1e-4)
+        assert rf_entry["annual_std_dev"] == pytest.approx(base_entry["annual_std_dev"])
+        assert rf_entry["avg_monthly_return"] == pytest.approx(base_entry["avg_monthly_return"])
 
 
 @pytest.mark.skip(reason="待修复：同 analyze 日度分布问题，metrics 计算崩溃导致 results 为空")
