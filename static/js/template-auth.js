@@ -620,7 +620,7 @@
                 <h2 class="h4 mb-3">当前账号没有此页面访问权限</h2>
                 <p class="text-muted mb-2">${escapeHtml(requirementText)}</p>
                 <p class="text-muted mb-4">当前缺少: ${escapeHtml(missingText)}</p>
-                <a class="btn btn-primary" href="/admin/">返回首页</a>
+                <a class="btn btn-primary" href="/admin/dashboard">返回首页</a>
             </div>
         `;
     }
@@ -677,8 +677,8 @@
         const nextFromInput = document.getElementById("loginNextUrl");
         const rawNext = nextFromInput?.value
             || new URLSearchParams(window.location.search).get("next")
-            || "/admin/";
-        return sanitizeNextUrl(rawNext) || "/admin/";
+            || "/admin/dashboard";
+        return sanitizeNextUrl(rawNext) || "/admin/dashboard";
     }
 
     // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数）。
