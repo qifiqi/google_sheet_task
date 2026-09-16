@@ -456,9 +456,27 @@
         document.getElementById('word-export-stock-results').classList.add('d-none');
     }
 
+    // 弹窗内无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03）。
+    function readWordExportRiskFreeRate() {
+        const raw = document.getElementById('word-export-risk-free-rate')?.value?.trim();
+        if (raw === '' || raw === undefined) return { percent: 0, decimal: 0 };
+        const percent = Number(raw);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            throw new Error('无风险利率需为 0～100 之间的数字（百分比）');
+        }
+        return { percent, decimal: percent / 100 };
+    }
+
     async function confirmWordExport() {
         if (!state.wordExportStock) {
             showAlert('请从搜索结果中选择股票', 'warning');
+            return;
+        }
+        let riskFree;
+        try {
+            riskFree = readWordExportRiskFreeRate();
+        } catch (error) {
+            showAlert(error.message, 'warning');
             return;
         }
         const priceMode = document.getElementById('word-export-price-type').value;
@@ -475,7 +493,15 @@
             product_name: state.wordExportStock.name,
             ratio: '100.00%'
         }];
-        payload.metadata = { ...(payload.metadata || {}), price_type: priceType };
+        payload.metadata = {
+            ...(payload.metadata || {}),
+            price_type: priceType,
+            risk_free_rate: `${riskFree.percent.toFixed(2)}%`
+        };
+        payload.runtime_params = {
+            ...(payload.runtime_params || {}),
+            risk_free_rate: riskFree.decimal
+        };
         bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
         await downloadWordReport(payload);
     }
