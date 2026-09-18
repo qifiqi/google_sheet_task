@@ -1,4 +1,5 @@
 """TaskResult / TaskResultReturn 仓储（契约见 docs/design/data-layer-refactor/02 §2.2）。"""
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
@@ -13,6 +14,9 @@ _RESULT_SUMMARY_FIELDS = (
     TaskResult.success,
     TaskResult.timestamp,
 )
+
+# 列表页 parameters/error_message 的预览截断长度（SQL 层 substr，字符数）。
+_RESULT_PREVIEW_LENGTH = 200
 
 
 class TaskResultRepository(BaseRepository):
@@ -64,24 +68,41 @@ class TaskResultRepository(BaseRepository):
         data.update(self.count_by_task_success(task_id))
         return data
 
-    def list_paginated(self, page, per_page, task_id=None):
-        """/api/results 列表：保持现有 load_only 精简键与 join Task 语义。
+    def list_paginated(self, page, per_page, task_id=None, success=None, keyword=None):
+        """/api/results 列表：保持现有精简键与 join Task 语义，结果查询页扩展投影。
 
-        指定 task_id 且任务不存在时返回空页（与现状一致）；
-        未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
+        - 原有键（id/task_id/step_index/success/timestamp）不变，静态版消费方不受影响；
+        - 新增 task_name/task_type（join Task 已存在）、parameters_preview/error_preview
+          （SQL 层 substr 截断，避免把 TEXT/LONGTEXT 整值拉进列表）；
+        - success 过滤按布尔；keyword 模糊匹配任务名称或结果 task_id；
+        - counts 为同过滤条件的成功/失败计数；
+        - 指定 task_id 且任务不存在时返回空页（与现状一致）；
+        - 未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
+
+        preview_fields = (
+            func.substr(TaskResult.parameters, 1, _RESULT_PREVIEW_LENGTH).label("parameters_preview"),
+            func.substr(TaskResult.error_message, 1, _RESULT_PREVIEW_LENGTH).label("error_preview"),
+        )
 
         if task_id:
             task_exists = (
                 db.session.query(Task.id).filter(Task.id == task_id).first()
             )
             if not task_exists:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
+                return {
+                    "items": [],
+                    "total": 0,
+                    "current_page": current_page,
+                    "per_page": size,
+                    "total_success": 0,
+                    "total_failed": 0,
+                }
 
         query = (
-            db.session.query(*_RESULT_SUMMARY_FIELDS)
+            db.session.query(*_RESULT_SUMMARY_FIELDS, Task.name.label("task_name"), Task.task_type, *preview_fields)
             .join(Task, Task.id == TaskResult.task_id)
         )
         if task_id:
@@ -89,18 +110,40 @@ class TaskResultRepository(BaseRepository):
         else:
             distinct_types = [row[0] for row in db.session.query(Task.task_type).distinct().all()]
             if not distinct_types:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
+                return {
+                    "items": [],
+                    "total": 0,
+                    "current_page": current_page,
+                    "per_page": size,
+                    "total_success": 0,
+                    "total_failed": 0,
+                }
             query = query.filter(Task.task_type.in_(distinct_types))
+
+        if success is not None:
+            query = query.filter(TaskResult.success.is_(success))
+
+        if keyword and keyword.strip():
+            pattern = f"%{keyword.strip()}%"
+            query = query.filter(or_(Task.name.ilike(pattern), TaskResult.task_id.ilike(pattern)))
 
         pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
             page=current_page, per_page=size, error_out=False
         )
+        counts_row = query.with_entities(
+            func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+            func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+        ).first()
         results = [
             {
                 "id": row.id,
                 "task_id": row.task_id,
+                "task_name": row.task_name,
+                "task_type": row.task_type,
                 "step_index": row.step_index,
                 "success": row.success,
+                "parameters_preview": row.parameters_preview,
+                "error_preview": row.error_preview,
                 "timestamp": row.timestamp.isoformat() if row.timestamp else None,
             }
             for row in pagination.items
@@ -110,6 +153,8 @@ class TaskResultRepository(BaseRepository):
             "total": pagination.total,
             "current_page": current_page,
             "per_page": size,
+            "total_success": counts_row.success,
+            "total_failed": counts_row.failed,
         }
 
     def count_by_task_success(self, task_id):

@@ -2,7 +2,9 @@
 
 数据访问经 task_manager 门面（任务结果查询/删除服务）；
 行为与迁移前逐一对齐：
-- 列表保持精简投影与 task_id 过滤语义；
+- 任务结果列表保持精简投影与 task_id 过滤语义；
+- /results 跨任务列表在精简键之上扩展任务名/类型/预览投影与
+  success/keyword 过滤（结果查询页），原键不变；
 - 详情/删除目标不存在 → NotFoundError → 全局处理器 404 信封。
 """
 from flask import Blueprint, request
@@ -10,7 +12,7 @@ from flask import Blueprint, request
 from app.services.task import task_manager
 from app.exceptions import NotFoundError
 from app.schemas.task import TaskResultListQuery
-from app.utils.api_response import paginated, success
+from app.utils.api_response import success
 from app.utils.request_parsing import parse_query
 from app.utils.auth import login_required
 
@@ -56,10 +58,28 @@ def get_task_results(task_id):
 @result_api_bp.route('/results', methods=['GET'])
 @login_required
 def get_results():
-    """获取任务结果列表"""
+    """获取任务结果列表
+
+    支持 task_id 精确过滤、success 成功/失败过滤、keyword 模糊匹配
+    （任务名称或结果 task_id）；响应附带同过滤条件的成功/失败计数。
+    """
     query = parse_query(TaskResultListQuery)
-    data = task_manager.get_results_paginated(query.page, query.per_page, task_id=query.task_id)
-    return paginated(items=data["items"], total=data["total"], page=data["current_page"], per_page=data["per_page"])
+    data = task_manager.get_results_paginated(
+        query.page,
+        query.per_page,
+        task_id=query.task_id,
+        success=query.success,
+        keyword=query.keyword,
+    )
+    return success(data={
+        "items": data["items"],
+        "total": data["total"],
+        "pages": (data["total"] + data["per_page"] - 1) // data["per_page"],
+        "current_page": data["current_page"],
+        "per_page": data["per_page"],
+        "total_success": data["total_success"],
+        "total_failed": data["total_failed"],
+    })
 
 
 @result_api_bp.route('/results/<int:result_id>', methods=['GET'])

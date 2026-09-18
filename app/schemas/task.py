@@ -19,6 +19,8 @@ class TaskResultListQuery(PageQuery):
     """GET /api/results 查询参数。"""
 
     task_id: str | None = None
+    success: bool | None = None
+    keyword: str = ""
 
 
 class TaskConfigUpdateSchema(APIModel):

@@ -122,12 +122,39 @@ class TestTaskResultRepository:
         self._make_result()
         page = task_result_repository.list_paginated(1, 20, task_id="t-1")
         assert page["total"] == 1
+        assert page["total_success"] == 1
+        assert page["total_failed"] == 0
         item = page["items"][0]
-        assert set(item.keys()) == {"id", "task_id", "step_index", "success", "timestamp"}
+        # 原有精简键不变，结果查询页扩展任务名/类型/预览投影
+        assert {
+            "id", "task_id", "step_index", "success", "timestamp",
+        } <= set(item.keys())
+        assert item["task_name"] == "示例任务"
+        assert item["task_type"] == "google_sheet"
+        assert "parameters_preview" in item
+        assert "error_preview" in item
 
     def test_list_paginated_missing_task_empty(self, app_factory, task_row):
         page = task_result_repository.list_paginated(1, 20, task_id="missing")
-        assert page == {"items": [], "total": 0, "current_page": 1, "per_page": page["per_page"]}
+        assert page == {
+            "items": [], "total": 0, "current_page": 1,
+            "per_page": page["per_page"], "total_success": 0, "total_failed": 0,
+        }
+
+    def test_list_paginated_success_and_keyword_filters(self, app_factory, task_row):
+        self._make_result(success=True)
+        self._make_result(success=False)
+        # success 过滤 + 同过滤条件计数
+        page_success = task_result_repository.list_paginated(1, 20, task_id="t-1", success=True)
+        assert page_success["total"] == 1
+        assert page_success["total_success"] == 1
+        page_failed = task_result_repository.list_paginated(1, 20, task_id="t-1", success=False)
+        assert page_failed["total"] == 1
+        assert page_failed["total_failed"] == 1
+        # keyword 匹配任务名称（跨任务，不走 task_id 精确分支）
+        assert task_result_repository.list_paginated(1, 20, keyword="示例")["total"] == 2
+        # keyword 落空
+        assert task_result_repository.list_paginated(1, 20, keyword="不存在")["total"] == 0
 
 
 # ==================== task_log_repository ====================
