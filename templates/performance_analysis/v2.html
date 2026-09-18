@@ -166,8 +166,16 @@
                         </div>
                         <div class="form-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
                     </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-risk-free-rate">无风险利率（年化）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-risk-free-rate" value="0" min="0" max="100" step="0.01">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">夏普比率与索提诺比率的无风险利率，默认 0%（与历史口径一致）。</div>
+                    </div>
                     <div class="col-12 small text-body-secondary">
-                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值。
+                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值与无风险利率（弹窗内可按单次导出临时覆盖）。
                     </div>
                 </div>
             </div>

@@ -729,7 +729,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
         monkeypatch.setattr(
             "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-            lambda _return_date: {"weighted_metric": 1},
+            lambda _return_date, runtime_params=None: {"weighted_metric": 1},
         )
         monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
             "kline_key": "2024-01-01~2024-12-31",
@@ -821,7 +821,7 @@ def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_fac
         )
         monkeypatch.setattr(
             "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-            lambda _return_date: {"weighted_metric": 1},
+            lambda _return_date, runtime_params=None: {"weighted_metric": 1},
         )
 
         assert service._execute_products(task, config) == "completed"
@@ -960,7 +960,7 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1182,7 +1182,7 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
     captured_returns = []
     _GLOBAL_PREVIEW_CACHE.clear()
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1403,7 +1403,7 @@ def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monk
     metric_call_count = 0
     _GLOBAL_PREVIEW_CACHE.clear()
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         nonlocal metric_call_count
         metric_call_count += 1
         total_start = sum(item["start_return"] for item in return_date)
@@ -1541,7 +1541,7 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1649,7 +1649,7 @@ def test_build_multi_product_global_preview_default_mode_compounds_daily_weighti
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(list(return_date))
         total_start = sum(item["start_return"] for item in return_date)
         return {
@@ -1752,7 +1752,7 @@ def test_build_multi_product_global_preview_returns_dash_without_common_return_d
 
     monkeypatch.setattr(
         "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-        lambda return_date: captured_returns.append(return_date) or {},
+        lambda return_date, runtime_params=None: captured_returns.append(return_date) or {},
     )
 
     with app.app_context():

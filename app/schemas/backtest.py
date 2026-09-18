@@ -10,6 +10,26 @@ from app.schemas.common import APIModel
 
 class CalculateRatiosSchema(APIModel):
     ratios: list[Any]
+    # 预览运行参数（当前仅无风险利率）：按当前比例实时重算的指标需要它，
+    # 缺省表示沿用默认口径（rf=0，与回测执行时一致）。
+    runtime_params: dict[str, Any] | None = None
+
+
+class GlobalPreviewQuery(APIModel):
+    """全局预览查询参数（GET 预览 / 预览导出共用）。
+
+    只承载预览侧可调口径，当前仅无风险利率；取值范围与 DTO 校验互补：
+    这里拦"按百分比误传"的笔误，DTO 负责数值合法性。
+    """
+
+    # 无风险利率：年化、小数形式（3% 传 0.03）。前端按 0~100% 输入后转小数发送。
+    risk_free_rate: float | None = Field(default=None, ge=-1, le=1)
+
+    @field_validator("risk_free_rate", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value):
+        """空字符串与缺省同义（前端未填时不带该参数）。"""
+        return None if isinstance(value, str) and not value.strip() else value
 
 
 SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
@@ -205,6 +225,8 @@ class UpdateRatiosSchema(APIModel):
     """PUT /backtest-multi-product/api/global-preview/<task_id>/ratios。"""
 
     ratios: list[Any]
+    # 保存比例后返回的预览载荷按同一口径重算，语义同 CalculateRatiosSchema。
+    runtime_params: dict[str, Any] | None = None
 
 
 class ReturnSeriesExportSchema(APIModel):

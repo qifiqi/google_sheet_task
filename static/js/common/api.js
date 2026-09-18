@@ -182,8 +182,13 @@
       taskSummary: function (taskId) {
         return get("/backtest-multi-product/api/task-summary/" + taskId);
       },
-      globalPreview: function (taskId) {
-        return get("/backtest-multi-product/api/global-preview/" + taskId);
+      // query（可选）：预览口径查询串（如 risk_free_rate=0.03），缺省与历史请求逐字一致。
+      globalPreview: function (taskId, query) {
+        return get(
+          "/backtest-multi-product/api/global-preview/" +
+            taskId +
+            (query ? "?" + query : ""),
+        );
       },
       calculateRatios: function (taskId, payload) {
         return post(

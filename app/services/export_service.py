@@ -195,10 +195,15 @@ class ExportService:
         self,
         task_id: str,
         ratios_override: list[Any] | None = None,
+        runtime_params: dict[str, Any] | None = None,
     ) -> GeneratedFile:
         """处理export_global_preview相关逻辑。"""
         task = self._get_task(task_id)
-        payload = self._global_preview_payload(task, ratios_override=ratios_override)
+        payload = self._global_preview_payload(
+            task,
+            ratios_override=ratios_override,
+            runtime_params=runtime_params,
+        )
         if payload is None:
             raise NotFoundError("任务不存在")
         workbook = build_global_preview_workbook(payload)
@@ -213,10 +218,15 @@ class ExportService:
         self,
         task_id: str,
         ratios_override: list[Any] | None = None,
+        runtime_params: dict[str, Any] | None = None,
     ) -> GeneratedStream:
         """处理export_global_preview_by_stock相关逻辑。"""
         task = self._get_task(task_id)
-        payload = self._global_preview_payload(task, ratios_override=ratios_override)
+        payload = self._global_preview_payload(
+            task,
+            ratios_override=ratios_override,
+            runtime_params=runtime_params,
+        )
         if payload is None:
             raise NotFoundError("任务不存在")
         task_name = sanitize_export_filename(task.name or task_id)
@@ -381,11 +391,20 @@ class ExportService:
     def _global_preview_payload(
         task: Task,
         ratios_override: list[Any] | None = None,
+        runtime_params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """构造全局预览数据。"""
+        """构造全局预览数据。
+
+        ``runtime_params``（当前仅无风险利率）只对多品预览生效：单品预览
+        沿用执行结果存档指标，没有可重算的口径入口。
+        """
         task_type = str(task.task_type or "").strip().lower()
         if task_type == "backtest_multi_product":
-            return build_multi_product_global_preview_payload(task.id, ratios_override=ratios_override)
+            return build_multi_product_global_preview_payload(
+                task.id,
+                ratios_override=ratios_override,
+                runtime_params=runtime_params,
+            )
         return build_global_preview_payload(task.id)
 
     def _stream_stock_zip(self, payload: dict[str, Any], task_name: str):

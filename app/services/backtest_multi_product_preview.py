@@ -34,22 +34,49 @@ from app.services.backtest_multi_product_service import (
 )
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.services.performance_analysis.portfolio_combiner import normalize_weighting_mode
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
+from app.utils.logger import get_logger
 from app.utils.return_series import parse_return_series_fields
+
+logger = get_logger(__name__)
+
+
+def preview_runtime_params(raw: Any) -> MetricsRuntimeParamsDTO | None:
+    """把预览请求的运行参数（当前仅无风险利率）解析为 DTO。
+
+    ``None`` 表示未指定 → 沿用默认口径（rf=0，与回测执行时一致）；
+    非法输入抛 ``ValidationError``（400），与绩效分析入口同一套报错文案。
+    """
+    if raw is None:
+        return None
+    try:
+        return MetricsRuntimeParamsDTO.from_raw(raw)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
 
 
 def build_multi_product_global_preview_payload(
     task_id: str,
     ratios_override: list[Any] | None = None,
+    runtime_params: Any = None,
 ) -> dict[str, Any] | None:
     """构建多品全局预览的统一 payload。
 
     预览按 ``parameter_group_index`` 组织参数方案，而不是按执行步骤展示；
     每个方案同时保留原始单产品指标、比例后单产品指标和组合指标，供页面
     表格与 Excel 导出共用同一份数据格式。
+
+    ``runtime_params`` 承载页面可调口径（当前仅无风险利率），只作用于本函数
+    实时重算的指标：比例后单产品指标与组合指标；单品原始指标是执行时快照，
+    不随预览口径变化。
     """
     task = task_repository.get_entity(task_id)
     if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None
+    runtime = preview_runtime_params(runtime_params)
+    # 无风险利率非 0 时，执行时存下的比例后指标（rf=0）不能直接复用，
+    # 否则同一行里会混用两套口径；缺少收益序列时仍回退到存档值。
+    risk_free_active = bool(runtime and runtime.risk_free_rate)
     config = normalize_multi_product_config(task.to_dict().get("config") or {})
     products = config["products"]
     if ratios_override is not None:
@@ -67,10 +94,30 @@ def build_multi_product_global_preview_payload(
         products,
         results,
         weighting_mode,
+        runtime,
     )
     cached_payload = _get_global_preview_cache(cache_key)
     if cached_payload is not None:
+        # 命中缓存同样留痕：口径（含无风险利率）一致时不会重算，日志里能对上账。
+        logger.info(
+            "多品全局预览命中缓存/Global preview cache hit: task_id=%s "
+            "无风险利率/risk_free_rate=%s",
+            task_id,
+            f"{runtime.risk_free_rate if runtime else 0.0:.4f}",
+        )
         return cached_payload
+
+    logger.info(
+        "多品全局预览开始计算/Global preview compute start: task_id=%s "
+        "产品数/products=%s 成功结果/results=%s 权重/ratios=%s "
+        "加权方式/weighting_mode=%s 无风险利率/risk_free_rate=%s",
+        task_id,
+        len(products),
+        sum(1 for result in results if result.success),
+        [normalize_ratio_display(product.get("ratio")) for product in products],
+        weighting_mode,
+        f"{runtime.risk_free_rate if runtime else 0.0:.4f}",
+    )
 
     groups: OrderedDict[str, dict[str, Any]] = OrderedDict()
     success_count = 0
@@ -119,6 +166,7 @@ def build_multi_product_global_preview_payload(
             group["product_results"],
             products,
             weighting_mode,
+            runtime,
         ))
         weighted_metrics_by_product: dict[int, dict[str, Any]] = {}
         metrics_by_product: dict[int, dict[str, Any]] = {}
@@ -130,13 +178,20 @@ def build_multi_product_global_preview_payload(
             current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
             saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
             # 仅保留日收益加权复利一种组合算法；比例未变化时复用已保存的加权指标。
+            # 无风险利率非 0 时（rf 口径已偏离存档快照）按收益序列重算，
+            # 与组合列、导出报告保持同一口径；无收益序列的旧结果仍用存档值。
             # TODO: 历史结果参数中的 use_legacy_cumulative_return_weighting 字段迁移后删除。
-            if not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
+            if (
+                not weighted_metrics
+                or saved_ratio != str(current_ratio or "").strip()
+                or (risk_free_active and product_result.get("return_date"))
+            ):
                 weighted_metrics = _derive_metrics(
                     _build_weighted_product_metrics(
                         product_result.get("return_date") or [],
                         current_ratio,
                         weighting_mode,
+                        runtime,
                     )
                 )
                 product_result["weighted_metrics"] = weighted_metrics
@@ -210,6 +265,11 @@ def build_multi_product_global_preview_payload(
             "product_count": len(products),
         },
         "products": products,
+        # 回显本次预览实际使用的口径：页面按它回填无风险利率输入框，
+        # 保证"界面显示值"与"指标计算值"始终同源。
+        "runtime_params": {
+            "risk_free_rate": runtime.risk_free_rate if runtime else 0.0,
+        },
         "groups": serialized_groups,
     }
     _set_global_preview_cache(cache_key, payload)

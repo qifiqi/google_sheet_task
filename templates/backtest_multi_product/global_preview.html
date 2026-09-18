@@ -132,12 +132,41 @@
               </summary>
               <div class="px-3 pb-3">
                 <div class="ratio-toolbar mb-2">
-                  <div>
-                    <select
-                      class="form-select"
-                      id="groupSelect"
-                      style="min-width: 220px"
-                    ></select>
+                  <div class="ratio-toolbar-controls">
+                    <div>
+                      <select
+                        class="form-select"
+                        id="groupSelect"
+                        style="min-width: 220px"
+                      ></select>
+                    </div>
+                    <div class="risk-free-field">
+                      <label
+                        class="form-label mb-0 text-nowrap"
+                        for="riskFreeRateInput"
+                        >无风险利率（年化）</label
+                      >
+                      <div class="input-group risk-free-input">
+                        <input
+                          id="riskFreeRateInput"
+                          type="number"
+                          class="form-control"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value="0"
+                          aria-describedby="riskFreeRateNote"
+                        />
+                        <span class="input-group-text">%</span>
+                      </div>
+                    </div>
+                    <button
+                      class="btn btn-primary rounded-pill px-4 ms-auto"
+                      id="calculateRatiosBtn"
+                      type="button"
+                    >
+                      <i class="bi bi-calculator me-1"></i>计算预览
+                    </button>
                   </div>
                   <div class="ratio-formula-hint">
                     <span class="hint-title">比例计算：</span>
@@ -148,21 +177,18 @@
                       >比例计算-指数来自组合 index_return，比例计算-结果来自组合
                       start_return；导出也使用同一套后端计算。</span
                     >
+                    <br /><span class="hint-note" id="riskFreeRateNote"
+                      >无风险利率影响夏普/索提诺比率（比例计算两列与导出报告）；
+                      单品「指数 / 模型结果」列是回测执行结果，不随此处变化。</span
+                    >
                   </div>
-                  <button
-                    class="btn btn-primary rounded-pill px-4"
-                    id="calculateRatiosBtn"
-                    type="button"
-                  >
-                    <i class="bi bi-calculator me-1"></i>计算预览
-                  </button>
                 </div>
                 <div class="ratio-list-wrap" id="ratioListWrap">
                   <table class="ratio-list-table">
                     <thead>
                       <tr>
                         <th>产品</th>
-                        <th>比例</th>
+                                                <th>比例</th>
                         <th>状态</th>
                       </tr>
                     </thead>
@@ -272,7 +298,7 @@
                       </div>
                     </div>
                     <div class="col-12 small text-body-secondary">
-                      价格类型仅展示在报告信息中；无风险利率用于夏普比率重算并展示。
+                      价格类型仅展示在报告信息中；无风险利率用于夏普比率重算并展示，打开弹窗时默认跟随页面上方的设置。
                     </div>
                   </div>
                 </div>

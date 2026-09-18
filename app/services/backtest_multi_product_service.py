@@ -25,6 +25,7 @@ from app.services.task.error_handling import (
     summarize_task_exception,
 )
 from app.services.performance_analysis.analyzer import performance_analyzer
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
 from app.utils.market import (
@@ -94,11 +95,22 @@ def _is_fixed_product(product: dict[str, Any]) -> bool:
     return bool(product.get("is_fixed"))
 
 
+def _preview_runtime_signature(runtime_params: Any) -> tuple[Any, ...]:
+    """预览运行参数签名（当前仅无风险利率），用于隔离预览缓存。
+
+    新增参与预览计算的运行参数时，必须同步加进这个元组，否则不同口径会
+    命中同一份缓存。
+    """
+    params = MetricsRuntimeParamsDTO.from_raw(runtime_params)
+    return (params.risk_free_rate,)
+
+
 def _global_preview_cache_key(
     task_id: str,
     products: list[dict[str, Any]],
     results: list[TaskResult],
     weighting_mode: str,
+    runtime_params: Any = None,
 ) -> tuple[Any, ...]:
     ratio_signature = (
         *(normalize_ratio_display(product.get("ratio")) for product in products),
@@ -116,7 +128,7 @@ def _global_preview_cache_key(
         )
         for result in results
     )
-    return (task_id, ratio_signature, result_signature)
+    return (task_id, ratio_signature, result_signature, _preview_runtime_signature(runtime_params))
 
 
 def _get_global_preview_cache(cache_key: tuple[Any, ...]) -> dict[str, Any] | None:
@@ -470,6 +482,7 @@ def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
     weighting_mode: str = "daily_compound",
+    runtime_params: Any = None,
 ) -> dict[str, Any]:
     return_date = _build_portfolio_return_date(
         product_results,
@@ -478,7 +491,10 @@ def _build_portfolio_metrics(
     )
     if not return_date:
         return {}
-    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(return_date)
+    # runtime_params 走 DTO 归一：无风险利率由此进入夏普/索提诺重算。
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
+        return_date, runtime_params=runtime_params
+    )
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
@@ -486,6 +502,7 @@ def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
     weighting_mode: str = "daily_compound",
+    runtime_params: Any = None,
 ) -> dict[str, Any]:
     weighted_return_date = _weight_return_date(
         return_date,
@@ -494,7 +511,9 @@ def _build_weighted_product_metrics(
     )
     if not weighted_return_date:
         return {}
-    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(weighted_return_date)
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
+        weighted_return_date, runtime_params=runtime_params
+    )
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 

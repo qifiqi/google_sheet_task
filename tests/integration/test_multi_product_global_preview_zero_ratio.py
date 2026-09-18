@@ -40,7 +40,7 @@ def _base_product(index, ratio):
 
 
 def _fake_metrics_factory(captured):
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)

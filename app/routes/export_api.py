@@ -15,7 +15,7 @@ from flask import Blueprint, Response, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import StrategyBacktestReportSchema
+from app.schemas.backtest import GlobalPreviewQuery, StrategyBacktestReportSchema
 from app.schemas.task import TaskIdsBatchSchema
 from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
@@ -23,7 +23,7 @@ from app.services.export_workbook_service import sanitize_export_filename
 from app.services.task import task_manager
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
-from app.utils.request_parsing import parse_body
+from app.utils.request_parsing import parse_body, parse_query
 
 
 logger = get_logger(__name__)
@@ -90,6 +90,16 @@ def _parse_ratios_query():
     return ratios
 
 
+def _parse_preview_runtime_params():
+    """预览导出的运行参数（当前仅无风险利率，年化小数形式）。
+
+    与预览 GET 读同一组查询参数（app/schemas/backtest.py::GlobalPreviewQuery），
+    保证导出的 Excel 与页面看到的指标同源；缺省表示沿用默认口径（rf=0）。
+    """
+    risk_free_rate = parse_query(GlobalPreviewQuery).risk_free_rate
+    return None if risk_free_rate is None else {"risk_free_rate": risk_free_rate}
+
+
 @export_api_bp.route("/tasks/<task_id>", methods=["GET"])
 @login_required
 @_export_limit
@@ -123,7 +133,11 @@ def export_global_preview(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview(task["id"], ratios_override=ratios)
+    generated = export_service.export_global_preview(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=_parse_preview_runtime_params(),
+    )
     export_name = request.args.get("export_name")
     if export_name:
         generated = replace(
@@ -140,7 +154,11 @@ def export_global_preview_by_stock(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
+    generated = export_service.export_global_preview_by_stock(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=_parse_preview_runtime_params(),
+    )
     export_name = request.args.get("export_name")
     if export_name:
         generated = replace(

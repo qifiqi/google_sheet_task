@@ -79,6 +79,7 @@
         document.getElementById('config-upturn-threshold').addEventListener('input', saveV2RuntimeParams);
         document.getElementById('config-daily-extreme-threshold').addEventListener('input', saveV2RuntimeParams);
         document.getElementById('config-daily-drawdown-threshold').addEventListener('input', saveV2RuntimeParams);
+        document.getElementById('config-risk-free-rate').addEventListener('input', saveV2RuntimeParams);
         updateV2AnalyzeButton();
     });
 
@@ -407,6 +408,12 @@
         input.value = '';
         results.innerHTML = '';
         results.classList.add('d-none');
+        // 弹窗里的无风险利率默认跟随「参数配置」页签：打开时同步当前值，
+        // 仍可按单次导出临时覆盖（覆盖不回写参数配置）。
+        const modalRiskFreeInput = document.getElementById('word-export-risk-free-rate');
+        if (modalRiskFreeInput) {
+            modalRiskFreeInput.value = String(parseV2ThresholdInput('config-risk-free-rate', 0));
+        }
         bootstrap.Modal.getOrCreateInstance(document.getElementById('word-export-options-modal')).show();
     }
 
@@ -551,12 +558,14 @@
     }
 
     function collectV2RuntimeParams() {
-        // 页面输入按百分比填写，payload 统一转换为小数阈值。
+        // 页面输入按百分比填写，payload 统一转换为小数阈值；
+        // 无风险利率同样按百分比填（3 = 3%），转 0.03 供夏普/索提诺重算。
         return {
             market_downturn_threshold: parseV2ThresholdInput('config-downturn-threshold', -2) / 100,
             market_upturn_threshold: parseV2ThresholdInput('config-upturn-threshold', 2) / 100,
             daily_extreme_threshold: parseV2ThresholdInput('config-daily-extreme-threshold', 2) / 100,
-            daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100
+            daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100,
+            risk_free_rate: parseV2ThresholdInput('config-risk-free-rate', 0) / 100
         };
     }
 
@@ -587,6 +596,11 @@
         }
         if (Number.isFinite(saved.daily_drawdown_threshold)) {
             document.getElementById('config-daily-drawdown-threshold').value = Number((saved.daily_drawdown_threshold * 100).toFixed(6));
+        }
+        // 无风险利率是后加字段：旧存档里没有它时保持页面默认值（0），
+        // 避免旧数据把用户刚填的值重置。
+        if (Number.isFinite(saved.risk_free_rate)) {
+            document.getElementById('config-risk-free-rate').value = Number((saved.risk_free_rate * 100).toFixed(6));
         }
     }
 

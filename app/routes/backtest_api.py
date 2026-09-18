@@ -14,7 +14,12 @@ from flask import Blueprint, current_app, request
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.constants.c_template_layout import C3_PARAMETER_FIELDS
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import CalculateRatiosSchema, ReturnSeriesExportSchema, UpdateRatiosSchema
+from app.schemas.backtest import (
+    CalculateRatiosSchema,
+    GlobalPreviewQuery,
+    ReturnSeriesExportSchema,
+    UpdateRatiosSchema,
+)
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
@@ -40,7 +45,7 @@ from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.utils.request_parsing import parse_body
+from app.utils.request_parsing import parse_body, parse_query
 from app.utils.return_series import parse_return_series_fields
 from app.utils.task_types import normalize_task_type
 
@@ -292,7 +297,11 @@ def bmp_calculate_ratios(task_id):
     _load_multi_product_task_or_raise(task_id)
     data = parse_body(CalculateRatiosSchema)
     ratios = data.ratios
-    payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
+    payload = build_multi_product_global_preview_payload(
+        task_id,
+        ratios_override=ratios,
+        runtime_params=data.runtime_params,
+    )
     if payload is None:
         raise NotFoundError("任务不存在")
     return success(data=_sanitize_json_value(payload))
@@ -302,10 +311,13 @@ def bmp_calculate_ratios(task_id):
 @login_required
 def bmp_update_ratios(task_id):
     task = _load_multi_product_task_or_raise(task_id)
-    ratios = parse_body(UpdateRatiosSchema).ratios
+    data = parse_body(UpdateRatiosSchema)
 
-    update_task_ratios(task_id, task.get("config") or {}, ratios)
-    payload = build_multi_product_global_preview_payload(task_id)
+    update_task_ratios(task_id, task.get("config") or {}, data.ratios)
+    payload = build_multi_product_global_preview_payload(
+        task_id,
+        runtime_params=data.runtime_params,
+    )
     return success(
         data=_sanitize_json_value(payload or {}),
         message="比例已保存",
@@ -396,6 +408,25 @@ def _make_task_results_by_task_id_view(task_guard):
     return _view
 
 
+def _preview_runtime_params_query() -> dict | None:
+    """全局预览的运行参数（当前仅无风险利率，年化小数形式）。
+
+    与 CalculateRatiosSchema/UpdateRatiosSchema 的 runtime_params 同一语义，
+    这里从查询参数读取（GET 预览与预览导出共用）；None 表示未指定 → 沿用
+    默认口径（rf=0），与不带该参数的请求完全一致。
+    """
+    risk_free_rate = parse_query(GlobalPreviewQuery).risk_free_rate
+    return None if risk_free_rate is None else {"risk_free_rate": risk_free_rate}
+
+
+def _build_multi_product_global_preview_with_query(task_id: str):
+    """多品全局预览：无风险利率随查询参数传入（单品预览不参与该口径）。"""
+    return build_multi_product_global_preview_payload(
+        task_id,
+        runtime_params=_preview_runtime_params_query(),
+    )
+
+
 def _make_global_preview_view(task_guard, payload_builder):
     @login_required
     def _view(task_id):
@@ -425,6 +456,6 @@ for _target_bp in (bt_api_bp, bmp_api_bp):
         "/api/global-preview/<task_id>", endpoint="global_preview",
         view_func=_make_global_preview_view(
             _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task,
-            build_multi_product_global_preview_payload if _target_bp is bmp_api_bp else build_global_preview_payload,
+            _build_multi_product_global_preview_with_query if _target_bp is bmp_api_bp else build_global_preview_payload,
         ),
     )
