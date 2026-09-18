@@ -79,6 +79,9 @@
           <el-table-column label="产品" min-width="160">
             <template #default="{ row }">{{ row.label }}</template>
           </el-table-column>
+          <el-table-column label="股票/市场" min-width="140">
+            <template #default="{ row }">{{ row.stockMarket }}</template>
+          </el-table-column>
           <el-table-column label="比例(%)" width="220">
             <template #default="{ row }">
               <el-input-number
@@ -225,6 +228,7 @@ const ratioRows = computed(() =>
   products.value.map((product, index) => ({
     index,
     label: product.product_name || product.stock_code || `产品 ${index + 1}`,
+    stockMarket: `${product.stock_code || '-'} / ${product.market_type || '-'}`,
     ratio: ratioValues.value[index] ?? Number(product.ratio || 0),
   }))
 )

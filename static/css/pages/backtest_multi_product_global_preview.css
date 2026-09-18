@@ -141,6 +141,9 @@
     .ratio-list-table tbody tr:last-child td {
         border-bottom: none;
     }
+    .ratio-list-table .ratio-code-cell {
+        white-space: nowrap;
+    }
     .ratio-list-table .ratio-input-cell {
         display: flex;
         align-items: center;

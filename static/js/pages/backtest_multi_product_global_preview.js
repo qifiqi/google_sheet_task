@@ -176,6 +176,7 @@ function renderRatios() {
       (product, index) => `
         <tr>
             <td>${escapeHtml(product.product_name || product.stock_code || `产品 ${index + 1}`)}</td>
+            <td class="ratio-code-cell">${escapeHtml(product.stock_code || "-")} / ${escapeHtml(product.market_type || "-")}</td>
             <td>
                 <div class="ratio-input-cell">
                     <input class="form-control form-control-sm ratio-input" type="number" min="0" step="0.0001" data-index="${index}" value="${escapeHtml(product.ratio || 0)}">
