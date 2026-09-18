@@ -233,6 +233,48 @@
                       加载中...
                     </div>
                   </div>
+                  <div class="row g-2 mt-1">
+                    <div class="col-12 col-sm-7">
+                      <label
+                        for="export-word-price-type"
+                        class="form-label small mb-1"
+                        >价格类型</label
+                      >
+                      <select
+                        id="export-word-price-type"
+                        class="form-select form-select-sm"
+                      >
+                        <option value="" selected>跟随任务（默认）</option>
+                        <option value="sp_price">收盘价</option>
+                        <option value="kp_price">开盘价</option>
+                        <option value="vwap_price">加权平均价</option>
+                        <option value="ohlc_price">OHLC（开高低收）</option>
+                        <option value="random_price">随机价</option>
+                      </select>
+                    </div>
+                    <div class="col-12 col-sm-5">
+                      <label
+                        for="export-word-risk-free-rate"
+                        class="form-label small mb-1"
+                        >无风险利率（年化）</label
+                      >
+                      <div class="input-group input-group-sm">
+                        <input
+                          id="export-word-risk-free-rate"
+                          type="number"
+                          class="form-control"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value="0"
+                        />
+                        <span class="input-group-text">%</span>
+                      </div>
+                    </div>
+                    <div class="col-12 small text-body-secondary">
+                      价格类型仅展示在报告信息中；无风险利率用于夏普比率重算并展示。
+                    </div>
+                  </div>
                 </div>
                 <div class="modal-footer">
                   <button

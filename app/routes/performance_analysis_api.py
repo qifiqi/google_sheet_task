@@ -6,11 +6,15 @@ import json
 from flask import Blueprint, Response, current_app, stream_with_context
 
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema, WeightCombinationSchema
+from app.schemas.performance_analysis import (
+    PerformanceAnalysisPayloadSchema,
+    WeightCombinationProductsQuerySchema,
+    WeightCombinationSchema,
+)
 from app.services.performance_analysis.service import performance_analysis_service
 from app.utils.api_response import error, success
 from app.utils.auth import login_required
-from app.utils.request_parsing import parse_body
+from app.utils.request_parsing import parse_body, parse_query
 
 
 performance_analysis_bp = Blueprint("performance_analysis", __name__, url_prefix="/performance_analysis")
@@ -42,6 +46,19 @@ def analyze_data():
 )
 def analyze_data_v1():
     return _run_analyze(performance_analysis_service.analyze_sheet)
+
+
+@performance_analysis_bp.route("/v1/weight_combination/products", methods=["GET"])
+@login_required
+def v1_weight_combination_products():
+    """权重组合分析：列出任务下可参与组合的产品及其已配置比例。
+
+    供页面"产品选择 + 单股范围"面板使用；返回顺序与 weight_combination
+    的产品装载顺序一致，前端按 result_id 回传勾选与范围。
+    """
+    query = parse_query(WeightCombinationProductsQuerySchema)
+    data = performance_analysis_service.list_weight_combination_products(query.task_id.strip())
+    return success(data=data)
 
 
 @performance_analysis_bp.route("/v1/weight_combination", methods=["POST"])

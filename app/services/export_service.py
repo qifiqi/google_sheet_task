@@ -334,6 +334,12 @@ class ExportService:
         # 组合指数开关随请求透传：按任务构建的 word_payload 不含该字段，
         # 不显式回填会丢失前端选择。
         payload.include_composite_benchmark = report_request.include_composite_benchmark
+        # 报告元数据/运行参数随请求覆盖任务默认值：重建载荷的 metadata 来自
+        # 任务配置、runtime_params 缺省（rf=0），导出弹窗的价格类型只改展示
+        # 行，无风险利率经 _runtime_params 进入 V1 引擎重算夏普；RPT-S 载荷
+        # 即请求本身，此处合并为恒等操作。
+        payload.metadata = {**payload.metadata, **report_request.metadata}
+        payload.runtime_params = {**payload.runtime_params, **report_request.runtime_params}
 
         codes = {
             str(product.get("stock_code") or "").strip()

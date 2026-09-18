@@ -84,6 +84,46 @@
                                 </div>
                             </div>
                         </form>
+
+                        <!-- 产品选择 + 单股范围：填好任务 ID 后自动加载，按 result_id 回传勾选与范围 -->
+                        <div class="wc-products" id="products-panel" style="display: none;">
+                            <div class="wc-products__toolbar">
+                                <div class="form-check form-check-inline mb-0 me-2">
+                                    <input class="form-check-input" type="checkbox" id="products-select-all">
+                                    <label class="form-check-label small" for="products-select-all">全选</label>
+                                </div>
+                                <span class="wc-products__summary small text-muted" id="products-summary">已选 0 / 共 0</span>
+                                <div class="wc-products__actions ms-auto">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-reset-ranges"
+                                            title="按任务配置的比例重新生成 0 ~ 比例 的默认范围">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i>重置范围
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-reload-products">
+                                        <i class="bi bi-arrow-clockwise me-1"></i>重新加载
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="wc-products__hint small text-muted mb-2">
+                                勾选本次参与组合的产品，并设置单股权重范围（默认 0 ~ 任务配置比例，按步长
+                                <span id="products-step-hint">5</span>% 向下取整；配置比例为 0 的产品默认不勾选）；
+                                范围须为步长整数倍，启用单股范围后上方「单股上限」不再生效。
+                            </p>
+                            <div class="wc-products__message small" id="products-message" style="display: none;"></div>
+                            <div class="wc-products__table-wrap" id="products-table-wrap">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col" class="wc-products__col-select">选</th>
+                                            <th scope="col">产品</th>
+                                            <th scope="col" class="wc-products__col-ratio">配置比例</th>
+                                            <th scope="col" class="wc-products__col-range">单股下限(%)</th>
+                                            <th scope="col" class="wc-products__col-range">单股上限(%)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="products-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

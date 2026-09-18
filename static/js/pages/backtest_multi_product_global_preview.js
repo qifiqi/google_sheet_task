@@ -516,6 +516,37 @@ function includeCompositeEnabled() {
     return !toggle || toggle.checked;
 }
 
+// 价格类型取值 → 报告"价格类型"展示行文案（与后端 get_price_type 一致）。
+const EXPORT_WORD_PRICE_TYPE_LABELS = {
+    kp_price: '开盘价',
+    sp_price: '收盘价',
+    vwap_price: '加权平均价',
+    ohlc_price: 'OHLC（开高低收）',
+    random_price: '随机价',
+};
+
+// 读取弹窗配置：无风险利率按百分比填写（如 3 = 3%），payload 统一转小数
+// （0.03）双通道（metadata 展示 + runtime_params 重算）；价格类型仅展示，
+// 留空表示跟随任务配置。非法输入抛错交由调用方 alert。
+function readExportWordOptions() {
+    const raw = document.getElementById('export-word-risk-free-rate')?.value?.trim();
+    let percent = 0;
+    if (raw !== '' && raw !== undefined) {
+        percent = Number(raw);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            throw new Error('无风险利率需为 0～100 之间的数字（百分比）');
+        }
+    }
+    const priceValue = document.getElementById('export-word-price-type')?.value || '';
+    return {
+        metadata: {
+            ...(priceValue ? { price_type: EXPORT_WORD_PRICE_TYPE_LABELS[priceValue] } : {}),
+            risk_free_rate: `${percent.toFixed(2)}%`,
+        },
+        runtime_params: { risk_free_rate: percent / 100 },
+    };
+}
+
 // ---- 公共导出函数（不弹窗时也用它）----
 async function exportWordDirectly(benchmarks) {
     try {
@@ -530,6 +561,9 @@ async function exportWordDirectly(benchmarks) {
         if (Array.isArray(benchmarks) && benchmarks.length) {
             payload.index_benchmarks = benchmarks;
         }
+        // 弹窗配置随请求透传：后端把请求 metadata/runtime_params 覆盖到按
+        // 任务重建的载荷上（价格类型展示行 + 无风险利率重算）。
+        Object.assign(payload, readExportWordOptions());
 
         const response = await Api.endpoints.export.wordReport(payload);
 

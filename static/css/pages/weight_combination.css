@@ -203,3 +203,66 @@ html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .t
     padding: 9px 12px;
     border-top: 1px solid var(--bs-border-color, #dee2e6);
 }
+
+/* -----------------------------------------
+   产品选择 + 单股范围面板
+   ----------------------------------------- */
+.wc-products {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--bs-border-color, #dee2e6);
+}
+
+.wc-products__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.wc-products__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.wc-products__message {
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 0.375rem;
+    background: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+/* 产品多时面板内部滚动，表头吸顶 */
+.wc-products__table-wrap {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.5rem;
+}
+
+.wc-products__table-wrap table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bs-tertiary-bg, #f8f9fa);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.wc-products__col-select { width: 44px; }
+.wc-products__col-ratio { width: 96px; }
+.wc-products__col-range { width: 124px; }
+
+.wc-products__name { font-size: 13px; line-height: 1.2; }
+.wc-products__code { font-size: 12px; }
+.wc-products__ratio { font-size: 13px; white-space: nowrap; }
+
+.wc-products__input {
+    min-width: 84px;
+    height: auto;
+    padding: 2px 8px;
+    font-size: 13px;
+}
+
+/* 未勾选/不可用的产品整行淡出，只保留可编辑的行 */
+.wc-products__row--off { opacity: 0.55; }

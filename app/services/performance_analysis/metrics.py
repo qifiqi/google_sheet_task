@@ -471,13 +471,14 @@ class PerformanceMetricsMixin:
 
         return kama_ratios
 
-    def calculate_sortino_ratio(self, data, frequency='monthly'):
+    def calculate_sortino_ratio(self, data, frequency='monthly', risk_free_rate=0.0):
         """
         计算索提诺比率（Sortino Ratio）
 
         参数:
             data: DataFrame，需包含 'year' 列和收益率列
             frequency: 'monthly' 或 'weekly'，决定计算周期
+            risk_free_rate: float，年化无风险利率（小数形式：3% 传 0.03），按周期折算后计入分子
 
         返回:
             list: 每年及整体的索提诺比率计算结果
@@ -487,7 +488,7 @@ class PerformanceMetricsMixin:
                             周均年化收益率	周均收益率*52（所有周）
 
         索提诺比例
-        月均年化收益率/下行标准差（
+        (月均年化收益率-无风险利率)/下行标准差（
             # 下行边准差	所有月低于0的收益率的标准差*√12
             下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
            月均年化收益率	月均收益率*12（所有月）
@@ -526,8 +527,12 @@ class PerformanceMetricsMixin:
                 monthly_downside_std = np.sqrt(sum_sq / count)
                 downside_std = monthly_downside_std * np.sqrt(periods_per_year)
 
-                # 3.4 计算索提诺比率
-                sortino_ratio = annualized_return / downside_std if downside_std != 0 else 0
+                # 3.4 计算索提诺比率：分子扣减年化无风险利率，与夏普同口径
+                # （(月均收益 − rf/周期数) × 周期数）；rf=0 时与历史口径逐位一致。
+                rf_adjusted_annualized_return = (
+                    avg_return - risk_free_rate / periods_per_year
+                ) * periods_per_year
+                sortino_ratio = rf_adjusted_annualized_return / downside_std if downside_std != 0 else 0
             else:
                 downside_std = 0
                 sortino_ratio = 0
@@ -559,7 +564,11 @@ class PerformanceMetricsMixin:
             overall_monthly_downside_std = np.sqrt(overall_sum_sq / overall_count)
             overall_downside_std = overall_monthly_downside_std * np.sqrt(periods_per_year)
 
-            overall_sortino_ratio = overall_annualized_return / overall_downside_std if overall_downside_std != 0 else 0
+            # 分子扣减年化无风险利率，与夏普同口径；rf=0 时与历史口径逐位一致。
+            overall_rf_adjusted_return = (
+                overall_avg_return - risk_free_rate / periods_per_year
+            ) * periods_per_year
+            overall_sortino_ratio = overall_rf_adjusted_return / overall_downside_std if overall_downside_std != 0 else 0
         else:
             overall_downside_std = 0
             overall_sortino_ratio = 0
@@ -995,12 +1004,16 @@ class PerformanceMetricsMixin:
             monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
             # 索提诺比例-月
-            index_monthly_sortino_ratio = self.calculate_sortino_ratio(index_monthly_returns_rate)
-            start_monthly_sortino_ratio = self.calculate_sortino_ratio(start_monthly_returns_rate)
+            index_monthly_sortino_ratio = self.calculate_sortino_ratio(
+                index_monthly_returns_rate, risk_free_rate=runtime_params.risk_free_rate)
+            start_monthly_sortino_ratio = self.calculate_sortino_ratio(
+                start_monthly_returns_rate, risk_free_rate=runtime_params.risk_free_rate)
 
             # 索提诺比例-周
-            index_weekly_sortino_ratio = self.calculate_sortino_ratio(index_weekly_returns_rate,"weekly")
-            start_weekly_sortino_ratio = self.calculate_sortino_ratio(start_weekly_returns_rate,"weekly")
+            index_weekly_sortino_ratio = self.calculate_sortino_ratio(
+                index_weekly_returns_rate, "weekly", risk_free_rate=runtime_params.risk_free_rate)
+            start_weekly_sortino_ratio = self.calculate_sortino_ratio(
+                start_weekly_returns_rate, "weekly", risk_free_rate=runtime_params.risk_free_rate)
 
             # 盈利年百分比（不需要每年）
             index_profit_annual = self.calculate_profit_annual_percentage(index_returns_rate)

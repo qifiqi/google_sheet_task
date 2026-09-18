@@ -314,6 +314,25 @@
     const progressInfo = document.getElementById('progress-info');
     const resultsCard = document.getElementById('results-card');
 
+    // 产品选择 + 单股范围面板（任务 ID 填好后自动加载）
+    const productsPanel = document.getElementById('products-panel');
+    const productsTbody = document.getElementById('products-tbody');
+    const productsTableWrap = document.getElementById('products-table-wrap');
+    const productsMessage = document.getElementById('products-message');
+    const productsSummary = document.getElementById('products-summary');
+    const productsSelectAll = document.getElementById('products-select-all');
+    const btnReloadProducts = document.getElementById('btn-reload-products');
+    const btnResetRanges = document.getElementById('btn-reset-ranges');
+    const productsStepHint = document.getElementById('products-step-hint');
+
+    // 面板状态：每项对应一个 TaskResult。多参数方案任务里同一股票会出现多次，
+    // 提交时按 result_id 回传，服务端据此精确对应到枚举中的产品。
+    let products = [];
+    let productsTaskId = '';       // 已成功加载面板的任务 ID（用于跳过重复请求）
+    let productsLoadSeq = 0;       // 请求序号：旧响应回来时直接丢弃
+    let productsAbort = null;      // 切换任务时中止上一次加载
+    let productsLoading = false;   // 面板加载中：此时提交会带上一个任务的产品与范围
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         setupEventListeners();
@@ -324,6 +343,22 @@
     function setupEventListeners() {
         form.addEventListener('submit', handleAnalyze);
         btnCancel.addEventListener('click', handleCancel);
+        // 任务 ID 失焦/回车后加载产品列表；同一任务已加载过则不重复请求
+        taskIdInput.addEventListener('change', function() {
+            const taskId = taskIdInput.value.trim();
+            if (taskId && taskId === productsTaskId) return;
+            loadProducts(taskId);
+        });
+        // 步长边输边同步提示（范围须为步长整数倍，用户改步长后据此校验/重置）
+        stepInput.addEventListener('input', updateStepHint);
+        productsSelectAll.addEventListener('change', toggleAllProducts);
+        btnReloadProducts.addEventListener('click', function() {
+            loadProducts(taskIdInput.value.trim());
+        });
+        btnResetRanges.addEventListener('click', function() {
+            applyDefaultRanges();
+            renderProducts();
+        });
     }
 
     function prefillTaskIdFromUrl() {
@@ -331,7 +366,306 @@
         const taskId = params.get('task_id');
         if (taskId) {
             taskIdInput.value = taskId;
+            loadProducts(taskId);
         }
+    }
+
+    // ============ 产品选择 + 单股范围 ============
+    function productLabel(product) {
+        return product.stock_name || product.stock_code || ('结果 ' + product.result_id);
+    }
+
+    function readStep() {
+        const step = parseInt(stepInput.value, 10);
+        return Number.isInteger(step) && step > 0 ? step : 5;
+    }
+
+    function formatRatioText(value) {
+        if (value === null || value === undefined) return '-';
+        return (Math.round(value * 100) / 100) + '%';
+    }
+
+    function parseRatioText(raw) {
+        if (raw === null || raw === undefined || raw === '') return null;
+        const value = parseFloat(raw);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    // 默认单股上限 = 任务配置比例（无配置比例时回退到「单股上限」输入框），
+    // 按步长向下取整：既保证"0 ~ 配置比例"的语义，也不会因取整超过配置比例。
+    function defaultMaxRatio(product, step) {
+        let base = product.ratioNum;
+        if (base === null) {
+            const fallback = parseInt(singleCapInput.value, 10);
+            base = Number.isInteger(fallback) ? fallback : 100;
+        }
+        const capped = Math.max(0, Math.min(base, 100));
+        return Math.floor(capped / step) * step;
+    }
+
+    function applyDefaultRanges() {
+        const step = readStep();
+        products.forEach(function(product) {
+            product.min = 0;
+            product.max = defaultMaxRatio(product, step);
+        });
+    }
+
+    function updateStepHint() {
+        productsStepHint.textContent = String(readStep());
+    }
+
+    function updateProductsSummary() {
+        const usable = products.filter(function(product) { return product.usable; });
+        const selected = usable.filter(function(product) { return product.checked; });
+        const ratioSum = selected.reduce(function(sum, product) {
+            return sum + (product.ratioNum || 0);
+        }, 0);
+
+        if (!usable.length) {
+            productsSummary.textContent = products.length ? '没有可用于组合的产品' : '暂无产品';
+        } else {
+            productsSummary.textContent = `已选 ${selected.length} / 共 ${usable.length}` +
+                (ratioSum > 0 ? `（所选配置比例合计 ${formatRatioText(ratioSum)}）` : '');
+        }
+
+        productsSelectAll.disabled = !usable.length;
+        productsSelectAll.checked = usable.length > 0 && selected.length === usable.length;
+        productsSelectAll.indeterminate = selected.length > 0 && selected.length < usable.length;
+    }
+
+    function showProductsMessage(text, level) {
+        productsMessage.textContent = text;
+        productsMessage.className = 'wc-products__message small text-' + (level || 'muted');
+        productsMessage.style.display = 'block';
+    }
+
+    function hideProductsMessage() {
+        productsMessage.style.display = 'none';
+    }
+
+    function updateProductRowState(product) {
+        const enabled = product.usable && product.checked;
+        if (product.minEl) product.minEl.disabled = !enabled;
+        if (product.maxEl) product.maxEl.disabled = !enabled;
+        if (product.rowEl) product.rowEl.classList.toggle('wc-products__row--off', !enabled);
+    }
+
+    function makeRangeInput(product, key) {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'form-control form-control-sm wc-products__input';
+        input.min = '0';
+        input.max = '100';
+        input.step = '1';
+        input.value = String(product[key]);
+        input.setAttribute('aria-label', (key === 'min' ? '单股下限 ' : '单股上限 ') + productLabel(product));
+        input.addEventListener('input', function() {
+            product[key] = input.value.trim() === '' ? '' : Number(input.value);
+            input.classList.remove('is-invalid');
+        });
+        return input;
+    }
+
+    function renderProducts() {
+        productsTbody.innerHTML = '';
+        products.forEach(function(product) {
+            const row = document.createElement('tr');
+
+            const selectCell = document.createElement('td');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'form-check-input';
+            checkbox.checked = product.checked;
+            checkbox.disabled = !product.usable;
+            checkbox.setAttribute('aria-label', '选择 ' + productLabel(product));
+            if (!product.usable) {
+                checkbox.title = '该产品没有可用的收益序列，无法参与组合';
+            }
+            checkbox.addEventListener('change', function() {
+                product.checked = checkbox.checked;
+                updateProductRowState(product);
+                updateProductsSummary();
+            });
+            selectCell.appendChild(checkbox);
+
+            const nameCell = document.createElement('td');
+            const nameEl = document.createElement('div');
+            nameEl.className = 'wc-products__name';
+            nameEl.textContent = product.stock_name || product.stock_code || 'N/A';
+            const codeEl = document.createElement('div');
+            codeEl.className = 'wc-products__code text-muted';
+            codeEl.textContent = product.stock_code || '';
+            nameCell.appendChild(nameEl);
+            nameCell.appendChild(codeEl);
+
+            const ratioCell = document.createElement('td');
+            ratioCell.className = 'wc-products__ratio';
+            ratioCell.textContent = formatRatioText(product.ratioNum);
+
+            const minCell = document.createElement('td');
+            const minInput = makeRangeInput(product, 'min');
+            minCell.appendChild(minInput);
+
+            const maxCell = document.createElement('td');
+            const maxInput = makeRangeInput(product, 'max');
+            maxCell.appendChild(maxInput);
+
+            row.appendChild(selectCell);
+            row.appendChild(nameCell);
+            row.appendChild(ratioCell);
+            row.appendChild(minCell);
+            row.appendChild(maxCell);
+            productsTbody.appendChild(row);
+
+            product.rowEl = row;
+            product.minEl = minInput;
+            product.maxEl = maxInput;
+            updateProductRowState(product);
+        });
+        updateProductsSummary();
+    }
+
+    function toggleAllProducts() {
+        const checked = productsSelectAll.checked;
+        products.forEach(function(product) {
+            if (product.usable) product.checked = checked;
+        });
+        renderProducts();
+    }
+
+    // 分析进行中时整体禁用面板，避免结果与参数不一致
+    function setProductsBusy(busy) {
+        productsPanel.querySelectorAll('input, button').forEach(function(el) {
+            el.disabled = busy;
+        });
+        if (!busy) {
+            products.forEach(updateProductRowState);
+            updateProductsSummary();
+        }
+    }
+
+    async function loadProducts(taskId) {
+        productsTaskId = '';
+        if (productsAbort) {
+            productsAbort.abort();
+            productsAbort = null;
+        }
+        if (!taskId) {
+            products = [];
+            productsLoading = false;
+            productsPanel.style.display = 'none';
+            return;
+        }
+
+        const seq = ++productsLoadSeq;
+        productsAbort = new AbortController();
+        // 任务 ID 变更由输入框失焦（change）触发，紧接着的提交仍会读到上一个任务的
+        // products；标记加载中，让 handleAnalyze 拒绝这次提交而不是发错范围。
+        productsLoading = true;
+        productsPanel.style.display = 'block';
+        productsTableWrap.style.display = 'none';
+        productsSelectAll.checked = false;
+        productsSelectAll.indeterminate = false;
+        productsSelectAll.disabled = true;
+        productsSummary.textContent = '';
+        showProductsMessage('正在加载产品列表...', 'muted');
+
+        try {
+            const data = await Api.endpoints.performanceAnalysis.weightCombinationProducts(taskId, {
+                signal: productsAbort.signal
+            });
+            if (seq !== productsLoadSeq) return;
+
+            const list = (data && data.products) || [];
+            products = list.map(function(item) {
+                const ratioNum = parseRatioText(item.ratio);
+                return {
+                    result_id: item.result_id,
+                    product_index: item.product_index,
+                    stock_code: item.stock_code,
+                    stock_name: item.stock_name,
+                    ratioNum: ratioNum,
+                    ratioText: formatRatioText(ratioNum),
+                    usable: !!item.has_returns,
+                    // 已配置比例为 0 的产品在组合里本就不参与，默认不勾选（可手动勾选后改上限）
+                    checked: !!item.has_returns && ratioNum !== 0,
+                    min: 0,
+                    max: 0
+                };
+            });
+            applyDefaultRanges();
+            renderProducts();
+            productsTaskId = taskId;
+            productsTableWrap.style.display = products.length ? 'block' : 'none';
+
+            if (!products.length) {
+                showProductsMessage('该任务没有成功的结果，无法进行权重组合分析。', 'danger');
+            } else if (!products.some(function(product) { return product.usable; })) {
+                showProductsMessage('该任务的成功结果都没有可用的收益序列，无法进行权重组合分析。', 'danger');
+            } else {
+                hideProductsMessage();
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            if (seq !== productsLoadSeq) return;
+            products = [];
+            productsTableWrap.style.display = 'none';
+            updateProductsSummary();
+            showProductsMessage('产品列表加载失败：' + error.message, 'danger');
+        } finally {
+            if (seq === productsLoadSeq) {
+                productsAbort = null;
+                productsLoading = false;
+            }
+        }
+    }
+
+    // 校验面板选择并生成请求字段；面板未加载（无产品）时返回空载荷，
+    // 请求退化为原有的"全部产品 + 全局单股上限"语义。
+    function collectProductSelection() {
+        if (!products.length) return { error: null, payload: {} };
+
+        const step = readStep();
+        const selected = products.filter(function(product) {
+            return product.usable && product.checked;
+        });
+        if (!selected.length) return { error: '请至少选择一个参与组合的产品' };
+
+        const ranges = [];
+        for (let i = 0; i < selected.length; i++) {
+            const product = selected[i];
+            const label = productLabel(product);
+            const invalid = function(message) {
+                if (product.minEl) product.minEl.classList.add('is-invalid');
+                if (product.maxEl) product.maxEl.classList.add('is-invalid');
+                return { error: `「${label}」${message}` };
+            };
+
+            if (product.min === '' || product.max === '' ||
+                !Number.isInteger(product.min) || !Number.isInteger(product.max)) {
+                return invalid('的单股下限/上限必须是整数');
+            }
+            if (product.min < 0 || product.max > 100 || product.min > product.max) {
+                return invalid('的单股范围必须满足 0 ≤ 下限 ≤ 上限 ≤ 100');
+            }
+            if (product.min % step !== 0 || product.max % step !== 0) {
+                return invalid(`的单股范围必须是步长 ${step}% 的整数倍（可点「重置范围」按配置比例重算）`);
+            }
+            ranges.push({
+                result_id: product.result_id,
+                min_weight: product.min,
+                max_weight: product.max
+            });
+        }
+
+        return {
+            error: null,
+            payload: {
+                result_ids: selected.map(function(product) { return product.result_id; }),
+                stock_ranges: ranges
+            }
+        };
     }
 
     /**
@@ -417,6 +751,11 @@
             alert('请输入任务 ID');
             return;
         }
+        // 面板尚在加载上一个任务的产品与范围，此时提交会把旧范围发给新任务
+        if (productsLoading) {
+            alert('产品列表加载中，请稍候再试');
+            return;
+        }
 
         const step = parseInt(stepInput.value);
         const maxWeight = parseInt(maxWeightInput.value);
@@ -428,20 +767,35 @@
         if (maxWeight < 1 || maxWeight > 100) { alert('组合总权重上限必须在 1-100 之间'); return; }
         if (minWeight < 0 || minWeight > 100) { alert('组合总权重下限必须在 0-100 之间'); return; }
         if (minWeight > maxWeight) { alert('组合总权重下限不能大于上限'); return; }
-        if (singleCap < 1 || singleCap > 100) { alert('单只股票权重上限必须在 1-100 之间'); return; }
-        if (maxWeight % step !== 0 || minWeight % step !== 0 || singleCap % step !== 0) {
-            alert('所有权重参数必须是步长的整数倍');
+
+        const selection = collectProductSelection();
+        if (selection.error) { alert(selection.error); return; }
+        const useRanges = !!(selection.payload && selection.payload.stock_ranges);
+
+        // 单股上限只在未启用单股范围时生效，启用后不再校验它的网格约束（服务端同样忽略）
+        if (!useRanges) {
+            if (singleCap < 1 || singleCap > 100) { alert('单只股票权重上限必须在 1-100 之间'); return; }
+            if (maxWeight % step !== 0 || minWeight % step !== 0 || singleCap % step !== 0) {
+                alert('所有权重参数必须是步长的整数倍');
+                return;
+            }
+            if (singleCap < step) { alert('单只股票权重上限不能小于步长'); return; }
+        } else if (maxWeight % step !== 0 || minWeight % step !== 0) {
+            alert('组合总权重上下限必须是步长的整数倍');
             return;
         }
-        if (singleCap < step) { alert('单只股票权重上限不能小于步长'); return; }
 
-        startAnalysis({
+        const payload = {
             task_id: taskId,
             step: step,
             max_weight: maxWeight,
-            min_weight: minWeight,
-            single_cap: singleCap
-        });
+            min_weight: minWeight
+        };
+        Object.assign(payload, selection.payload);
+        // 启用单股范围后不发送 single_cap：服务端此时不读它，但它的字段级范围约束
+        // （>0、≤100）仍会生效，会让一个不生效的值卡住请求。
+        if (!useRanges) payload.single_cap = singleCap;
+        startAnalysis(payload);
     }
 
     /**
@@ -455,6 +809,7 @@
         btnCancel.style.display = 'inline-block';
         progressCard.style.display = 'block';
         resultsCard.style.display = 'none';
+        setProductsBusy(true);
 
         // 清空数据 + 筛选缓存
         closeFilterPopup();
@@ -579,6 +934,7 @@
             isAnalyzing = false;
             btnAnalyze.disabled = false;
             btnCancel.style.display = 'none';
+            setProductsBusy(false);
             abortController = null;
         }
     }

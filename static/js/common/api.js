@@ -364,6 +364,14 @@
           withCsrfToken(options),
         );
       },
+      // 权重组合分析：任务下可参与组合的产品与已配置比例（单股范围面板数据源）。
+      weightCombinationProducts: function (taskId, options) {
+        return get(
+          "/performance_analysis/v1/weight_combination/products?task_id=" +
+            encodeURIComponent(taskId),
+          options,
+        );
+      },
     },
     export: {
       // 合并导出是流式下载（ReadableStream 读进度），返回原始 Response，

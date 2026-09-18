@@ -742,9 +742,30 @@
             return;
         }
 
-        // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+        // 本地已有可用会话（fetchCurrentUser 内含 401 自动刷新续期）则直接复用并
+        // 跳转，不再重复走 SSO 换票；本地无会话或会话彻底失效时，才用 sso_token
+        // 换票。注意：同一浏览器先后被不同主服务账号使用时，复用会话会沿用上一
+        // 次换票得到的本地身份。
         const ssoToken = consumeSsoTokenFromHash();
-        if (ssoToken) {
+        if (getToken()) {
+            fetchCurrentUser()
+                .then(() => {
+                    window.location.replace(getLoginNextUrl());
+                })
+                .catch(() => {
+                    clearAuthState();
+                    if (ssoToken) {
+                        performSsoExchange(ssoToken)
+                            .then(() => {
+                                window.location.replace(getLoginNextUrl());
+                            })
+                            .catch((error) => {
+                                errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
+                                errorBox.classList.remove("d-none");
+                            });
+                    }
+                });
+        } else if (ssoToken) {
             performSsoExchange(ssoToken)
                 .then(() => {
                     window.location.replace(getLoginNextUrl());
@@ -752,14 +773,6 @@
                 .catch((error) => {
                     errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
                     errorBox.classList.remove("d-none");
-                });
-        } else if (getToken()) {
-            fetchCurrentUser()
-                .then(() => {
-                    window.location.replace(getLoginNextUrl());
-                })
-                .catch(() => {
-                    clearAuthState();
                 });
         }
 

@@ -294,6 +294,78 @@ def test_calculate_sharpe_for_period_subtracts_monthly_risk_free_rate():
         base["sharpe_ratio"] - 0.03 / base["annual_std_dev"])
 
 
+def _sortino_frame():
+    return pd.DataFrame({
+        "monthly_return": [0.02, -0.01, 0.03, -0.005, 0.015, 0.04],
+        "year": [2024] * 6,
+        "date": pd.to_datetime(
+            ["2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30", "2024-05-31", "2024-06-30"]),
+    })
+
+
+def test_calculate_sortino_ratio_subtracts_periodic_risk_free_rate():
+    """索提诺公式：sortino = (年化收益 − rf) / 下行标准差；rf=0 时退化为历史口径。"""
+    analyzer = PerformanceAnalyzer()
+    df = _sortino_frame()
+
+    base = analyzer.calculate_sortino_ratio(df)
+    with_rf = analyzer.calculate_sortino_ratio(df, risk_free_rate=0.03)
+
+    base_all = next(item for item in base if item["year"] == "all")
+    rf_all = next(item for item in with_rf if item["year"] == "all")
+    assert base_all["sortino_ratio"] == pytest.approx(
+        base_all["annualized_return"] / base_all["downside_std"])
+    # 年度条目同口径扣减；annualized_return/downside_std/avg_return 描述字段不受 rf 影响。
+    rf_year = next(item for item in with_rf if item["year"] == 2024)
+    base_year = next(item for item in base if item["year"] == 2024)
+    assert rf_year["sortino_ratio"] == pytest.approx(
+        base_year["sortino_ratio"] - 0.03 / base_year["downside_std"])
+    assert rf_all["sortino_ratio"] == pytest.approx(
+        base_all["sortino_ratio"] - 0.03 / base_all["downside_std"])
+    assert rf_all["annualized_return"] == pytest.approx(base_all["annualized_return"])
+    assert rf_all["downside_std"] == pytest.approx(base_all["downside_std"])
+    assert rf_all["avg_return"] == pytest.approx(base_all["avg_return"])
+
+
+def test_v1_metrics_applies_risk_free_rate_to_sortino():
+    """runtime_params.risk_free_rate 进入 V1 引擎的指数/策略索提诺分子（月度+周度）。"""
+    analyzer = PerformanceAnalyzer()
+    rows = []
+    index_net_value = start_net_value = 1.0
+    # 单月整月上行/下行交替，保证存在负收益月（索提诺的下行序列不能退化为全 0）。
+    for i, current_date in enumerate(pd.bdate_range("2024-01-01", periods=12 * 22)):
+        up_month = (i // 22) % 2 == 0
+        index_net_value *= 1 + (0.003 if up_month else -0.001)
+        start_net_value *= 1 + (0.0035 if up_month else -0.0008)
+        rows.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "index_return": index_net_value - 1,
+            "start_return": start_net_value - 1,
+        })
+
+    default_metrics = analyzer.get_calculate_metrics_v1(rows)
+    rf_metrics = analyzer.get_calculate_metrics_v1(rows, runtime_params={"risk_free_rate": 0.03})
+
+    def all_entry(entries):
+        return next(item for item in entries if item["year"] == "all")
+
+    for key in ("index_sortino_ratio", "start_sortino_ratio"):
+        base_entry = all_entry(default_metrics[key])
+        rf_entry = all_entry(rf_metrics[key])
+        assert base_entry["sortino_ratio"] > 0
+        # rf=3% 时索提诺严格下降 rf / 下行标准差，描述字段不受影响。
+        # rel 放宽到 1e-4：结果投影含 6 位小数舍入，默认容差会误报。
+        assert rf_entry["sortino_ratio"] == pytest.approx(
+            base_entry["sortino_ratio"] - 0.03 / base_entry["downside_std"], rel=1e-4)
+        assert rf_entry["annualized_return"] == pytest.approx(base_entry["annualized_return"])
+        assert rf_entry["downside_std"] == pytest.approx(base_entry["downside_std"])
+
+    weekly_base = all_entry(default_metrics["index_weekly_sortino_ratio"])
+    weekly_rf = all_entry(rf_metrics["index_weekly_sortino_ratio"])
+    assert weekly_rf["sortino_ratio"] == pytest.approx(
+        weekly_base["sortino_ratio"] - 0.03 / weekly_base["downside_std"], rel=1e-4)
+
+
 def test_v1_metrics_applies_risk_free_rate_to_sharpe():
     """runtime_params.risk_free_rate 进入 V1 引擎的指数/策略夏普分子。"""
     analyzer = PerformanceAnalyzer()
