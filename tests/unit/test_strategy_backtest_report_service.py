@@ -96,7 +96,7 @@ def test_weight_allocation_fills_etf_total_assets_column():
         assets={"600519": "1,234,567,890"},
     )
 
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "ETF资产总数"]
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "ETF资产总数"]
     assert blocks[0]["rows"] == [
         ["600519", "贵州茅台", "50%", "10.00亿", "1,234,567,890"],
         ["0700.HK", "腾讯控股", "50%", "300.00亿", "-"],
@@ -116,7 +116,7 @@ def test_weight_allocation_uses_net_asset_header_when_all_stocks():
         request, "RPT-S", assets_header="净资产",
     )
 
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "净资产"]
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "净资产"]
 
 
 def test_weight_allocation_fills_average_amount_by_code_label():
@@ -173,8 +173,38 @@ def test_default_filename_keeps_rpt_m_with_multiple_active_products():
 
     filename = service._default_filename(request)
 
-    assert filename.startswith("RPT-M-600519-SCHD.US-")
+    # 权重为百分比数字但不带 % 后缀：裸 % 会让前端 decodeURIComponent 抛 URI malformed。
+    assert filename.startswith("RPT-M-600519_50-SCHD.US_50-")
     assert "SOXX.US" not in filename
+    assert "%" not in filename and "(" not in filename
+
+
+def test_default_filename_weight_supports_percent_and_decimal_ratios():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": "510300", "ratio": "33.33%"},
+        {"stock_code": "510500", "ratio": 0.665},
+        {"stock_code": "510800"},
+    ])
+
+    filename = service._default_filename(request)
+
+    # 百分比/小数比例统一折算为百分比数字；缺失比例只拼代码。
+    assert filename.startswith("RPT-M-510300_33.33-510500_66.5-510800-")
+
+
+def test_default_filename_falls_back_to_codes_when_weighted_name_too_long():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": f"6005{i:02}.SH", "ratio": "10"}
+        for i in range(20)
+    ])
+
+    filename = service._default_filename(request)
+
+    # 加权形式超长时回落纯代码，保护 Windows 路径长度限制。
+    assert filename.startswith("RPT-M-600500.SH-")
+    assert "(" not in filename
 
 
 def test_return_section_marks_rolling_returns_unavailable_before_five_years():
@@ -676,7 +706,7 @@ def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
     )
 
     weight_blocks = [block for block in report_data["blocks"] if block["type"] == "table"][:2]
-    assert all(block["columns"][3] == "平均成交额" for block in weight_blocks)
+    assert all(block["columns"][3] == "平均成交额 (半年)" for block in weight_blocks)
     assert all(block["columns"][4] == "ETF资产总数" for block in weight_blocks)
 
 
@@ -861,7 +891,7 @@ def test_correlation_matrix_skipped_without_products():
 
 
 def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
-    """单次 K 线取数产出平均成交额；同标的策略/指数行共享。"""
+    """单次 K 线取数产出平均成交额；同标的策略/指数行共享，窗口为截止日前半年。"""
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
         _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
@@ -872,18 +902,19 @@ def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
     ])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     assert amounts == {
         "600519.SS": "10.00亿",
         "0700.HK": "10.00亿",
         "0700.HK (指数)": "10.00亿",
     }
-    # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果。
+    # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果；
+    # start_date = 截止日 2024-01-04 往前推 182 天。
     assert [call["stock_code"] for call in stub.calls] == ["600519.SS", "0700.HK"]
     assert [(call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
-        ("cn", "2024-01-01", "2024-01-04"),
-        ("hk", "2024-01-01", "2024-01-04"),
+        ("cn", "2023-07-06", "2024-01-04"),
+        ("hk", "2023-07-06", "2024-01-04"),
     ]
 
 
@@ -899,7 +930,7 @@ def test_weight_metric_texts_falls_back_to_volume_times_close(monkeypatch):
     ])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     # 仅取成交量与收盘价都齐全的行：(1_000_000×90 + 3_000_000×100)/2 = 1.95亿。
     assert amounts == {"TLT.US": "1.95亿"}
@@ -912,7 +943,7 @@ def test_weight_metric_texts_degrades_to_dash_when_kline_fails(monkeypatch):
     stub = _StubKlineService(error=RuntimeError("kline unavailable"))
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     assert amounts == {"600519.SS": "-"}
 

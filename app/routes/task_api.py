@@ -48,6 +48,7 @@ def tasks():
             task_types=allowed_task_types if not query.task_type else None,
             status=query.status,
             keyword=query.keyword,
+            stock_code=query.stock_code,
         )
         return success(data=data)
 

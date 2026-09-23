@@ -13,6 +13,7 @@ class TaskListQuery(PageQuery):
     task_type: str | None = None
     status: str | None = None
     keyword: str = ""
+    stock_code: str = ""
 
 
 class TaskResultListQuery(PageQuery):

@@ -181,6 +181,37 @@
                   </a>
                 </div>
               </div>
+              <div
+                class="list-filter-toolbar px-4 pb-3 d-flex flex-wrap align-items-center gap-2"
+              >
+                <label
+                  class="small text-body-secondary"
+                  for="stockCodeFilterInput"
+                  >股票代码筛选</label
+                >
+                <input
+                  type="text"
+                  class="form-control form-control-sm stock-code-filter-input"
+                  id="stockCodeFilterInput"
+                  placeholder="如 AAPL.US，支持子串"
+                  aria-label="按股票代码筛选任务"
+                />
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-primary"
+                  id="applyStockCodeFilterBtn"
+                >
+                  查询
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary"
+                  id="clearStockCodeFilterBtn"
+                  disabled
+                >
+                  清除
+                </button>
+              </div>
               <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                   <thead class="table-light">
@@ -311,6 +342,69 @@
                     disabled
                   >
                     <i class="bi bi-file-earmark-zip me-1"></i>导出 ZIP
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            class="modal fade"
+            id="productListModal"
+            tabindex="-1"
+            aria-labelledby="productListModalLabel"
+            aria-hidden="true"
+          >
+            <div
+              class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"
+            >
+              <div class="modal-content shadow">
+                <div
+                  class="modal-header bg-body-tertiary border-0 px-4 py-3"
+                >
+                  <div>
+                    <h5 class="modal-title fw-bold" id="productListModalLabel">
+                      产品清单<span
+                        class="fw-normal text-body-secondary"
+                        id="productListTaskName"
+                      ></span>
+                    </h5>
+                    <div
+                      class="small text-body-secondary mt-1"
+                      id="productListCount"
+                    >
+                      共 0 个产品
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="关闭"
+                  ></button>
+                </div>
+                <div class="modal-body p-4">
+                  <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th>产品名称</th>
+                          <th>股票代码</th>
+                          <th>市场</th>
+                        </tr>
+                      </thead>
+                      <tbody id="productListTableBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+                <div
+                  class="modal-footer bg-body-tertiary border-0 px-4 py-3"
+                >
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary rounded-pill px-4"
+                    data-bs-dismiss="modal"
+                  >
+                    关闭
                   </button>
                 </div>
               </div>

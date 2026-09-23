@@ -48,11 +48,15 @@ class TaskRepository(BaseRepository):
         task_types=None,
         status=None,
         keyword=None,
+        stock_code=None,
     ):
         """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
 
         - status="pending" 特例：仅统计已开跑的待执行任务
           （status == pending AND current_step > 0），分页与统计一致；
+        - stock_code：按 config JSON 文本里的 "stock_code" 键值前缀匹配，
+          锚定键名避免误中 product_name/sheet 等其他字段；
+          兼容 json.dumps（": "）与 JSON.stringify（":"）两种分隔符；
         - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
         """
         query = Task.query
@@ -76,6 +80,14 @@ class TaskRepository(BaseRepository):
                     Task.id.ilike(pattern),
                 )
             )
+
+        if stock_code:
+            needle = str(stock_code).strip().strip('"').replace("%", "")
+            if needle:
+                query = query.filter(or_(
+                    Task.config.like(f'%"stock_code": "{needle}%'),
+                    Task.config.like(f'%"stock_code":"{needle}%'),
+                ))
 
         ordered_query = query.order_by(Task.created_at.desc())
         pagination = ordered_query.paginate(

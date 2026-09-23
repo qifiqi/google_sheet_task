@@ -310,6 +310,55 @@
         `).join('');
     }
 
+    // 产品 Sheet 卡片：拼接标准谷歌 Sheet 地址，点击新窗口跳转（与 Vue 版 Detail.vue sheetCards 同步）。
+    function buildGoogleSheetUrl(spreadsheetId) {
+        return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+    }
+
+    function renderSheetCards(config) {
+        const section = document.getElementById('taskSheetSection');
+        const grid = document.getElementById('taskSheetGrid');
+        if (!section || !grid) {
+            return;
+        }
+
+        const products = Array.isArray(config.products) ? config.products : [];
+        if (!products.length) {
+            section.classList.add('d-none');
+            grid.innerHTML = '';
+            return;
+        }
+
+        section.classList.remove('d-none');
+        grid.innerHTML = products.map((product, index) => {
+            const sheet = product.sheet || {};
+            const spreadsheetId = sheet.spreadsheet_id || '';
+            const name = escapeHtml(product.product_name || product.name || `产品 ${index + 1}`);
+            const modelLabel = escapeHtml(inferProductModelVersion(product).toUpperCase());
+            const stockMarket = `${escapeHtml(product.stock_code || '-')} / ${escapeHtml(product.market_type || '-')}`;
+            const hasRatio = !(product.ratio === undefined || product.ratio === null || product.ratio === '');
+            const ratio = hasRatio ? `${escapeHtml(product.ratio)}%` : '-';
+            const sheetTitle = escapeHtml(sheet.title || sheet.sheet_name || spreadsheetId || '-');
+            const sheetName = escapeHtml(sheet.sheet_name || '-');
+            const inner = `
+                <div class="task-sheet-card__head">
+                    <span class="task-sheet-card__name" title="${name}">${name}</span>
+                    <span class="badge text-bg-info">${modelLabel}</span>
+                </div>
+                <div class="task-sheet-card__meta">${stockMarket} · ${ratio}</div>
+                <div class="task-sheet-card__sheet" title="${sheetTitle}">${sheetTitle}</div>
+                <div class="task-sheet-card__sub">工作表：${sheetName}</div>
+                <div class="task-sheet-card__cta ${spreadsheetId ? '' : 'task-sheet-card__cta--empty'}">
+                    ${spreadsheetId ? '打开 Google Sheet <i class="bi bi-box-arrow-up-right"></i>' : '缺少 spreadsheet_id，无法跳转'}
+                </div>
+            `;
+            if (spreadsheetId) {
+                return `<a class="task-sheet-card" href="${escapeHtml(buildGoogleSheetUrl(spreadsheetId))}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+            }
+            return `<div class="task-sheet-card">${inner}</div>`;
+        }).join('');
+    }
+
     function renderParameterTable(config) {
         const tableHead = document.getElementById('taskParamHead');
         const tableBody = document.getElementById('taskParamBody');
@@ -1111,6 +1160,7 @@
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
             renderTaskConfig(currentTaskConfig);
+            renderSheetCards(currentTaskConfig);
             renderParameterTable(currentTaskConfig);
             updateTaskResultSectionMode(currentTaskConfig);
             loadTaskResults({ silent });

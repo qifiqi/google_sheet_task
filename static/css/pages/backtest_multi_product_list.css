@@ -206,3 +206,52 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* 产品股票 chip：局部恢复换行（父级 .task-meta 为 nowrap+ellipsis），超出 3 个折叠为 +N。 */
+.product-chip-wrap {
+    white-space: normal;
+}
+
+.product-chip {
+    display: inline-block;
+    max-width: 140px;
+    margin: 1px 2px 1px 0;
+    padding: 0 7px;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 999px;
+    background: var(--bs-tertiary-bg, #f8f9fa);
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 0.75rem;
+    line-height: 18px;
+    vertical-align: bottom;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.product-chip--more {
+    cursor: help;
+    font-weight: 600;
+    color: var(--bs-primary, #0d6efd);
+    border-color: var(--bs-primary-border-subtle, #b6d4fe);
+    background: var(--bs-primary-bg-subtle, #cfe2ff);
+}
+
+/* 可点击 chip：打开产品清单表格弹窗。 */
+.product-chip--toggle {
+    cursor: pointer;
+}
+
+.product-chip--toggle:hover,
+.product-chip--toggle:focus-visible {
+    color: var(--bs-primary, #0d6efd);
+    border-color: var(--bs-primary-border-subtle, #b6d4fe);
+    background: var(--bs-primary-bg-subtle, #cfe2ff);
+}
+
+/* 股票代码筛选输入框：避免 flex 行内被拉伸到整行。 */
+.stock-code-filter-input {
+    width: auto;
+    min-width: 200px;
+    max-width: 260px;
+}

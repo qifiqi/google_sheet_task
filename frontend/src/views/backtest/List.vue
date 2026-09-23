@@ -392,7 +392,8 @@ async function exportSelectedBatchTasks() {
   }
 }
 
-usePolling(loadTasks, { interval: 5000 })
+// 列表自动刷新：1 分钟一次（与静态版列表/详情页对齐）
+usePolling(loadTasks, { interval: 60 * 1000 })
 </script>
 
 <style scoped>

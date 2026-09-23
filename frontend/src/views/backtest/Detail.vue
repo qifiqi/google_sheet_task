@@ -979,12 +979,13 @@ onMounted(() => {
     loading.value = false
   })
 
+  // 自动刷新 1 分钟一次（对齐静态版详情页 AUTO_REFRESH_INTERVAL）
   pollTimer = setInterval(() => {
     if (task.value?.status === 'running' || task.value?.status === 'pending') {
       loadTask()
       loadLogs()
     }
-  }, 5000)
+  }, 60 * 1000)
 })
 
 onUnmounted(() => clearInterval(pollTimer))

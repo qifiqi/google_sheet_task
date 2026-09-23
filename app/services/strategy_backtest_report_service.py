@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -31,7 +31,6 @@ from app.services.performance_analysis.return_correlation import aligned_daily_r
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
 from app.utils.etf_total_assets import get_etf_total_assets_detail
-from app.utils.market import normalize_market_type
 from app.utils.number_format import abbreviate_number
 
 logger = get_logger(__name__)
@@ -140,22 +139,43 @@ class StrategyBacktestReportService:
         ]
 
     def _default_filename(self, request: StrategyBacktestReportSchema) -> str:
-        """按报告类型、产品代码和生成时间构造默认下载文件名。
+        """按报告类型、产品代码+权重和生成时间构造默认下载文件名。
 
-        比例为 0 的产品不参与代码拼接；有效产品只剩 1 个时前缀按 RPT-S 输出。
+        比例为 0 的产品不参与代码拼接；有效产品只剩 1 个时前缀按 RPT-S 输出，
+        单品权重恒为 100%，不再重复拼接。多产品按 ``代码_权重`` 拼接，权重为
+        百分比数字，与报告内"策略权重"表同源（同一 normalize/percent 口径）。
+        权重不带 % 后缀：纯 ASCII 文件名经 Content-Disposition 原样下发，前端
+        decodeURIComponent 遇到裸 % 会抛 URI malformed；也不用括号等附加符号，
+        保持文件名简短。加权形式超长时回落纯代码形式，保护 Windows 路径长度。
         """
         products = self._active_report_products(request.products)
         report_type = (
             "RPT-S" if request.report_type == "RPT-M" and len(products) == 1
             else request.report_type
         )
-        stock_codes = [
-            str(product.get("stock_code") or "").strip().upper()
-            for product in products
-            if str(product.get("stock_code") or "").strip()
-        ]
-        suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
+        weighted: list[str] = []
+        plain: list[str] = []
+        for product in products:
+            code = str(product.get("stock_code") or "").strip().upper()
+            if not code:
+                continue
+            plain.append(code)
+            weight_text = self._filename_weight_text(product)
+            weighted.append(f"{code}_{weight_text}" if weight_text else code)
+        fragments = (
+            weighted if len(products) > 1 and len("-".join(weighted)) <= 180 else plain
+        )
+        suffix = "-".join([*fragments, datetime.now().strftime("%Y%m%d%H%M%S")])
         return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
+
+    @staticmethod
+    def _filename_weight_text(product: dict[str, Any]) -> str:
+        """文件名权重文本（百分比数字去尾零，如 50 / 33.33）；比例缺失或非法时返回空串省略。"""
+        try:
+            weight = normalize_weight(product.get("ratio", product.get("weight")))
+        except ValueError:
+            return ""
+        return StrategyBacktestReportService._weight_percent_text(weight)
 
     @staticmethod
     def _benchmark_entries(payload: StrategyBacktestReportSchema) -> list[tuple[str, Decimal]]:
@@ -428,7 +448,7 @@ class StrategyBacktestReportService:
             {"label": "总交易日", "value": f"{len(result.index_df)} 天"},
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
-        amount_texts = self._weight_metric_texts(payload, first_date, last_date)
+        amount_texts = self._weight_metric_texts(payload, last_date)
         asset_texts, etf_flags = self._etf_total_assets_texts(payload)
         # 全部为个股（资产值均来自总市值回退或缺失、无任何 ETF 资产值）时，列头按净资产表述。
         assets_header = "净资产" if asset_texts and not any(etf_flags.values()) else "ETF资产总数"
@@ -469,7 +489,7 @@ class StrategyBacktestReportService:
         """
         amount_texts = amounts or {}
         asset_texts = assets or {}
-        columns = ["股票代码", "股票名", "权重", "平均成交额", assets_header]
+        columns = ["股票代码", "股票名", "权重", "平均成交额 (半年)", assets_header]
         active = StrategyBacktestReportService._active_report_products(payload.products)
         strategy_rows = []
         if isinstance(active, list):
@@ -546,20 +566,19 @@ class StrategyBacktestReportService:
     def _weight_metric_texts(
         self,
         payload: StrategyBacktestReportSchema,
-        first_date: str,
         last_date: str,
     ) -> dict[str, str]:
         """单次 K 线取数产出权重表的平均成交额文本映射。
 
         同一标的只取数一次（同码的策略行/指数行/多比例行共享结果），
-        指数行标签为 "代码 (指数)"。
+        统计窗口为报告截止日往前推近半年，指数行标签为 "代码 (指数)"。
         """
         amount_texts: dict[str, str] = {}
         kline_texts: dict[str, str] = {}
 
         def amount_text_for(code: str, product: dict[str, Any]) -> str:
             if code not in kline_texts:
-                kline_texts[code] = self._kline_average_amount_text(product, first_date, last_date)
+                kline_texts[code] = self._kline_average_amount_text(product, last_date)
             return kline_texts[code]
 
         for product in self._active_report_products(payload.products):
@@ -569,7 +588,7 @@ class StrategyBacktestReportService:
             if not code or code in kline_texts:
                 continue
             amount_texts[code] = kline_texts[code] = self._kline_average_amount_text(
-                product, first_date, last_date,
+                product, last_date,
             )
         for code, _weight in self._benchmark_entries(payload):
             label = f"{code} (指数)"
@@ -588,28 +607,26 @@ class StrategyBacktestReportService:
     def _kline_average_amount_text(
         self,
         product: dict[str, Any],
-        first_date: str,
         last_date: str,
     ) -> str:
         """单次 K 线取数计算权重表平均成交额展示文本；失败降级 "-"。
 
-        K 线行缺成交额（如 Yahoo 源未返回）时按 成交量×收盘价 逐行估算。
-        market_type 取任务配置透传值并作为 get_kline_data 的推断缺省：
-        标准代码后缀推断优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
+        只统计截止日往前 182 天（近半年）窗口内的 K 线。K 线行缺成交额
+        （如 Yahoo 源未返回）时按 成交量×收盘价 逐行估算。market_type 取
+        任务配置透传值并作为 get_kline_data 的推断缺省：标准代码后缀推断
+        优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
         """
         stock_code = str(product.get("stock_code") or "").strip()
         if not stock_code:
             return "-"
         try:
             market_type = str(product.get("market_type") or "").strip() or "cn"
-            calendar_days = max(1, (parse_date(last_date) - parse_date(first_date)).days)
-            trading_days_per_year = 250 if normalize_market_type(market_type) == "cn" else 252
-            limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
+            start_date = (parse_date(last_date) - timedelta(days=182)).isoformat()
             klines = _report_kline_service().get_kline_data(
                 stock_code,
                 market_type,
-                limit,
-                start_date=first_date,
+                300,  # 半年窗口约 130 根 K 线，300 条已留足余量
+                start_date=start_date,
                 end_date=last_date,
                 exchange_market=product.get("exchange_market"),
             )

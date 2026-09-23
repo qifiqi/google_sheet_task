@@ -8,6 +8,7 @@ admin_bp = Blueprint('admin', __name__)
 # (rule, template)；全部页面统一 page_login_required（ponytail 审计 D1 表驱动）
 PAGES = [
     ('/dashboard', 'admin/dashboard.html'),
+    ('/', None, 'dashboard'),
     ('/tasks', 'admin/tasks.html'),
     ('/config', 'admin/config.html'),
     ('/navigation', 'admin/navigation.html'),

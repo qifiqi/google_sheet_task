@@ -34,7 +34,34 @@
       <el-table-column label="任务名称 & ID" min-width="200">
         <template #default="{ row }">
           <el-link type="primary" @click="$router.push(detailRoute(row))">{{ row.name || '未命名任务' }}</el-link>
-          <div class="inline-muted font-mono">{{ row.id?.slice(0, 8) }} · 产品: {{ productNamesText(row) }}</div>
+          <div class="inline-muted font-mono">
+            ID: {{ row.id?.slice(0, 8) }} · 产品:
+            <span v-if="productChipItems(row).length" class="product-chip-wrap">
+              <span
+                v-for="(item, index) in productChipItems(row).slice(0, PRODUCT_CHIPS_MAX_VISIBLE)"
+                :key="index"
+                class="product-chip product-chip--toggle"
+                role="button"
+                tabindex="0"
+                aria-haspopup="dialog"
+                :title="item.title || item.label"
+                @click.stop="openProductList(row)"
+                @keydown.enter.prevent="openProductList(row)"
+                @keydown.space.prevent="openProductList(row)"
+              >{{ item.label }}</span>
+              <span
+                v-if="productChipItems(row).length > PRODUCT_CHIPS_MAX_VISIBLE"
+                class="product-chip product-chip--more product-chip--toggle"
+                role="button"
+                tabindex="0"
+                aria-haspopup="dialog"
+                @click.stop="openProductList(row)"
+                @keydown.enter.prevent="openProductList(row)"
+                @keydown.space.prevent="openProductList(row)"
+              >+{{ productChipItems(row).length - PRODUCT_CHIPS_MAX_VISIBLE }}</span>
+            </span>
+            <span v-else>-</span>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="模型版本" width="130">
@@ -116,7 +143,7 @@
           />
           <div class="backtest-multi-list-page__export-card-main">
             <div class="backtest-multi-list-page__export-card-title">{{ task.name || '未命名任务' }}</div>
-            <div class="panel-note">ID: {{ String(task.id || '').slice(0, 8) }} · 产品: {{ productNamesText(task) }}</div>
+            <div class="panel-note" :title="productDetailText(task)">ID: {{ String(task.id || '').slice(0, 8) }} · 产品: {{ productNamesText(task) }}</div>
             <div class="panel-note">模型版本：{{ inferModelVersion(task) }} · 创建：{{ formatDateTime(task.created_at) }}</div>
             <div v-if="task.status !== 'completed'" class="panel-note">尚未完成，不可导出</div>
           </div>
@@ -133,6 +160,19 @@
             </el-button>
           </div>
         </div>
+      </template>
+    </el-dialog>
+
+    <!-- 产品清单弹窗（静态版 productListModal 翻译） -->
+    <el-dialog v-model="productListVisible" :title="productListTitle" width="640px" top="8vh">
+      <div class="panel-note backtest-multi-list-page__product-count">共 {{ productListRows.length }} 个产品</div>
+      <el-table :data="productListRows" size="small" max-height="420">
+        <el-table-column prop="name" label="产品名称" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="code" label="股票代码" width="130" />
+        <el-table-column prop="market" label="市场" width="90" />
+      </el-table>
+      <template #footer>
+        <el-button @click="productListVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -165,7 +205,7 @@ const pageSize = ref(initialPagination.perPage)
 const total = ref(0)
 const stats = ref({})
 const lastUpdated = ref('-')
-const filters = reactive({ status: '', keyword: '' })
+const filters = reactive({ status: '', keyword: '', stock_code: '' })
 
 // ===== 批量导出状态（静态版 list.js 翻译） =====
 const BATCH_EXPORT_MAX_TASKS = 10
@@ -189,6 +229,7 @@ const filterDefs = [
     { value: 'error', label: '错误' },
   ]},
   { key: 'keyword', type: 'input', placeholder: '任务名称 / ID', span: { xs: 24, sm: 8 } },
+  { key: 'stock_code', type: 'input', placeholder: '股票代码（如 AAPL.US）', span: { xs: 24, sm: 8 } },
 ]
 
 // ===== 表格展示辅助（静态版 inferModelVersion / buildKlineRangeText / buildExecutionParamsText） =====
@@ -243,6 +284,57 @@ function productNamesText(task) {
   return products.map((item) => item.product_name || item.stock_code).filter(Boolean).join(' / ') || '-'
 }
 
+// ===== 产品股票 chip（与静态版 backtest_multi_product_list.js 同口径） =====
+// 折叠阈值：超出后收敛为 +N，悬停 title 查看剩余全量。
+const PRODUCT_CHIPS_MAX_VISIBLE = 3
+
+// chip 口径与详情页产品卡一致：主文本 product_name，title 补 stock_code / market_type。
+function productChipLabel(product) {
+  return String(product.product_name || product.name || product.stock_code || '').trim()
+}
+
+function productChipTitle(product) {
+  const name = String(product.product_name || product.name || '').trim()
+  const details = [String(product.stock_code || '').trim(), String(product.market_type || '').trim()].filter(Boolean)
+  if (name && details.length) return `${name}（${details.join(' · ')}）`
+  return name || details.join(' · ')
+}
+
+function productChipItems(task) {
+  const products = Array.isArray(task.config?.products) ? task.config.products : []
+  return products
+    .map((product) => ({ label: productChipLabel(product), title: productChipTitle(product) }))
+    .filter((item) => item.label)
+}
+
+function productDetailText(task) {
+  return productChipItems(task).map((item) => item.title || item.label).join('；')
+}
+
+// ===== 产品清单表格弹窗（与静态版 productListModal 同构） =====
+const productListVisible = ref(false)
+const productListTask = ref(null)
+
+function buildProductListRows(task) {
+  const products = Array.isArray(task?.config?.products) ? task.config.products : []
+  return products.map((product, index) => ({
+    name: String(product.product_name || product.name || '').trim() || `产品 ${index + 1}`,
+    code: String(product.stock_code || '').trim() || '-',
+    market: String(product.market_type || '').trim() || '-',
+  }))
+}
+
+const productListRows = computed(() => buildProductListRows(productListTask.value))
+
+const productListTitle = computed(() => (
+  `产品清单${productListTask.value?.name ? ` · ${productListTask.value.name}` : ''}`
+))
+
+function openProductList(task) {
+  productListTask.value = task
+  productListVisible.value = true
+}
+
 // ===== 列表加载（silent=true 供轮询复用，不闪 loading） =====
 async function loadTasks({ silent = false } = {}) {
   if (!silent) {
@@ -252,6 +344,7 @@ async function loadTasks({ silent = false } = {}) {
     const params = { page: page.value, per_page: pageSize.value, task_type: 'backtest_multi_product' }
     if (filters.status) params.status = filters.status
     if (filters.keyword) params.keyword = filters.keyword
+    if (filters.stock_code) params.stock_code = filters.stock_code
 
     const res = await getTasks(params)
     tasks.value = res.items || []
@@ -288,6 +381,7 @@ function doFilter() {
 function clearFilters() {
   filters.status = ''
   filters.keyword = ''
+  filters.stock_code = ''
   doFilter()
 }
 
@@ -383,13 +477,60 @@ async function exportSelectedBatchTasks() {
   }
 }
 
-// 静态版 5 秒轮询 + 「最后刷新」徽章（轮询静默，不闪 loading）
-usePolling(() => loadTasks({ silent: true }), { interval: 5000 })
+// 静态版同款轮询（1 分钟一次，静默不闪 loading）+ 「最后刷新」徽章
+usePolling(() => loadTasks({ silent: true }), { interval: 60 * 1000 })
 </script>
 
 <style lang="scss" scoped>
 .backtest-multi-list-page__refresh-badge {
   margin-right: 4px;
+}
+
+/* 产品股票 chip：局部恢复换行，超出 PRODUCT_CHIPS_MAX_VISIBLE 折叠为 +N（对齐静态版样式）。 */
+.product-chip-wrap {
+  white-space: normal;
+}
+
+.product-chip {
+  display: inline-block;
+  max-width: 140px;
+  margin: 1px 2px 1px 0;
+  padding: 0 7px;
+  border: 1px solid var(--app-border, var(--el-border-color, #dcdfe6));
+  border-radius: 999px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  color: var(--el-text-color-secondary, #909399);
+  font-family: var(--el-font-family, inherit);
+  font-size: 12px;
+  line-height: 18px;
+  vertical-align: bottom;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-chip--more {
+  cursor: help;
+  font-weight: 600;
+  color: var(--el-color-primary, #409eff);
+  border-color: var(--el-color-primary-light-5, #79bbff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+
+/* 可点击 chip：打开产品清单表格弹窗（对齐静态版样式）。 */
+.product-chip--toggle {
+  cursor: pointer;
+}
+
+.product-chip--toggle:hover,
+.product-chip--toggle:focus-visible {
+  color: var(--el-color-primary, #409eff);
+  border-color: var(--el-color-primary-light-5, #79bbff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+
+.backtest-multi-list-page__product-count {
+  margin-bottom: 10px;
 }
 
 .backtest-multi-list-page__refresh-time {

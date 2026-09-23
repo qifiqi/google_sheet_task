@@ -525,4 +525,5 @@ const initialListPagination = getInitialListPaginationState();
 paginationState.page = initialListPagination.page;
 paginationState.per_page = initialListPagination.per_page;
 loadTasks();
-setInterval(loadTasks, 5000);
+// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐）。
+setInterval(loadTasks, 60 * 1000);

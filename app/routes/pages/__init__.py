@@ -6,7 +6,7 @@ templates/ 目录就地静态化后，页面路由统一收在本包：每个页
 """
 from pathlib import Path
 
-from flask import send_from_directory
+from flask import redirect, url_for,send_from_directory
 
 PAGES_DIR = Path(__file__).resolve().parents[3] / "templates"
 
@@ -19,18 +19,32 @@ def send_page(relpath: str):
 def register_page_routes(bp, pages, guard=None):
     """按表批量注册同构页面路由（ponytail 审计 D1：34 个 send_page 视图收敛）。
 
-    pages 每项为 ``(rule, template)``；同一组页面需挂在多个蓝图（旧书签
-    兼容 legacy_bp）时，对各蓝图分别调用本 helper 即可。guard 为登录守卫
-    装饰器（页面统一 page_login_required），None 表示不守卫。
+    pages 每项为 ``(rule, template)`` 或 ``(rule, template, redirect_to)``；
+    redirect_to 非空时该路由改为重定向（template 传 None 即可）。
+    redirect_to 以 "." 开头走 url_for（蓝图相对 endpoint），否则当字面 URL 用。
     """
     if guard is None:
         def guard(fn):
             return fn
 
-    for rule, template in pages:
+    for page in pages:
+        # 兼容 2 元组 / 3 元组
+        rule, template = page[0], page[1]
+        redirect_to = page[2] if len(page) > 2 else None
+
         endpoint = rule.strip("/").replace("/", "_") or "index"
 
-        # _template 走定义期默认参数，避免循环内闭包晚绑定；URL 转换器参数经 kwargs 透传
+        if redirect_to is not None:
+            def _redirect(_redirect_to=redirect_to, **_kwargs):
+                if _redirect_to.startswith("."):
+                    return redirect(url_for(f"{bp.name}{_redirect_to}"), code=302)
+                return redirect(_redirect_to, code=302)
+
+            _redirect.__name__ = f"{bp.name}_{endpoint}_redirect"
+            bp.add_url_rule(rule, endpoint=endpoint, view_func=guard(_redirect))
+            continue
+
+        # 原有渲染分支
         def _view(*_args, _template=template, **_kwargs):
             return send_page(_template)
 

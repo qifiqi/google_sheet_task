@@ -3,6 +3,8 @@
 覆盖 docs/design/data-layer-refactor/02 各 repository 契约的基础读写与异常路径；
 测试代码不受"业务层禁 ORM"约束（02 §4）。
 """
+import json
+
 import pytest
 
 from app.exceptions import NotFoundError
@@ -76,6 +78,31 @@ class TestTaskRepository:
         assert page["items"][0]["id"] == "t-2"
         page = task_repository.list_paginated_with_statistics(1, 10, keyword="示例")
         assert page["items"][0]["id"] == "t-1"
+
+    def test_list_paginated_with_statistics_stock_code(self, app_factory, task_row):
+        """stock_code 过滤锚定 config JSON 的 "stock_code" 键，product_name 等字段不误中。"""
+        task_repository.create({
+            "id": "t-stock",
+            "name": "多品任务",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [
+                {"product_name": "苹果", "stock_code": "AAPL.US", "market_type": "en"},
+                {"product_name": "特斯拉", "stock_code": "TSLA.US", "market_type": "en"},
+            ]}),
+        })
+        task_repository.create({
+            "id": "t-name-only",
+            "name": "名字含代码",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [{"product_name": "AAPL 联名", "stock_code": "GOOG.US"}]}),
+        })
+        page = task_repository.list_paginated_with_statistics(
+            1, 10, task_type="backtest_multi_product", stock_code="aapl"
+        )
+        assert [t["id"] for t in page["items"]] == ["t-stock"]
+        assert page["aggregates"]["total"] == 1
 
     def test_clear_created_by(self, app_factory, task_row):
         Task.query.filter_by(id="t-1").update({"created_by_user_id": 7})

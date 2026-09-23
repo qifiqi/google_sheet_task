@@ -57,7 +57,7 @@
         const right =
             '<ul class="navbar-nav align-items-lg-center">' +
             '<li class="nav-item">' +
-            '<a class="nav-link" data-permission="page:admin:dashboard" href="/admin/">' +
+            '<a class="nav-link" data-permission="page:admin:dashboard" href="/admin/dashboard">' +
             '<i class="bi bi-gear"></i> 管理面板' +
             '</a></li>' +
             '<li class="nav-item dropdown">' +

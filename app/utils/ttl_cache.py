@@ -169,7 +169,7 @@ def get_or_build_word_export(
         return filename, BytesIO(raw), len(raw)
 
     _sweep_expired(directory, ttl)
-    canonical = "word-export:v2:" + json.dumps(
+    canonical = "word-export:v5:" + json.dumps(
         payload.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, default=str,
     )
     key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
