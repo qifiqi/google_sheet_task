@@ -317,6 +317,7 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
     assert [row["date"] for row in stub.calls[0]] == ["2024-01-02", "2024-01-06"]
     assert [row["index_return"] for row in stub.calls[0]] == [0.20, 0.25]
     assert [row["start_return"] for row in stub.calls[0]] == [0.10, 0.15]
+    # 开关关闭时 runs[0] 是自定义满配基准，列头保持裸"指数"（组合列头才是"组合指数"）。
     assert runs[0].label == "指数"
 
 
@@ -346,9 +347,9 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
 
 
 def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
-    """组合指数开关默认开启：组合列在前且列头为无标记的"指数"。
+    """组合指数开关默认开启：组合列在前且列头为无标记的"组合指数"。
 
-    自定义满配单条本会得到裸"指数"列头，与组合列撞名时改用 指数(代码) 消歧。
+    自定义满配单条本会得到裸"指数"列头，与组合列共存时改用 指数(代码) 消歧。
     """
     service = StrategyBacktestReportService()
     combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
@@ -367,7 +368,7 @@ def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
 
     runs = service._build_benchmark_runs(request)
 
-    assert [run.label for run in runs] == ["指数", "指数(0700.HK)"]
+    assert [run.label for run in runs] == ["组合指数", "指数(0700.HK)"]
     assert runs[0].code is None and runs[1].code == "0700.HK"
     # 组合列吃原始组合收益（index_return=0.30），自定义列吃注入缩放序列（0.20）。
     assert stub.calls[0][0]["index_return"] == 0.30
@@ -393,7 +394,7 @@ def test_build_benchmark_runs_composite_falls_back_when_disabled_without_custom(
 
     runs = service._build_benchmark_runs(request)
 
-    assert [run.label for run in runs] == ["指数"]
+    assert [run.label for run in runs] == ["组合指数"]
     assert runs[0].code is None
     assert len(stub.calls) == 1
 
@@ -500,7 +501,7 @@ def test_return_section_expands_columns_per_benchmark():
 
     core = StrategyBacktestReportService()._return_section(runs)[0]["table"]
 
-    assert core["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略",
+    assert core["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略",
                                "超额(AAA.US 100%)", "超额(BBB.US 30%)"]
     assert core["rows"][0] == ["累计回报率", "10.00%", "5.00%", "30.00%", "20.00%", "25.00%"]
 
@@ -515,21 +516,26 @@ def test_excess_headers_follow_same_code_ratio_rule():
 
     assert service._excess_headers(runs_same) == ["超额(50%)", "超额(100%)"]
     assert service._excess_headers(runs_mixed) == ["超额(QQQ.US 100%)", "超额(SOXX.US 30%)"]
-    assert service._excess_headers(runs_same[:1]) == ["超额(策略-指数)"]
+    # 单基准场景超额列头由 策略列头-基准列头 拼装（策略列头统一带"组合"前缀）。
+    assert service._excess_headers(runs_same[:1]) == ["超额(组合策略-指数(50%))"]
 
 
 def test_excess_headers_omit_marker_for_composite_run():
-    """组合指数的派生列头不带任何标记：超额列为裸"超额"，与"指数"列头对称。"""
+    """组合基准的派生列头统一以"组合指数"自描述，不再输出裸前缀。"""
     service = StrategyBacktestReportService()
-    runs = [SimpleNamespace(code=None, weight=1, label="指数"),
+    runs = [SimpleNamespace(code=None, weight=1, label="组合指数"),
             SimpleNamespace(code="QQQ.US", weight=1, label="指数(QQQ.US)")]
 
-    assert service._excess_headers(runs) == ["超额", "超额(QQQ.US)"]
-    assert service._tagged_header("超额回撤", runs, runs[0]) == "超额回撤"
-    assert service._tagged_header("月数", runs, runs[0]) == "月数"
-    # 胜率列的"跑赢"宾语不能省略，组合指数固定表述为"跑赢组合"。
+    assert service._excess_headers(runs) == ["组合指数超额", "超额(QQQ.US)"]
+    assert service._tagged_header("超额回撤", runs, runs[0]) == "组合指数超额回撤"
+    assert service._tagged_header("月数", runs, runs[0]) == "组合指数月数"
+    assert service._tagged_header("平均超额", runs, runs[0]) == "组合指数平均超额"
+    assert service._tagged_header("正超额概率", runs, runs[0]) == "组合指数正超额概率"
+    # 胜率列的"跑赢"宾语不能省略，组合指数固定表述为"跑赢组合指数"。
     assert service._benchmark_tag(runs, runs[0]) == ""
-    assert f"策略胜率(跑赢{service._benchmark_tag(runs, runs[0]) or '组合'})" == "策略胜率(跑赢组合)"
+    assert (f"{service._strategy_label()}胜率"
+            f"(跑赢{service._benchmark_tag(runs, runs[0]) or service._composite_benchmark_label()})"
+            == "组合策略胜率(跑赢组合指数)")
 
 
 def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
@@ -542,7 +548,7 @@ def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
 
     table = StrategyBacktestReportService()._risk_adjusted_section(runs)[0]["table"]
 
-    assert table["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略"]
+    assert table["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略"]
     assert [row[0] for row in table["rows"]] == [
         "夏普比率", "卡玛比率", "索提诺比率",
         "超额夏普比率(AAA.US 100%)", "超额索提诺比率(AAA.US 100%)",
@@ -760,11 +766,11 @@ def test_conclusion_expands_per_benchmark_for_multiple_runs():
     paragraphs = StrategyBacktestReportService()._conclusion(runs, "2024-01-01", "2024-12-31")
 
     assert paragraphs[0] == (
-        "本报告覆盖 2024-01-01 至 2024-12-31，策略累计回报率为 30.00%，"
+        "本报告覆盖 2024-01-01 至 2024-12-31，组合策略累计回报率为 30.00%，"
         "基准指数为 指数(AAA.US)、指数(BBB.US)。"
     )
-    assert paragraphs[1] == "指数(AAA.US)累计回报率为 10.00%，策略相对其的累计超额回报为 20.00%。"
-    assert paragraphs[2] == "指数(BBB.US)累计回报率为 5.00%，策略相对其的累计超额回报为 25.00%。"
+    assert paragraphs[1] == "指数(AAA.US)累计回报率为 10.00%，组合策略相对其的累计超额回报为 20.00%。"
+    assert paragraphs[2] == "指数(BBB.US)累计回报率为 5.00%，组合策略相对其的累计超额回报为 25.00%。"
 
 
 class _StubKlineService:

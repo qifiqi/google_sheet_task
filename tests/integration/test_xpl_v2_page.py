@@ -55,7 +55,7 @@ def _report_analysis_result():
 
 def _default_run(result=None):
     """单基准 runs 形态的便捷构造（code=None、满配表示默认组合基准）。"""
-    return [SimpleNamespace(code=None, weight=1, label="指数", result=result or _report_analysis_result())]
+    return [SimpleNamespace(code=None, weight=1, label="组合指数", result=result or _report_analysis_result())]
 
 
 def _source_args(request):
@@ -223,7 +223,7 @@ def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
 
     runs = strategy_backtest_report_service._build_benchmark_runs(request)
 
-    assert len(runs) == 1 and runs[0].label == "指数"
+    assert len(runs) == 1 and runs[0].label == "组合指数"
     returns = captured[0]
     assert returns[0]["index_return"] == pytest.approx(0.075)
     assert returns[0]["start_return"] == pytest.approx(0.15)
@@ -289,14 +289,14 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
         ["日收益率峰度", "0.6500", "0.8700"],
     ]
     assert sections[3]["subsections"][1]["table"]["columns"] == [
-        "收益区间", "指数月数", "指数占比", "策略月数", "策略占比",
+        "收益区间", "组合指数月数", "组合指数占比", "组合策略月数", "组合策略占比",
     ]
     assert sections[4]["subsections"][2]["table"]["columns"] == [
-        "收益区间", "指数天数", "指数占比", "策略天数", "策略占比",
+        "收益区间", "组合指数天数", "组合指数占比", "组合策略天数", "组合策略占比",
     ]
-    assert sections[2]["subsections"][0]["table"]["columns"] == ["指标", "指数", "策略"]
+    assert sections[2]["subsections"][0]["table"]["columns"] == ["指标", "组合指数", "组合策略"]
     excess_distribution = sections[5]["subsections"][1]["table"]
-    assert excess_distribution["columns"] == ["超额区间", "月数", "占比"]
+    assert excess_distribution["columns"] == ["超额区间", "组合指数月数", "组合指数占比"]
     assert all(len(row) == 3 for row in excess_distribution["rows"])
     assert chart_data["benchmarks"][0]["nav"] == [1.01, 0.99]
     assert chart_data["strategy_nav"] == [1.02, 0.99]

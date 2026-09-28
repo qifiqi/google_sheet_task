@@ -616,7 +616,7 @@ function exportReturnSeries() {
 const benchmarkEntries = [];
 const DEFAULT_BENCHMARK_RATIO = 100;
 
-// 组合指数开关：默认开启；开启时全部产品按比例组合为一个基准列，列头固定"指数"。
+// 组合指数开关：默认开启；开启时全部产品按比例组合为一个基准列，列头固定"组合指数"。
 function includeCompositeEnabled() {
     const toggle = document.getElementById('includeCompositeBenchmark');
     return !toggle || toggle.checked;

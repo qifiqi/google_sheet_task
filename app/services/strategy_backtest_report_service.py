@@ -197,8 +197,8 @@ class StrategyBacktestReportService:
         元数据）共用同一条轴；轴不足 2 个交易日由引擎侧统一报错。
         指数注入仅用于 RPT-M；单品/V2 来源保持顶层三选一解析。
         include_composite_benchmark 开关决定组合指数是否与自定义指数并列成列
-        （默认包含，组合列头固定为"指数"）；关闭且未选自定义指数时仍回落组合，
-        保证报告恒有基准。
+        （默认包含，组合列头固定为"组合指数"）；关闭且未选自定义指数时仍回落
+        组合，保证报告恒有基准。
         """
         runtime = self._runtime_params(request.runtime_params)
         if request.report_type == "RPT-M":
@@ -235,13 +235,14 @@ class StrategyBacktestReportService:
             runs.append(_BenchmarkRun(
                 code=None,
                 weight=Decimal("1"),
-                label="指数",
+                label=self._composite_benchmark_label(),
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(
                     [rows_by_date[date] for date in axis], runtime),
             ))
         labels = self._benchmark_labels(entries)
         if include_composite and benchmark_series:
-            # 组合指数列头固定为"指数"；自定义基准与之撞名时改用 指数(代码) 消歧。
+            # 组合指数列头为"组合指数"；自定义满配"指数"与之共存时仍改用
+            # 指数(代码) 消歧，避免超额/胜率等派生列头的标记撞车。
             labels = [
                 f"指数({code})" if label == "指数" else label
                 for (code, _weight), label in zip(entries, labels)
@@ -729,31 +730,46 @@ class StrategyBacktestReportService:
         """各次引擎运行的指标字典；约定首元素为策略列取值来源。"""
         return [run.result.metrics for run in runs]
 
+    @staticmethod
+    def _composite_benchmark_label() -> str:
+        """默认组合基准列头：全部产品按比例组合的基准列，统一带"组合"前缀。"""
+        return "组合指数"
+
+    @staticmethod
+    def _strategy_label() -> str:
+        """策略列头：与组合基准列头同规则，统一带"组合"前缀。"""
+        return "组合策略"
+
     def _benchmark_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
-        """指数列头：单基准保持现状文案"指数"，多基准用 指数(代码) 自描述。"""
+        """指数列头：直接消费各 run 的 label（组合基准为"组合指数"，自定义基准按 指数(代码) 自描述）。"""
         return [run.label for run in runs]
 
     def _benchmark_tag(self, runs: list[_BenchmarkRun], run: _BenchmarkRun) -> str:
         """多基准场景的区分标记：取指数列头"指数(...)"括号内的内容。
 
         与指数列头规则严格对称（同股只展示比例，异股展示 代码 比例%），
-        供超额/胜率/月度超额等派生列头统一消费；组合指数列头为无标记的
-        "指数"，此处返回空串，派生列头随之省略括号标记。
+        供超额/胜率/月度超额等派生列头统一消费；默认组合基准（code=None，
+        列头"组合指数"）返回空串，派生列头随之省略括号标记。
         """
+        if run.code is None:
+            return ""
         if not run.label.startswith("指数"):
             return f"{run.code} {self._weight_percent_text(run.weight)}%"
         tag = run.label[len("指数"):].strip()
         return tag[1:-1] if tag.startswith("(") and tag.endswith(")") else ""
 
     def _tagged_header(self, prefix: str, runs: list[_BenchmarkRun], run: _BenchmarkRun) -> str:
-        """前缀 + 区分标记的派生列头；标记为空（组合指数）时仅返回前缀。"""
+        """前缀 + 区分标记的派生列头；默认组合基准统一以"组合指数"前缀自描述。"""
         tag = self._benchmark_tag(runs, run)
-        return f"{prefix}({tag})" if tag else prefix
+        if not tag:
+            return f"{self._composite_benchmark_label()}{prefix}"
+        return f"{prefix}({tag})"
 
     def _excess_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
-        """超额列头：单基准保持现状文案"超额(策略-指数)"；多基准同股只展示比例。"""
+        """超额列头：单基准为 超额(策略-基准)；多基准同股只展示比例。"""
         if len(runs) <= 1:
-            return ["超额(策略-指数)"]
+            benchmark_label = runs[0].label if runs else self._composite_benchmark_label()
+            return [f"超额({self._strategy_label()}-{benchmark_label})"]
         return [self._tagged_header("超额", runs, run) for run in runs]
 
     def _return_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -780,12 +796,16 @@ class StrategyBacktestReportService:
             self._rolling_row(runs, months)
             for months in (3, 6, 12)
         ]
-        rolling_index_headers = [f"{run.label}平均收益" for run in runs] if len(runs) > 1 else ["指数平均收益"]
-        rolling_win_headers = ([f"策略胜率(跑赢{self._benchmark_tag(runs, run) or '组合'})" for run in runs]
-                               if len(runs) > 1 else ["策略胜率(跑赢指数)"])
+        rolling_index_headers = [f"{run.label}平均收益" for run in runs]
+        rolling_win_headers = (
+            [f"{self._strategy_label()}胜率(跑赢{self._benchmark_tag(runs, run) or self._composite_benchmark_label()})"
+             for run in runs]
+            if len(runs) > 1
+            else [f"{self._strategy_label()}胜率(跑赢{runs[0].label})"]
+        )
         return [
             {"title": "1.1 核心收益", "table": self._table(
-                ["指标", *benchmark_headers, "策略", *excess_headers], [
+                ["指标", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     ["累计回报率", *[self._pct(value) for value in index_cumulatives],
                      self._pct(strategy_cumulative),
                      *[self._pct(value) for value in excess_cumulatives]],
@@ -797,7 +817,7 @@ class StrategyBacktestReportService:
                      *[self._pct(self._num(strategy_volatility) - self._num(value)) for value in index_volatilities]],
                 ])},
             {"title": "1.2 分年度收益率", "table": self._table(
-                ["年份", *benchmark_headers, "策略", *excess_headers], [
+                ["年份", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     [year,
                      *[self._pct(index_returns.get(year)) for index_returns in index_returns_list],
                      self._pct(strategy_returns.get(year)),
@@ -806,7 +826,8 @@ class StrategyBacktestReportService:
                     for year in years
                 ])},
             {"title": "1.3 滚动收益（月度窗口）", "table": self._table(
-                ["滚动周期", *rolling_index_headers, "策略平均收益", *rolling_win_headers], rolling_rows)},
+                ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
+                rolling_rows)},
         ]
 
     @classmethod
@@ -855,10 +876,11 @@ class StrategyBacktestReportService:
         if daily_drawdown_threshold is None:
             daily_drawdown_threshold = MetricsRuntimeParamsDTO().daily_drawdown_threshold
         drawdown_excess_headers = ([self._tagged_header("超额回撤", runs, run) for run in runs]
-                                   if len(runs) > 1 else ["超额回撤(策略-指数)"])
+                                   if len(runs) > 1
+                                   else [f"超额回撤({self._strategy_label()}-{runs[0].label})"])
         return [
             {"title": "2.1 回撤指标", "table": self._table(
-                ["指标", *benchmark_headers, "策略"], [
+                ["指标", *benchmark_headers, self._strategy_label()], [
                     ["最大回撤(MDD)", *[self._pct(-self._num(value)) for value in index_drawdowns],
                      self._pct(-self._num(strategy_drawdown))],
                     ["最大回撤修复天数(年度最大)",
@@ -873,7 +895,8 @@ class StrategyBacktestReportService:
                      self._integer(strategy.get("start_dd_count"))],
                 ])},
             {"title": "2.2 分年度最大回撤", "table": self._table(
-                ["年份", *[f"{run.label}回撤" for run in runs], "策略回撤", *drawdown_excess_headers],
+                ["年份", *[f"{run.label}回撤" for run in runs],
+                 f"{self._strategy_label()}回撤", *drawdown_excess_headers],
                 drawdown_rows)},
         ]
 
@@ -882,9 +905,16 @@ class StrategyBacktestReportService:
         metrics_list = self._run_metrics_list(runs)
         strategy = metrics_list[0]
         benchmark_headers = self._benchmark_headers(runs)
-        excess_row_suffixes = ([f"({tag})" if (tag := self._benchmark_tag(runs, run)) else ""
-                                for run in runs]
-                               if len(runs) > 1 else [""])
+        def excess_row_suffix(run: _BenchmarkRun) -> str:
+            """超额行的基准区分后缀：自定义带 (标记)，组合基准带 (组合指数)。"""
+            tag = self._benchmark_tag(runs, run)
+            if tag:
+                return f"({tag})"
+            if run.code is None:
+                return f"({self._composite_benchmark_label()})"
+            return ""
+
+        excess_row_suffixes = ([excess_row_suffix(run) for run in runs] if len(runs) > 1 else [""])
         rows = [
             ["夏普比率",
              *[self._decimal(self._year_all(m.get("index_sharpe_ratios"), "sharpe_ratio")) for m in metrics_list],
@@ -900,7 +930,7 @@ class StrategyBacktestReportService:
             # 行占位与列数联动：指标 + N 个指数列占位 + 该基准的超额值。
             rows.append([f"超额夏普比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sharpe"))])
             rows.append([f"超额索提诺比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sortino"))])
-        return [{"table": self._table(["指标", *benchmark_headers, "策略"], rows)}]
+        return [{"table": self._table(["指标", *benchmark_headers, self._strategy_label()], rows)}]
 
     def _monthly_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造四、月度收益分布章节的全部表格；数值统一取自 V1 指标结果。"""
@@ -942,16 +972,14 @@ class StrategyBacktestReportService:
             ["月收益率峰度", *[self._decimal(m.get("index_monthly_return_kurtosis")) for m in metrics_list],
              self._decimal(strategy.get("start_monthly_return_kurtosis"))],
         ]
-        if len(runs) > 1:
-            distribution_headers = [header for run in runs
-                                    for header in (f"{run.label}月数", f"{run.label}占比")]
-        else:
-            distribution_headers = ["指数月数", "指数占比"]
+        distribution_headers = [header for run in runs
+                                for header in (f"{run.label}月数", f"{run.label}占比")]
         return [
             {"title": "4.1 月度统计总览", "table": self._table(
-                ["指标", *self._benchmark_headers(runs), "策略"], summary_rows)},
+                ["指标", *self._benchmark_headers(runs), self._strategy_label()], summary_rows)},
             {"title": "4.2 月度收益区间分布", "table": self._table(
-                ["收益区间", *distribution_headers, "策略月数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers,
+                 f"{self._strategy_label()}月数", f"{self._strategy_label()}占比"], distribution_rows)},
         ]
 
     def _daily_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -1002,17 +1030,15 @@ class StrategyBacktestReportService:
             ["单笔最大盈利/最大亏损", *[self._decimal(m.get("index_max_profit_loss_ratio")) for m in metrics_list],
              self._decimal(strategy.get("start_max_profit_loss_ratio"))],
         ]
-        if len(runs) > 1:
-            distribution_headers = [header for run in runs
-                                    for header in (f"{run.label}天数", f"{run.label}占比")]
-        else:
-            distribution_headers = ["指数天数", "指数占比"]
-        overview_headers = ["指标", *self._benchmark_headers(runs), "策略"]
+        distribution_headers = [header for run in runs
+                                for header in (f"{run.label}天数", f"{run.label}占比")]
+        overview_headers = ["指标", *self._benchmark_headers(runs), self._strategy_label()]
         return [
             {"title": "5.1 日度统计总览", "table": self._table(overview_headers, summary_rows)},
             {"title": "5.2 盈亏比分析", "table": self._table(overview_headers, profit_loss_rows)},
             {"title": "5.3 日度收益区间分布", "table": self._table(
-                ["收益区间", *distribution_headers, "策略天数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers,
+                 f"{self._strategy_label()}天数", f"{self._strategy_label()}占比"], distribution_rows)},
         ]
 
     def _excess_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -1031,7 +1057,7 @@ class StrategyBacktestReportService:
                             self._pct(self._pick(pcts, index) / 100))]]
             for index, label in enumerate(distribution_labels)]
         excess_rows = [
-            ["累计超额(策略-指数)", *[self._pct(m.get("excess_cumulative_return")) for m in metrics_list]],
+            [f"累计超额({self._strategy_label()}-指数)", *[self._pct(m.get("excess_cumulative_return")) for m in metrics_list]],
             ["年化超额", *[self._pct(value) for value in annualized_list]],
             ["月超额收益均值", *[self._pct(m.get("average_monthly_excess_return")) for m in metrics_list]],
             ["月超额收益波动率", *[self._pct(m.get("monthly_excess_return_standard_deviation")) for m in metrics_list]],
@@ -1047,8 +1073,10 @@ class StrategyBacktestReportService:
                                              for header in (self._tagged_header("平均超额", runs, run),
                                                             self._tagged_header("正超额概率", runs, run))]]
         else:
-            distribution_headers = ["月数", "占比"]
-            rolling_headers = ["滚动窗口", "平均超额", "正超额概率"]
+            # 单基准：派生表头同样以基准列名自描述（默认组合 → "组合指数月数" 等）。
+            benchmark_label = runs[0].label if runs else self._composite_benchmark_label()
+            distribution_headers = [f"{benchmark_label}月数", f"{benchmark_label}占比"]
+            rolling_headers = ["滚动窗口", f"{benchmark_label}平均超额", f"{benchmark_label}正超额概率"]
         return [
             {"title": "6.1 超额收益统计", "table": self._table(
                 ["指标", *value_headers], excess_rows)},
@@ -1109,7 +1137,7 @@ class StrategyBacktestReportService:
             ["平均收益", *[self._pct(m.get("index_downfall_avg_return")) for m in metrics_list],
              self._pct(strategy.get("start_downfall_avg_return")),
              *[self._pct(m.get("downfall_excess_avg_return")) for m in metrics_list]],
-            ["策略跑赢次数", *["-"] * len(runs),
+            [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
              self._integer(strategy.get("downfall_outperform_count")),
              *[self._pct(m.get("downfall_win_rate")) for m in metrics_list]]]
         upturn_rows = [
@@ -1118,7 +1146,7 @@ class StrategyBacktestReportService:
             ["平均收益", *[self._pct(m.get("index_upward_avg_return")) for m in metrics_list],
              self._pct(strategy.get("start_upward_avg_return")),
              *[self._pct(m.get("upward_excess_avg_return")) for m in metrics_list]],
-            ["策略跑赢次数", *["-"] * len(runs),
+            [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
              self._integer(strategy.get("upward_outperform_count")),
              *[self._pct(m.get("upward_win_rate")) for m in metrics_list]]]
         extreme_rows = [
@@ -1133,14 +1161,14 @@ class StrategyBacktestReportService:
             [f"涨跌比(涨>{daily_extreme_label}/跌>{daily_extreme_label})",
              *[self._decimal(m.get("index_daily_gain_loss_ratio")) for m in metrics_list],
              self._decimal(strategy.get("start_daily_gain_loss_ratio"))]]
-        stage_headers = ["指标", *benchmark_headers, "策略", *stage_excess_headers]
+        stage_headers = ["指标", *benchmark_headers, self._strategy_label(), *stage_excess_headers]
         return [
             {"title": f"7.1 市场下跌阶段（指数月收益 < {self._threshold_label(downturn_threshold)}）",
              "table": self._table(stage_headers, downturn_rows)},
             {"title": f"7.2 市场上涨阶段（指数月收益 > {self._threshold_label(upturn_threshold)}）",
              "table": self._table(stage_headers, upturn_rows)},
             {"title": "7.3 极端单日表现", "table": self._table(
-                ["指标", *benchmark_headers, "策略"], extreme_rows)},
+                ["指标", *benchmark_headers, self._strategy_label()], extreme_rows)},
         ]
 
     @staticmethod
@@ -1173,7 +1201,7 @@ class StrategyBacktestReportService:
              self._integer(start_consecutive.get("max_loss_months"))],
             ["创新高平均间隔月", *[self._decimal(m.get("index_new_high_avg_interval_months"), 1) for m in metrics_list],
              self._decimal(strategy.get("start_new_high_avg_interval_months"), 1)]]
-        return [{"table": self._table(["指标", *self._benchmark_headers(runs), "策略"], rows)}]
+        return [{"table": self._table(["指标", *self._benchmark_headers(runs), self._strategy_label()], rows)}]
 
     @classmethod
     def _metric_by_year(cls, items: Any, field: str) -> dict[str, Any]:
@@ -1253,23 +1281,26 @@ class StrategyBacktestReportService:
 
     def _conclusion(self, runs: list[_BenchmarkRun], first_date: str, last_date: str) -> list[str]:
         """按基准循环生成结论；累计回报与累计超额直接取自 V1 指标结果。"""
+        strategy_label = self._strategy_label()
         strategy_return = self._num(runs[0].result.metrics.get("start_cumulative_return"))
         if len(runs) <= 1:
             index_return = self._num(runs[0].result.metrics.get("index_cumulative_return"))
             excess_return = self._num(runs[0].result.metrics.get("excess_cumulative_return"))
+            benchmark_label = runs[0].label
             return [
-                f"本报告覆盖 {first_date} 至 {last_date}，指数累计回报率为 {index_return:.2%}，策略累计回报率为 {strategy_return:.2%}。",
-                f"策略相对指数的累计超额回报为 {excess_return:.2%}。",
+                f"本报告覆盖 {first_date} 至 {last_date}，{benchmark_label}累计回报率为 {index_return:.2%}，"
+                f"{strategy_label}累计回报率为 {strategy_return:.2%}。",
+                f"{strategy_label}相对{benchmark_label}的累计超额回报为 {excess_return:.2%}。",
             ]
         paragraphs = [
-            f"本报告覆盖 {first_date} 至 {last_date}，策略累计回报率为 {strategy_return:.2%}，"
+            f"本报告覆盖 {first_date} 至 {last_date}，{strategy_label}累计回报率为 {strategy_return:.2%}，"
             f"基准指数为 {'、'.join(run.label for run in runs)}。"
         ]
         for run in runs:
             index_return = self._num(run.result.metrics.get("index_cumulative_return"))
             excess_return = self._num(run.result.metrics.get("excess_cumulative_return"))
             paragraphs.append(
-                f"{run.label}累计回报率为 {index_return:.2%}，策略相对其的累计超额回报为 {excess_return:.2%}。")
+                f"{run.label}累计回报率为 {index_return:.2%}，{strategy_label}相对其的累计超额回报为 {excess_return:.2%}。")
         return paragraphs
 
     @staticmethod
@@ -1325,12 +1356,22 @@ class StrategyBacktestReportService:
             })
             daily_panels.append({"label": run.label, "values": daily_returns})
             tag = self._benchmark_tag(runs, run)
+            if run.code is None:
+                # 组合基准的超额序列以"组合指数"自描述，不再输出裸"超额"。
+                excess_label = f"超额({self._composite_benchmark_label()})"
+                monthly_title = f"月度超额分布（{self._composite_benchmark_label()}）"
+            elif tag:
+                excess_label = f"超额({tag})"
+                monthly_title = f"月度超额分布（{tag}）"
+            else:
+                excess_label = "超额"
+                monthly_title = "月度超额分布"
             excess_series.append({
-                "label": f"超额({tag})" if tag else ("累计超额收益" if len(runs) <= 1 else "超额"),
+                "label": excess_label,
                 "values": run_result.excess_df["excess_return"].tolist(),
             })
             monthly_excess.append({
-                "title": f"月度超额分布（{tag}）" if tag else "月度超额分布",
+                "title": monthly_title,
                 "values": [self._num(item.get("monthly_excess_return_diff")) for item in
                            run_result.metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
             })
@@ -1342,21 +1383,25 @@ class StrategyBacktestReportService:
         years = sorted(set().union(*(set(item["values_by_year"]) for item in benchmark_annuals)) | set(annual_strategy))
         if not years:
             years = sorted({str(value.year) for value in dates})
+        strategy_label = self._strategy_label()
         return {
             "dates": dates,
             "benchmarks": benchmarks,
+            "strategy_label": strategy_label,
             "strategy_nav": strategy_nav,
             "strategy_drawdown": self._drawdown_series(strategy_nav),
             "strategy_daily_returns": strategy_daily,
             "excess_series": excess_series,
             "annual_returns": {
                 "years": years,
+                "strategy_label": strategy_label,
                 "benchmarks": [{"label": item["label"],
                                 "values": [item["values_by_year"].get(year, 0) for year in years]}
                                for item in benchmark_annuals],
                 "strategy": [annual_strategy.get(year, 0) for year in years],
             },
-            "daily_distribution": {"benchmarks": daily_panels, "strategy": strategy_daily},
+            "daily_distribution": {"benchmarks": daily_panels, "strategy": strategy_daily,
+                                   "strategy_label": strategy_label},
             "monthly_excess_by_benchmark": monthly_excess,
         }
 
