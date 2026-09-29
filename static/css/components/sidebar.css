@@ -189,13 +189,101 @@ html[data-bs-theme="dark"] .sidebar::-webkit-scrollbar-thumb:hover {
     flex-shrink: 0;
 }
 
-/* Responsive layout */
+/* ── 移动端（<768px）：顶栏 + Offcanvas 抽屉（D7 修订）── */
+.admin-mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 3.25rem;
+    padding: 0.3rem 0.6rem;
+    background: #ffffff;
+    border-bottom: 1px solid #e9ecef;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.05);
+}
+
+html[data-bs-theme="dark"] .admin-mobile-topbar {
+    background: #111827;
+    border-bottom-color: #243041;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.4);
+}
+
+.admin-mobile-topbar__burger {
+    border: 0;
+    background: transparent;
+    color: #343a40;
+    font-size: 1.55rem;
+    line-height: 1;
+    padding: 0.25rem 0.45rem;
+    border-radius: 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+html[data-bs-theme="dark"] .admin-mobile-topbar__burger {
+    color: #e5e7eb;
+}
+
+.admin-mobile-topbar__burger:active {
+    background: rgba(13, 110, 253, 0.1);
+}
+
+.admin-mobile-topbar__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.admin-mobile-topbar__brand .sidebar-brand-icon {
+    width: 2.1rem;
+    height: 2.1rem;
+    font-size: 1rem;
+    border-radius: 0.7rem;
+}
+
+.admin-mobile-topbar__title {
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.admin-mobile-topbar .sidebar-user-avatar,
+.admin-mobile-topbar .badge[data-template-auth-avatar] {
+    width: 2.1rem;
+    height: 2.1rem;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-mobile-topbar__close {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.8rem;
+    z-index: 5;
+}
+
+@media (max-width: 767.98px) {
+    .sidebar.offcanvas-start {
+        --bs-offcanvas-width: min(82vw, 20rem);
+    }
+}
+
+/* Responsive layout（≥768px：Offcanvas 退化为原固定侧栏，桌面观感不变） */
 @media (min-width: 768px) {
-    .sidebar {
+    .sidebar.offcanvas {
         position: fixed;
         top: 0;
         bottom: 0;
         left: 0;
+        visibility: visible;
+        transform: none;
+        transition: none;
         z-index: 1000;
         width: 25%;
         max-width: 25%;
@@ -206,7 +294,7 @@ html[data-bs-theme="dark"] .sidebar::-webkit-scrollbar-thumb:hover {
 }
 
 @media (min-width: 992px) {
-    .sidebar {
+    .sidebar.offcanvas {
         width: 16.666667%;
         max-width: 16.666667%;
     }

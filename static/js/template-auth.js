@@ -655,12 +655,18 @@
         });
     }
 
+    let themeToggleBound = false;
     function bindThemeToggles() {
-        document.querySelectorAll("[data-template-theme-trigger]").forEach((button) => {
-            button.addEventListener("click", function () {
-                const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
-                applyTheme(current === "dark" ? "light" : "dark");
-            });
+        // 事件委托：脚本顺序 template-auth → navbar，而 bootstrapProtectedPage 在首个
+        // await 之前同步执行本函数，navbar.js 渲染的侧栏/移动端顶栏按钮此时尚不存在，
+        // 逐节点绑定会漏掉；document 级委托一次绑定即覆盖任意时机注入的触发器
+        if (themeToggleBound) return;
+        themeToggleBound = true;
+        document.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-template-theme-trigger]");
+            if (!button) return;
+            const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
+            applyTheme(current === "dark" ? "light" : "dark");
         });
     }
 
@@ -824,6 +830,9 @@
             await fetchCurrentUser();
             await loadNav();
             bindLogoutButtons();
+            // navbar.js 渲染的按钮晚于开头的 applyTheme 注入，重跑一次同步其图标/文案
+            // 初始态（bindThemeToggles 已是事件委托，点击无需重绑）
+            applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
             const permissions = getPagePermissions();
             if (!hasAnyPermission(permissions)) {

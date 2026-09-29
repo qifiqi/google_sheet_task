@@ -1,62 +1,8 @@
-    .preview-layout { display: grid; gap: 1rem; }
-    .header-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        flex-wrap: wrap;
-        background: var(--bs-body-bg);
-        border-radius: 0.875rem;
-        padding: 0.6rem 1.25rem;
-    }
-    .header-toolbar-left {
-        display: flex;
-        flex-direction: column;
-        gap: 0.1rem;
-    }
-    .summary-panel {
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
-        background: var(--bs-body-bg);
-    }
-    .summary-toggle {
-        list-style: none;
-        padding: 0.85rem 1rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        color: var(--bs-body-color);
-        cursor: pointer;
-    }
-    .summary-toggle::-webkit-details-marker { display: none; }
-    .summary-toggle:focus { outline: none; }
-    .summary-toggle:focus-visible {
-        box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.16);
-        border-radius: 0.75rem;
-    }
-    .summary-panel[open] .summary-toggle-icon { transform: rotate(180deg); }
-    .summary-toggle-icon { transition: transform 0.15s ease; }
-    .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 0.75rem;
-        padding: 0 1rem 1rem;
-    }
-    .summary-card {
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
-        background: var(--bs-tertiary-bg);
-        padding: 1rem;
-    }
-    .summary-card-label {
-        font-size: 0.78rem;
-        color: var(--bs-secondary-color);
-        margin-bottom: 0.2rem;
-    }
-    .summary-card-value {
-        font-weight: 700;
-        word-break: break-word;
-    }
+    /* 2026-09-29 CSS 抽取：与 backtest_training_global_preview.css 共享的壳层规则
+       已上收 static/css/common/components.css（第 4 节，其中 .header-toolbar 阴影
+       以 training 版为准统一补齐）；本文件仅保留 multi 专有的比例工具行、
+       两行式表头预览表与股票选择弹窗样式（页面级覆盖 components 基座值）。 */
+
     /* 两行结构：首行控件（方案下拉 / 无风险利率 / 计算预览），次行提示文案。
        提示文案独占一行，不再参与首行行高——否则窄屏下它折行变高，会把同行的
        下拉、输入框和按钮按垂直居中拉开，看起来"没对齐"。 */

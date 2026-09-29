@@ -1,21 +1,10 @@
+    /* 2026-09-29 CSS 抽取：.log-container 基座已上收 static/css/common/components.css；
+       本页覆盖日志区高度与行距，并保留日志级别配色。 */
     .log-container {
         height: 600px;
-        overflow-y: auto;
-        overflow-x: auto;
-        background: #0b1220;
-        color: #dbeafe;
-        padding: 12px 14px;
-        border-radius: 0.75rem;
-        font-family: 'Courier New', monospace;
-        font-size: 14px;
-        line-height: 1.6;
-        white-space: pre;
-        word-break: normal;
     }
 
     .log-container > div {
-        white-space: pre;
-        word-break: normal;
         margin-bottom: 0;
     }
 

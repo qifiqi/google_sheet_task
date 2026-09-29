@@ -46,7 +46,8 @@ STATIC_PAGES = [
     # F4: global_preview 独立入口
     ("/global-preview/single_product", "/static/js/pages/global_preview_index.js"),
     # F5: admin 族 13 页（基座已内联展开 + admin-shell.js；导航条由 navbar.js 渲染）
-    ("/admin/", "/static/js/pages/admin_dashboard.js"),
+    # /admin/ 自 5d6f325 起重定向到 /admin/dashboard，静态页断言走真实模板路径
+    ("/admin/dashboard", "/static/js/pages/admin_dashboard.js"),
     ("/admin/tasks", "/static/js/pages/admin_tasks.js"),
     ("/admin/config", "/static/js/pages/admin_config.js"),
     ("/admin/logs", "/static/js/pages/admin_logs.js"),

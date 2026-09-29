@@ -266,3 +266,18 @@ html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .t
 
 /* 未勾选/不可用的产品整行淡出，只保留可编辑的行 */
 .wc-products__row--off { opacity: 0.55; }
+
+/* 手机端：选品面板工具栏折行、固定列宽放宽并允许横向滚动（移动端适配 D7） */
+@media (max-width: 575.98px) {
+    .wc-products__toolbar,
+    .wc-products__actions {
+        flex-wrap: wrap;
+    }
+    .wc-products__table-wrap {
+        overflow-x: auto;
+    }
+    .wc-products__col-select { width: 2.4rem; }
+    .wc-products__col-ratio,
+    .wc-products__col-range { width: auto; min-width: 4.6rem; }
+    .wc-products__input { min-width: 4.2rem; }
+}
