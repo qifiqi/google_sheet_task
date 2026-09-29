@@ -160,7 +160,9 @@
                     : "alert-info";
         alert.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
         alert.style.minWidth = "260px";
-        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+        // message 多为 error.message/data.message 等服务端回显文本（可能含任务名、
+        // Sheet 标题等外部输入），调用方均为纯文本，进 innerHTML 前统一转义
+        alert.innerHTML = `${escapeHtml(message)}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
         container.appendChild(alert);
         window.setTimeout(() => {
             alert.remove();
@@ -408,12 +410,18 @@
         return legacyPathMap.get(path) || path;
     }
 
+    function isSafeNavPath(path) {
+        // 菜单 path 契约为站内前端路由路径：仅允许以单个 "/" 开头的相对路径，
+        // 拒绝 javascript:/data: 等协议与 "//" 开头的协议相对地址（同 sanitizeNextUrl）
+        return typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
+    }
+
     function filterTemplateNav(items) {
         return (Array.isArray(items) ? items : []).reduce((result, item) => {
             const cloned = { ...item };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath) {
+                if (!legacyPath || !isSafeNavPath(legacyPath)) {
                     return result;
                 }
                 cloned.path = legacyPath;
@@ -457,8 +465,8 @@
             if (item.path) {
                 return `
                     <div>
-                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">
-                            <span>${item.label}</span>
+                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">
+                            <span>${escapeHtml(item.label)}</span>
                         </a>
                     </div>
                 `;
@@ -467,8 +475,8 @@
             const collapseId = `templateSidebarGroup${index}`;
             const childMarkup = (item.children || []).map((child) => `
                 <li>
-                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${child.path}">
-                        <span>${child.label}</span>
+                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${escapeHtml(child.path)}">
+                        <span>${escapeHtml(child.label)}</span>
                     </a>
                 </li>
             `).join("");
@@ -476,7 +484,7 @@
             return `
                 <div class="mt-3">
                     <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
-                        <span>${item.label}</span>
+                        <span>${escapeHtml(item.label)}</span>
                         <i class="bi bi-chevron-right btn-toggle-icon"></i>
                     </button>
                     <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}">
@@ -519,7 +527,7 @@
         if (isListContainer) {
             container.innerHTML = leaves.map((item) => `
                 <li class="nav-item">
-                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
                 </li>
             `).join("");
             return;
@@ -527,7 +535,7 @@
 
         container.classList.add("template-auth-horizontal-nav");
         container.innerHTML = leaves.map((item) => `
-            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
         `).join("");
     }
 

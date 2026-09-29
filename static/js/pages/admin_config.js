@@ -240,7 +240,9 @@
     function validateConfig() {
         ajaxRequest('/api/config/validate', 'GET', null, function(err, data) {
             if (!err && data && data.status === 'success') {
-                const validation = data.validation;
+                // ajaxRequest 返回完整信封，校验体在 data.data.validation；
+                // 此前漏拆一层导致 TypeError 被 promise 吞掉、弹窗不出现
+                const validation = (data.data && data.data.validation) || {};
                 let message = '\u914d\u7f6e\u6821\u9a8c\u7ed3\u679c:\\n';
                 message += `\u6570\u636e\u5e93\u914d\u7f6e\u6570\u91cf: ${validation.db_size}\\n`;
                 message += `\u7f13\u5b58\u914d\u7f6e\u6570\u91cf: ${validation.cache_size}\\n`;

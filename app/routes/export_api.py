@@ -11,7 +11,7 @@ import json
 from dataclasses import replace
 from urllib.parse import quote
 
-from flask import Blueprint, Response, request, send_file, stream_with_context
+from flask import Blueprint, Response, g, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key

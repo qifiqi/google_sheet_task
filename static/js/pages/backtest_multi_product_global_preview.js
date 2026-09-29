@@ -505,6 +505,12 @@ async function saveRatios() {
 }
 
 async function exportPreview() {
+  // 与 openExportWordModal 同款守卫：输入已改未重算时导出的仍是旧比例，
+  // 此前 XLSX 路径缺拦截，ratios 会被静默丢弃、按已存储旧值导出
+  if (ratioInputsDirty) {
+    alert('比例或无风险利率已修改，请先点击“计算预览”确认结果，再导出 Excel。');
+    return;
+  }
   const query = [];
   if (hasUnsavedRatioPreview && !ratioInputsDirty) {
     const ratios = collectRatioValues().map((ratio, index) => ({
@@ -840,7 +846,9 @@ document.getElementById('confirmExportWordBtn')?.addEventListener('click', async
     try {
         await exportWordDirectly(benchmarkEntries.map(entry => ({
             stock_code: entry.code,
-            ratio: Number(entry.ratio) || DEFAULT_BENCHMARK_RATIO,
+            // 输入框单位是 %，显式带 % 提交（同 readExportWordOptions 的利率写法）：
+            // 裸数字 ≤1 会被后端 _normalize_index_benchmarks 判为小数比例 ×100（0.5 → 50%）
+            ratio: `${Number(entry.ratio) || DEFAULT_BENCHMARK_RATIO}%`,
         })));
         bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
     } finally {

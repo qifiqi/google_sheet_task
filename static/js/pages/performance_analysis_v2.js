@@ -560,12 +560,15 @@
     function collectV2RuntimeParams() {
         // 页面输入按百分比填写，payload 统一转换为小数阈值；
         // 无风险利率同样按百分比填（3 = 3%），转 0.03 供夏普/索提诺重算。
+        // 利率钳制到 [0, 100]：HTML min/max 不拦手输越界值，负数/超 100 会
+        // 直达夏普计算（弹窗导出侧同边界校验，两处口径一致）。
+        const riskFreePercent = Math.min(Math.max(parseV2ThresholdInput('config-risk-free-rate', 0), 0), 100);
         return {
             market_downturn_threshold: parseV2ThresholdInput('config-downturn-threshold', -2) / 100,
             market_upturn_threshold: parseV2ThresholdInput('config-upturn-threshold', 2) / 100,
             daily_extreme_threshold: parseV2ThresholdInput('config-daily-extreme-threshold', 2) / 100,
             daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100,
-            risk_free_rate: parseV2ThresholdInput('config-risk-free-rate', 0) / 100
+            risk_free_rate: riskFreePercent / 100
         };
     }
 
