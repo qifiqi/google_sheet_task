@@ -592,11 +592,23 @@ function selectStock(product, stock) {
   product.touched.market = true
   product.stockSearchItems = []
   product.stockSearchOpen = false
+  // 市场联动数据源（与手动切市场同一联动）
+  syncDataSourceWithMarket(product, product.market_type)
   syncEmptyCommissionRows(product)
+}
+
+// 市场联动数据源：A股保持当前数据源不变；改成除 A股以外的市场一律切 Yahoo。
+function syncDataSourceWithMarket(product, marketType) {
+  if (String(marketType || '').trim().toLowerCase() === 'cn') {
+    return
+  }
+  product.kline_data_source = 'yahoo'
+  product.touched.source = true
 }
 
 function onMarketChange(product) {
   product.touched.market = true
+  syncDataSourceWithMarket(product, product.market_type)
   syncEmptyCommissionRows(product)
 }
 
@@ -614,7 +626,10 @@ function applyGlobalSettingsToProducts() {
       product.price_mode = globalPriceMode.value
     }
     if (!product.touched.source) {
-      product.kline_data_source = globalKlineDataSource.value
+      // 自定义了市场的产品，数据源由产品自己的市场联动决定，不被全局覆盖。
+      if (!product.touched.market) {
+        product.kline_data_source = globalKlineDataSource.value
+      }
     }
     if (!String(product.sheet_url || '').trim()) {
       scheduleSheetAnalyze(product)
@@ -622,7 +637,13 @@ function applyGlobalSettingsToProducts() {
   })
 }
 
-watch(globalMarketType, applyGlobalSettingsToProducts)
+// 全局市场联动全局数据源：非 A股统一切 Yahoo；A股则保持当前数据源不变。
+watch(globalMarketType, () => {
+  if (globalKlineDataSource && globalMarketType.value !== 'cn') {
+    globalKlineDataSource.value = 'yahoo'
+  }
+  applyGlobalSettingsToProducts()
+})
 watch(globalKlineAdjustment, applyGlobalSettingsToProducts)
 watch(globalPriceMode, applyGlobalSettingsToProducts)
 watch(globalKlineDataSource, applyGlobalSettingsToProducts)
@@ -683,15 +704,41 @@ function confirmManualPaste() {
   resolvePasteDialog(value)
 }
 
+// 点击联想面板外部时关闭全部联想下拉（与静态版 document click 委托一致）。
+function handleDocumentClickForSearch(event) {
+  if (!event.target.closest?.('.backtest-multi-create-page__search-wrap')) {
+    products.value.forEach((product) => {
+      product.stockSearchOpen = false
+    })
+  }
+}
+
 async function readClipboardText() {
   const canUseClipboardApi = window.isSecureContext && navigator.clipboard?.readText
   if (!canUseClipboardApi) {
     return openManualPasteDialog('当前页面不是 HTTPS，浏览器无法授予剪切板读取权限。请在下方粘贴参数后继续。')
   }
+  const permissionState = await queryClipboardReadPermission()
+  if (permissionState === 'denied') {
+    return openManualPasteDialog('浏览器已拒绝剪切板读取权限。请在下方粘贴参数后继续。')
+  }
   try {
     return await navigator.clipboard.readText()
   } catch {
     return openManualPasteDialog('未完成剪切板权限授权，或浏览器暂时无法读取剪切板。请在下方粘贴参数后继续。')
+  }
+}
+
+// 查询剪切板读权限：不支持 permissions API 或查询失败时返回空串（交由读取尝试兜底）。
+async function queryClipboardReadPermission() {
+  if (!navigator.permissions?.query) {
+    return ''
+  }
+  try {
+    const status = await navigator.permissions.query({ name: 'clipboard-read' })
+    return status.state || ''
+  } catch {
+    return ''
   }
 }
 
@@ -885,6 +932,7 @@ async function loadStockMarkets() {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', handleDocumentClickForSearch)
   const range = defaultDateRange(3)
   endDate.value = formatDate(range.end)
   startDate.value = formatDate(range.start)
@@ -900,6 +948,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClickForSearch)
   products.value.forEach((product) => {
     clearTimeout(product.sheetTimer)
     clearTimeout(product.stockTimer)

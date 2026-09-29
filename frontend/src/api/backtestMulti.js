@@ -6,7 +6,8 @@ export function importExcel(formData) { return rawApi.post(`${BASE}/import-excel
 export function searchStocks(params) { return rawApi.get('/api/search-stocks', { params }) }
 export function getTaskResults(taskId, params) { return rawApi.get(`${BASE}/task-results/${taskId}`, { params }) }
 export function getTaskResult(resultId) { return rawApi.get(`${BASE}/task-result/${resultId}`) }
-export function getGlobalPreview(taskId) { return rawApi.get(`${BASE}/global-preview/${taskId}`) }
+// params（可选）：预览口径查询参数（如 { risk_free_rate: 0.03 }），缺省与历史请求逐字一致。
+export function getGlobalPreview(taskId, params) { return rawApi.get(`${BASE}/global-preview/${taskId}`, { params }) }
 export function calculateRatios(taskId, data) { return rawApi.post(`${BASE}/global-preview/${taskId}/calculate-ratios`, data) }
 export function updateRatios(taskId, data) { return rawApi.put(`${BASE}/global-preview/${taskId}/ratios`, data) }
 // 收益序列纯数据（净值为 Excel 公式，前端生成工作簿）

@@ -347,8 +347,16 @@ async function loadTasks({ silent = false } = {}) {
     if (filters.stock_code) params.stock_code = filters.stock_code
 
     const res = await getTasks(params)
-    tasks.value = res.items || []
+    const items = res.items || []
     total.value = res.total || 0
+    // 请求页超出总页数（如删除/过滤后末页为空）时回退末页重查（静态版同口径）。
+    const totalPages = Number(res.pages || 0)
+    if (!items.length && total.value > 0 && page.value > Math.max(totalPages, 1)) {
+      page.value = Math.max(totalPages, 1)
+      await loadTasks({ silent })
+      return
+    }
+    tasks.value = items
     lastUpdated.value = formatDateTime(new Date().toISOString())
 
     // 分页状态落 localStorage + URL（与静态版 persistListPaginationState 一致）

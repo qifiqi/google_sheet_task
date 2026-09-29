@@ -84,7 +84,7 @@
     </DataTableCard>
 
     <el-dialog v-model="batchExportDialogVisible" title="批量导出当前页任务" width="720px" top="6vh">
-      <div class="panel-note" style="margin-bottom: 12px;">已完成任务可选，导出为 ZIP。</div>
+      <div class="panel-note backtest-list-page__dialog-note">已完成任务可选，导出为 ZIP。</div>
       <div class="backtest-list-page__batch-summary">
         <div class="backtest-list-page__batch-count">
           当前页 {{ tasks.length }} 个任务，可导出 {{ exportableTasks.length }} 个，已选 {{ selectedBatchCount }} 个
@@ -242,21 +242,31 @@ function buildKlineRangeText(task) {
   return endDate ? `截至 ${endDate}` : '-'
 }
 
-// 执行参数去重：完全相同的参数行只展示一次。
+const EXECUTION_PARAM_EMPTY_LABEL = '自适应'
+
+// 执行参数去重（翻译自静态 buildExecutionParamRows/buildExecutionParamsText）：
+// 完全相同的参数行只展示一次；整行皆空的参数组跳过。
+// 空单元格语义是“留空走自适应默认值”，列表页保留占位展示为“自适应”。
 function buildExecutionParamsText(task) {
   const config = parseTaskConfig(task)
-  const rows = Array.isArray(config.parameters) ? config.parameters : []
+  const sourceRows = Array.isArray(config.parameters) ? config.parameters : []
   const seen = new Set()
-  const uniqueRows = []
-  rows.forEach((row) => {
-    const key = JSON.stringify(row)
+  const rows = []
+  sourceRows.forEach((row) => {
+    const values = (Array.isArray(row) ? row : [row]).map((item) => String(item ?? '').trim())
+    if (!values.some(Boolean)) {
+      return
+    }
+    const key = JSON.stringify(values)
     if (seen.has(key)) {
       return
     }
     seen.add(key)
-    uniqueRows.push((Array.isArray(row) ? row : [row]).join('/'))
+    rows.push(values)
   })
-  return uniqueRows.join('；')
+  return rows
+    .map((values) => values.map((value) => value || EXECUTION_PARAM_EMPTY_LABEL).join('/'))
+    .join('；')
 }
 
 // ---------- 列表加载 ----------
@@ -397,6 +407,10 @@ usePolling(loadTasks, { interval: 60 * 1000 })
 </script>
 
 <style scoped>
+.backtest-list-page__dialog-note {
+  margin-bottom: 12px;
+}
+
 .backtest-list-page__refresh {
   margin-right: 8px;
 }

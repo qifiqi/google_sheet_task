@@ -50,8 +50,7 @@
         <el-col :xs="24" :sm="3">
           <el-form-item label="市场类型">
             <el-radio-group v-model="form.market_type">
-              <el-radio-button value="cn">A股</el-radio-button>
-              <el-radio-button value="en">美股</el-radio-button>
+              <el-radio-button v-for="market in marketOptions" :key="market.value" :value="market.value">{{ market.label }}</el-radio-button>
             </el-radio-group>
           </el-form-item>
         </el-col>
@@ -256,6 +255,7 @@ import { ElMessage } from 'element-plus'
 import { getGoogleSheets, getWorksheets, getTokens, importToken as apiImportToken } from '@/api/googleSheet'
 import { batchCreateTasks, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
+import { getEnums } from '@/api/meta'
 import { useResponsive } from '@/composables/useResponsive'
 import { formatDate, previousWeekday } from '@/utils/tradingDate'
 
@@ -270,6 +270,7 @@ const pageTitle = ref('创建批量任务 (C31)')
 const sheets = ref([])
 const tokens = ref([])
 const templates = ref([])
+const marketOptions = ref([])
 const selectedTemplate = ref('')
 const advancedOpen = ref([])
 const sheetListLoading = ref(false)
@@ -282,7 +283,7 @@ const stockCodes = ref([])
 
 const form = reactive({
   base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward',
-  price_mode: 'sp_price', kline_data_source: 'akshare',
+  price_mode: 'vwap_price', kline_data_source: 'akshare',
   token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: ''
 })
 
@@ -408,6 +409,17 @@ async function loadTokens() {
   } catch {}
 }
 
+// 市场类型选项走 meta enums（对齐静态版 loadStockMarkets 的 Api.endpoints.meta.enums().stock_markets）
+async function loadMarketOptions() {
+  try {
+    const res = await getEnums()
+    marketOptions.value = res?.stock_markets || []
+  } catch {
+    // 接口失败时回退内置选项，避免市场类型控件空白
+    marketOptions.value = [{ value: 'cn', label: 'A股' }, { value: 'en', label: '美股' }]
+  }
+}
+
 async function loadTemplates() {
   try {
     const res = await getTemplates({ task_type: 'google_sheet_C31' })
@@ -456,6 +468,9 @@ async function applyTemplate(id) {
     form.end_date = config.end_date || ''
     form.market_type = config.market_type || 'cn'
     form.kline_adjustment = config.kline_adjustment || 'forward'
+    // 对齐静态版 applyConfigToForm：price_mode 默认 vwap_price、kline_data_source 有值才回填
+    form.price_mode = config.price_mode || 'vwap_price'
+    form.kline_data_source = config.kline_data_source || 'akshare'
     form.token_type = config.token_type || 'file'
     form.token_id = config.token_id ? String(config.token_id) : RANDOM_TOKEN
     form.token_json = config.token_json || ''
@@ -492,6 +507,9 @@ async function loadRestartTask(taskId) {
     form.end_date = config.end_date || ''
     form.market_type = config.market_type || 'cn'
     form.kline_adjustment = config.kline_adjustment || 'forward'
+    // 对齐静态版 applyConfigToForm：price_mode 默认 vwap_price、kline_data_source 有值才回填
+    form.price_mode = config.price_mode || 'vwap_price'
+    form.kline_data_source = config.kline_data_source || 'akshare'
     form.token_type = config.token_type || 'file'
     form.token_id = config.token_id ? String(config.token_id) : RANDOM_TOKEN
     form.token_json = config.token_json || ''
@@ -544,30 +562,44 @@ function loadSavedFormData() {
     const saved = localStorage.getItem(LS_KEY)
     if (!saved) return
     const data = JSON.parse(saved)
+    // 兼容静态版草稿字段名（task_name/task_description/stock_code/param1..6/sheets），保存仍用新字段名
     Object.assign(form, {
-      base_task_name: data.base_task_name || '',
-      description: data.description || '',
+      base_task_name: data.base_task_name || data.task_name || '',
+      description: data.description || data.task_description || '',
       end_date: data.end_date || '',
       market_type: data.market_type || 'cn',
       kline_adjustment: data.kline_adjustment || 'forward',
+      price_mode: data.price_mode || 'vwap_price',
+      kline_data_source: data.kline_data_source || 'akshare',
       token_type: data.token_type || 'file',
       token_id: data.token_id || RANDOM_TOKEN,
       token_json: data.token_json || '',
       proxy_url: data.proxy_url || ''
     })
-    if (Array.isArray(data.sheetConfigs)) {
-      sheetConfigs.value = data.sheetConfigs
+    const savedSheets = Array.isArray(data.sheetConfigs) && data.sheetConfigs.length
+      ? data.sheetConfigs
+      : (Array.isArray(data.sheets) ? data.sheets : null)
+    if (savedSheets) {
+      sheetConfigs.value = savedSheets
       sheetConfigs.value.forEach((sheet) => ensureSheetOption(sheet.spreadsheet_id, sheet.title))
     }
-    if (Array.isArray(data.stockCodes)) stockCodes.value = data.stockCodes
-    if (Array.isArray(data.params)) params.value = data.params
+    if (Array.isArray(data.stockCodes) && data.stockCodes.length) {
+      stockCodes.value = data.stockCodes
+    } else if (typeof data.stock_code === 'string' && data.stock_code.trim()) {
+      stockCodes.value = [data.stock_code.trim()]
+    }
+    if (Array.isArray(data.params)) {
+      params.value = data.params
+    } else {
+      params.value = [1, 2, 3, 4, 5, 6].map((i) => (typeof data[`param${i}`] === 'string' ? data[`param${i}`] : ''))
+    }
     ElMessage.info('表单数据已恢复')
   } catch {}
 }
 
 function clearSaved() {
   localStorage.removeItem(LS_KEY)
-  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward', price_mode: 'sp_price', kline_data_source: 'akshare', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
+  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward', price_mode: 'vwap_price', kline_data_source: 'akshare', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
   sheetConfigs.value = [{ spreadsheet_id: '', title: '', sheet_name: '' }]
   stockCodes.value = []
   params.value = ['', '', '', '', '', '']
@@ -577,7 +609,8 @@ function clearSaved() {
 async function submit() {
   if (!form.base_task_name.trim()) { ElMessage.error('请输入任务 Base Name'); return }
   if (!stockCodes.value.length) { ElMessage.error('请至少输入一个股票代码'); return }
-  const validSheets = sheetConfigs.value.filter((s) => s.spreadsheet_id && s.sheet_name)
+  // 对齐静态版 collectSheetConfigs：只要有 spreadsheet_id 即提交，sheet_name 可空
+  const validSheets = sheetConfigs.value.filter((s) => s.spreadsheet_id)
   if (!validSheets.length) { ElMessage.error('请配置至少一组有效的表格配置'); return }
   const parsedParams = params.value.map((p) => parseJsonArray(p)).filter((a) => a && a.length > 0)
   if (!parsedParams.length) { ElMessage.error('请至少输入一组参数'); return }
@@ -604,11 +637,14 @@ async function submit() {
 
   submitting.value = true
   try {
+    const taskName = form.base_task_name.trim()
     const res = await batchCreateTasks({
-      name: form.base_task_name,
-      description: form.description || '',
+      name: taskName,
+      // 对齐静态版：描述缺省补“批量执行 N 个参数组合”
+      description: form.description.trim() || `批量执行 ${combinationCount.value} 个参数组合`,
+      task_type: 'google_sheet_C31',
       config: {
-        base_task_name: form.base_task_name,
+        base_task_name: taskName,
         task_description: form.description || '',
         stock_codes: stockCodes.value,
         end_date: form.end_date || null,
@@ -617,13 +653,13 @@ async function submit() {
         kline_adjustment: form.kline_adjustment,
         kline_data_source: form.kline_data_source,
         parameter_dimensions: [1, 2],
-        token_type: form.token_type,
-        token_id: form.token_type === 'file' ? form.token_id : null,
-        token_file: '',
-        token_json: form.token_json,
-        proxy_url: form.proxy_url || null,
+        // 对齐静态版 submitTask：token/proxy 等冗余字段不随 payload 下发
         parameters: parsedParams,
-        sheets: validSheets.map((s) => ({ spreadsheet_id: s.spreadsheet_id, title: s.title, sheet_name: s.sheet_name }))
+        sheets: validSheets.map((s) => {
+          const sheetConfig = { spreadsheet_id: s.spreadsheet_id, title: String(s.title || '').trim() }
+          if (String(s.sheet_name || '').trim()) sheetConfig.sheet_name = String(s.sheet_name).trim()
+          return sheetConfig
+        })
       }
     })
     ElMessage.success(`批量任务创建成功，共 ${res.total_created || 0} 个子任务`)
@@ -682,7 +718,7 @@ async function doSaveTemplate() {
 watch([form, sheetConfigs, stockCodes, params], saveFormData, { deep: true })
 
 onMounted(async () => {
-  await Promise.all([loadSheets(), loadTokens(), loadTemplates()])
+  await Promise.all([loadSheets(), loadTokens(), loadTemplates(), loadMarketOptions()])
   const { template_id, restart_task_id } = route.query
   if (template_id) {
     selectedTemplate.value = template_id

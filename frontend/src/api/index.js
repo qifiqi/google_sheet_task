@@ -82,8 +82,13 @@ function attachInterceptors(client) {
           clearAccessTokenCookie()
           pendingRequests.forEach((p) => p.reject(normalizeError(err)))
           pendingRequests = []
-          const next = encodeURIComponent(window.location.pathname + window.location.search)
-          window.location.href = `/login?next=${next}`
+          // 已在登录页时不做全页跳转（对齐静态版 redirectToLogin 的 isLoginPage 守卫）：
+          // SSO 换票流程中本地会话失效由 Login.vue 兜底走换票/表单，全页重载会
+          // 丢失内存中的 sso_token，且 next 会被污染为 /login 自身
+          if (!window.location.pathname.startsWith('/login')) {
+            const next = encodeURIComponent(window.location.pathname + window.location.search)
+            window.location.href = `/login?next=${next}`
+          }
           return Promise.reject(normalizeError(err))
         } finally {
           isRefreshing = false

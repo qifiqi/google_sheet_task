@@ -59,7 +59,7 @@
           </el-col>
           <el-col :xs="24" :sm="7">
             <el-form-item label="工作表名称">
-              <el-input v-model="form.sheet_name" placeholder="选择后自动带出" :readonly="worksheetLoading" />
+              <el-input v-model="form.sheet_name" placeholder="选择 Google Sheet 后自动带出" readonly />
             </el-form-item>
           </el-col>
         </el-row>
@@ -198,6 +198,7 @@ const LS_KEY = 'google_sheet_form_data'
 const pageTitle = ref('创建新任务')
 const sheets = ref([])
 const tokens = ref([])
+const randomTokenValue = ref(RANDOM_TOKEN)
 const templates = ref([])
 const selectedTemplate = ref('')
 const advancedOpen = ref([])
@@ -290,6 +291,8 @@ async function loadTokens() {
   try {
     const res = await getTokens({ task_type: 'google_sheet' })
     tokens.value = res.tokens || []
+    // 随机哨兵值以服务端返回为准（对齐静态版 googleSheetRandomValue = data.random_value || '__random__'）
+    randomTokenValue.value = res.random_value || RANDOM_TOKEN
   } catch {}
 }
 
@@ -305,7 +308,13 @@ async function onSheetChange() {
   if (!form.spreadsheet_id) { form.sheet_name = ''; return }
   worksheetLoading.value = true
   try {
-    const res = await getWorksheets({ spreadsheet_id: form.spreadsheet_id, token_id: form.token_id, proxy_url: form.proxy_url || undefined })
+    // 对齐静态版 loadWorksheets 的 requestData：仅 file 认证传 token_id/token_file，随机哨兵不传
+    const requestData = { spreadsheet_id: form.spreadsheet_id, proxy_url: form.proxy_url || undefined }
+    if (form.token_type === 'file' && form.token_id && form.token_id !== RANDOM_TOKEN) {
+      requestData.token_id = form.token_id
+      requestData.token_file = form.token_file || undefined
+    }
+    const res = await getWorksheets(requestData)
     if (res.title) form.spreadsheet_title = res.title
     form.sheet_name = (res.worksheets || [])[0] || ''
     ElMessage.success('工作表已加载')
@@ -336,6 +345,19 @@ function syncTokenFile() {
 
 watch(() => [form.token_type, form.token_id], syncTokenFile)
 
+// 对齐静态版 applyPendingTokenSelection：token_id 失配→按 token_file 反查→token_selection_mode 为随机时兜底；
+// 全部失配返回空串，调用方保持当前选择不变（与老版仅 matchedValue 才赋值一致）
+function resolvePendingTokenSelection(config) {
+  const tokenId = config.token_id ? String(config.token_id) : ''
+  if (tokenId && tokens.value.some((t) => String(t.id) === tokenId)) return tokenId
+  if (config.token_file) {
+    const matched = tokens.value.find((t) => t.token_file === config.token_file)
+    if (matched) return String(matched.id)
+  }
+  if ((config.token_selection_mode || '') === randomTokenValue.value) return randomTokenValue.value
+  return ''
+}
+
 async function applyTemplate(id) {
   if (!id) return
   try {
@@ -351,7 +373,10 @@ async function applyTemplate(id) {
     if (config.title || config.spreadsheet_title) form.spreadsheet_title = config.title || config.spreadsheet_title
     if (config.sheet_name) form.sheet_name = config.sheet_name
     if (config.token_type) form.token_type = config.token_type
-    if (config.token_id) form.token_id = String(config.token_id)
+    if (config.token_id) {
+      const matchedTokenId = resolvePendingTokenSelection(config)
+      if (matchedTokenId) form.token_id = matchedTokenId
+    }
     if (config.token_file) form.token_file = config.token_file
     if (config.token_json) form.token_json = config.token_json
     if (config.proxy_url) form.proxy_url = config.proxy_url
@@ -379,7 +404,10 @@ async function loadRestartTask(taskId) {
     if (config.title || config.spreadsheet_title) form.spreadsheet_title = config.title || config.spreadsheet_title
     if (config.sheet_name) form.sheet_name = config.sheet_name
     if (config.token_type) form.token_type = config.token_type
-    if (config.token_id) form.token_id = String(config.token_id)
+    if (config.token_id) {
+      const matchedTokenId = resolvePendingTokenSelection(config)
+      if (matchedTokenId) form.token_id = matchedTokenId
+    }
     if (config.token_file) form.token_file = config.token_file
     if (config.token_json) form.token_json = config.token_json
     if (config.proxy_url) form.proxy_url = config.proxy_url
@@ -418,7 +446,7 @@ function saveFormData() {
   } catch {}
 }
 
-function loadSavedFormData() {
+async function loadSavedFormData() {
   try {
     const saved = localStorage.getItem(LS_KEY)
     if (!saved) return
@@ -438,7 +466,11 @@ function loadSavedFormData() {
     form.kline_data_source = data.kline_data_source || 'akshare'
     params.value = [1, 2, 3, 4, 5, 6].map((i) => data[`param${i}`] ?? legacyParams[i - 1] ?? '')
     if (Array.isArray(data.params_extra)) params.value.push(...data.params_extra)
-    if (form.spreadsheet_id) ensureSheetOption(form.spreadsheet_id, form.spreadsheet_title)
+    if (form.spreadsheet_id) {
+      ensureSheetOption(form.spreadsheet_id, form.spreadsheet_title)
+      // 对齐静态版 loadSavedFormData：恢复 spreadsheet 后重拉 worksheets 刷新表标题与工作表名
+      await onSheetChange()
+    }
     ElMessage.info('表单数据已恢复')
   } catch {}
 }

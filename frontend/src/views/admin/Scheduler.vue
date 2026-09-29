@@ -196,24 +196,41 @@ async function handleSave() {
   }
 }
 
+// 对齐静态版 toggleTask：显式发 {is_active: 目标态}，失败弹错误提示
 async function handleToggle(task) {
-  await toggleScheduledTask(task.id)
-  ElMessage.success(`任务已${task.is_active ? '禁用' : '启用'}`)
-  loadAll()
+  const target = !task.is_active
+  try {
+    await toggleScheduledTask(task.id, { is_active: target })
+    ElMessage.success(`任务已${target ? '启用' : '禁用'}`)
+    loadAll()
+  } catch (e) {
+    ElMessage.error(e.message || '切换任务状态失败')
+  }
 }
 
 async function handleRunNow(id) {
-  await ElMessageBox.confirm('确定要立即执行这个任务吗？', '确认执行', { type: 'info' })
-  await runScheduledTask(id)
-  ElMessage.success('任务已开始执行')
-  loadAll()
+  // 取消确认框不视为错误，静默返回
+  const confirmed = await ElMessageBox.confirm('确定要立即执行这个任务吗？', '确认执行', { type: 'info' }).catch(() => false)
+  if (!confirmed) return
+  try {
+    await runScheduledTask(id)
+    ElMessage.success('任务已开始执行')
+    loadAll()
+  } catch (e) {
+    ElMessage.error(e.message || '执行任务失败')
+  }
 }
 
 async function handleDelete(id) {
-  await ElMessageBox.confirm('确定要删除这个定时任务吗？此操作不可恢复。', '确认删除', { type: 'warning' })
-  await deleteScheduledTask(id)
-  ElMessage.success('任务删除成功')
-  loadAll()
+  const confirmed = await ElMessageBox.confirm('确定要删除这个定时任务吗？此操作不可恢复。', '确认删除', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
+  try {
+    await deleteScheduledTask(id)
+    ElMessage.success('任务删除成功')
+    loadAll()
+  } catch (e) {
+    ElMessage.error(e.message || '删除任务失败')
+  }
 }
 
 usePolling(loadAll, { interval: 30000 })

@@ -41,7 +41,7 @@
         v-model="searchKeyword"
         placeholder="搜索模板名称、工作表、描述..."
         clearable
-        style="max-width: 320px"
+        class="templates-search"
       />
       <el-radio-group v-model="activeTypeFilter">
         <el-radio-button value="all">全部</el-radio-button>
@@ -82,7 +82,17 @@
               </div>
             </template>
             <div class="template-card__desc">{{ tpl.description || '无描述' }}</div>
-            <div class="template-card__config" v-html="tpl._configInfo"></div>
+            <!-- 结构化插值渲染（对齐静态版 summary-grid），不用 v-html：config 内含用户可控字段 -->
+            <div class="template-card__config">
+              <div class="template-card__config-item">
+                <span class="template-card__config-label">工作表</span>
+                <span class="template-card__config-value">{{ tpl._meta.sheetName || '默认' }}</span>
+              </div>
+              <div class="template-card__config-item">
+                <el-tag size="small" effect="plain">{{ tpl._meta.parameterLabel }}</el-tag>
+                <span class="template-card__config-value">{{ tpl._meta.parameterValue }}</span>
+              </div>
+            </div>
             <div class="template-card__time">创建于：{{ tpl.created_at }}</div>
             <el-button type="primary" size="small" class="full-width template-card__action" @click="useTemplate(tpl)">使用此模板</el-button>
           </el-card>
@@ -144,11 +154,14 @@ const createEntries = [
 
 // 模板元信息解析（对齐静态版 getTemplateMeta：类型/工作表/参数规模口径一致）
 function parseTemplateMeta(tpl) {
+  let parameterLabel = '参数组数'
   try {
     const cfg = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : (tpl.config || {})
     const isC4 = cfg.task_type === 'google_sheet_C4'
     const isC5 = cfg.task_type === 'google_sheet_C5'
     const type = isC4 ? 'c4' : (isC5 ? 'c5' : 'c3')
+    if (isC4) parameterLabel = '产品代码数'
+    else if (isC5) parameterLabel = '参数1/2/3'
     const sheetName = Array.isArray(cfg.sheets) && cfg.sheets.length
       ? (cfg.sheets[0].sheet_name || '默认')
       : (cfg.sheet_name || '默认')
@@ -163,9 +176,9 @@ function parseTemplateMeta(tpl) {
     } else {
       parameterValue = String(Array.isArray(cfg.parameters) ? cfg.parameters.filter(p => Array.isArray(p) && p.length).length : 0)
     }
-    return { type, typeLabel: type.toUpperCase(), sheetName, parameterValue }
+    return { type, typeLabel: type.toUpperCase(), sheetName, parameterLabel, parameterValue }
   } catch {
-    return { type: 'c3', typeLabel: 'C3', sheetName: '', parameterValue: '0' }
+    return { type: 'c3', typeLabel: 'C3', sheetName: '', parameterLabel, parameterValue: '0' }
   }
 }
 
@@ -196,13 +209,6 @@ const filteredTemplates = computed(() => {
   })
 })
 
-function buildConfigInfo(meta) {
-  const sheetLine = `工作表: ${meta.sheetName || '默认'}`
-  if (meta.type === 'c4') return `${sheetLine}<br>产品代码数: ${meta.parameterValue}`
-  if (meta.type === 'c5') return `${sheetLine}<br>参数1/2/3: ${meta.parameterValue}`
-  return `${sheetLine}<br>参数组数: ${meta.parameterValue}`
-}
-
 async function loadTemplates() {
   loading.value = true
   try {
@@ -214,7 +220,6 @@ async function loadTemplates() {
         _meta: meta,
         _type: meta.typeLabel,
         _typeColor: meta.type === 'c5' ? 'success' : '',
-        _configInfo: buildConfigInfo(meta),
       }
     })
   } finally {
@@ -231,28 +236,47 @@ function openCreate() {
 }
 
 async function handleMenuCmd(cmd, tpl) {
+  // 对齐静态版 editTemplate/duplicateTemplate/deleteTemplate：每条路径失败都要弹错误提示
   if (cmd === 'edit') {
-    const res = await getTemplate(tpl.id)
-    editingId.value = res.id
-    form.name = res.name
-    form.description = res.description || ''
-    form.config = JSON.stringify(res.config, null, 2)
-    dialogVisible.value = true
+    try {
+      const res = await getTemplate(tpl.id)
+      editingId.value = res.id
+      form.name = res.name
+      form.description = res.description || ''
+      form.config = JSON.stringify(res.config, null, 2)
+      dialogVisible.value = true
+    } catch (e) {
+      ElMessage.error(e.message || '获取模板详情失败')
+    }
   } else if (cmd === 'duplicate') {
-    const res = await getTemplate(tpl.id)
+    let res
+    try {
+      res = await getTemplate(tpl.id)
+    } catch (e) {
+      ElMessage.error(e.message || '获取模板详情失败')
+      return
+    }
     saving.value = true
     try {
       await createTemplate({ name: `${res.name} (副本)`, description: res.description, config: res.config })
       ElMessage.success('模板复制成功')
       loadTemplates()
+    } catch (e) {
+      ElMessage.error(`复制模板失败: ${e.message || '未知错误'}`)
     } finally {
       saving.value = false
     }
   } else if (cmd === 'delete') {
-    await ElMessageBox.confirm('确定要删除这个模板吗？', '确认删除', { type: 'warning' })
-    await deleteTemplate(tpl.id)
-    ElMessage.success('模板已删除')
-    loadTemplates()
+    // 取消确认框不视为错误，静默返回
+    const confirmed = await ElMessageBox.confirm('确定要删除这个模板吗？', '确认删除', { type: 'warning' }).catch(() => false)
+    if (!confirmed) return
+    try {
+      await deleteTemplate(tpl.id)
+      ElMessage.success('模板已删除')
+      loadTemplates()
+    } catch (e) {
+      ElMessage.error(e.message || '删除模板失败')
+    }
   }
 }
 
@@ -362,6 +386,27 @@ usePolling(loadTemplates, { interval: 60000 })
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+.templates-search {
+  max-width: 320px;
+}
+
+.template-card__config-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.8;
+}
+
+.template-card__config-label {
+  color: var(--app-text-muted);
+}
+
+.template-card__config-value {
+  font-weight: 600;
+  color: var(--app-text);
+  word-break: break-all;
 }
 
 .templates-col {

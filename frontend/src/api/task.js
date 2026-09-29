@@ -94,3 +94,35 @@ export async function exportTaskResults(taskId) {
       : ''
   return { blob, filename }
 }
+
+// 单任务按股票代码 ZIP 导出（C7 详情页专用，对齐静态版 exportResultsByStocks）：
+// GET /api/exports/tasks/{task_id}/stocks 文件流下载，返回 { blob, filename }
+//（filename 优先取 Content-Disposition，为空时由调用方回退默认名）。
+export async function exportTaskResultsByStocks(taskId) {
+  const token = localStorage.getItem('access_token')
+  const resp = await fetch(`/api/exports/tasks/${encodeURIComponent(taskId)}/stocks`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!resp.ok) {
+    const text = await resp.text()
+    let message = `导出失败，状态码 ${resp.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      if (text) message = text
+    }
+    throw new Error(message)
+  }
+
+  const blob = await resp.blob()
+  const disposition = resp.headers.get('Content-Disposition') || ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i)
+  const filename = utf8Match
+    ? decodeURIComponent(utf8Match[1])
+    : asciiMatch
+      ? asciiMatch[1]
+      : ''
+  return { blob, filename }
+}

@@ -457,7 +457,8 @@ const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
 const LS_KEY = 'google_sheet_c5_form_data'
-// 静态版 __CTASK_CONFIG.klineDataSourceDefault = 'dfcf'
+// 静态版 __CTASK_CONFIG.klineDataSourceDefault = 'dfcf'：仅作 payload 兜底；
+// 表单初值/恢复/重置用老模板 UI 默认 akshare（templates/google_sheet_c5/create.html selected）
 const KLINE_DATA_SOURCE_DEFAULT = 'dfcf'
 
 const pageTitle = ref('创建新任务 (C5)')
@@ -486,14 +487,15 @@ const form = reactive({
   description: '',
   token_type: 'file',
   token_id: RANDOM_TOKEN,
+  token_file: '',
   token_json: '',
   proxy_url: '',
   kline_source: 'auto',
   count_mode: 'total',
   market_type: 'cn',
   kline_adjustment: 'forward',
-  kline_data_source: KLINE_DATA_SOURCE_DEFAULT,
-  price_mode: 'kp_price',
+  kline_data_source: 'akshare',
+  price_mode: 'sp_price',
   random_price_range: 'high_low',
   random_group_count: 1,
   start_date: '',
@@ -583,6 +585,18 @@ async function loadTokens() {
   } catch {}
 }
 
+// 对齐静态版 syncSelectedTokenMeta：选中 token 后解析 token_file 路径（worksheets 请求使用）
+function syncTokenFile() {
+  if (form.token_type !== 'file') {
+    form.token_file = ''
+    return
+  }
+  const selected = tokens.value.find((t) => String(t.id) === String(form.token_id))
+  form.token_file = selected ? selected.token_file || '' : ''
+}
+
+watch(() => [form.token_type, form.token_id], syncTokenFile)
+
 async function loadTemplates() {
   try {
     // 后端按 config.task_type 精确匹配：静态版存小写 google_sheet_c5，Vue 历史存 google_sheet_C5，
@@ -624,11 +638,13 @@ async function loadWorksheetsForSheet(idx) {
   if (!sheet.spreadsheet_id) return
 
   try {
-    const res = await getWorksheets({
-      spreadsheet_id: sheet.spreadsheet_id,
-      token_id: form.token_id,
-      proxy_url: form.proxy_url || undefined
-    })
+    // 对齐静态版 loadWorksheetsForItem 的 requestData：仅 file 认证传 token_id/token_file，随机哨兵不传
+    const requestData = { spreadsheet_id: sheet.spreadsheet_id, proxy_url: form.proxy_url || undefined }
+    if (form.token_type === 'file' && form.token_id && form.token_id !== RANDOM_TOKEN) {
+      requestData.token_id = form.token_id
+      requestData.token_file = form.token_file || undefined
+    }
+    const res = await getWorksheets(requestData)
     sheet.worksheets = res.worksheets || []
     if (res.title) sheet.title = res.title
     if (sheet.worksheets.length) sheet.sheet_name = sheet.worksheets[0]
@@ -776,14 +792,15 @@ function loadSavedFormData() {
       description: data.description || '',
       token_type: data.token_type || 'file',
       token_id: data.token_id || RANDOM_TOKEN,
+      token_file: data.token_file || '',
       token_json: data.token_json || '',
       proxy_url: data.proxy_url || '',
       kline_source: data.kline_source || 'auto',
       count_mode: data.count_mode || 'total',
       market_type: data.market_type || 'cn',
       kline_adjustment: data.kline_adjustment || 'forward',
-      kline_data_source: data.kline_data_source || KLINE_DATA_SOURCE_DEFAULT,
-      price_mode: data.price_mode || 'kp_price',
+      kline_data_source: data.kline_data_source || 'akshare',
+      price_mode: data.price_mode || 'sp_price',
       random_price_range: data.random_price_range || 'high_low',
       random_group_count: Number(data.random_group_count) || 1,
       start_date: data.start_date || '',
@@ -811,14 +828,15 @@ function clearSaved() {
     description: '',
     token_type: 'file',
     token_id: RANDOM_TOKEN,
+    token_file: '',
     token_json: '',
     proxy_url: '',
     kline_source: 'auto',
     count_mode: 'total',
     market_type: 'cn',
     kline_adjustment: 'forward',
-    kline_data_source: KLINE_DATA_SOURCE_DEFAULT,
-    price_mode: 'kp_price',
+    kline_data_source: 'akshare',
+    price_mode: 'sp_price',
     random_price_range: 'high_low',
     random_group_count: 1,
     start_date: '',

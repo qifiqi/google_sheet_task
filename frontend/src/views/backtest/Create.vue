@@ -414,6 +414,14 @@ function syncCommissionWithMarketType(value) {
   form.commission = market?.default_commission || ''
 }
 
+// 市场联动数据源（翻译自静态 syncKlineDataSourceWithMarket）：
+// A股保持当前数据源不变；改成除 A股以外的市场一律切 Yahoo。
+function syncKlineDataSourceWithMarket(value) {
+  if (normalizeMarketTypeValue(value) !== 'cn') {
+    form.kline_data_source = 'yahoo'
+  }
+}
+
 function extractSpreadsheetId(value) {
   const rawValue = String(value || '').trim()
   const urlMatch = rawValue.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
@@ -992,6 +1000,7 @@ function onMarketTypeChange(value) {
     selectedStockSuggestion.value = null
   }
   syncCommissionWithMarketType(value)
+  syncKlineDataSourceWithMarket(value)
 }
 
 function tokenLabel(token) {
@@ -1066,6 +1075,7 @@ function selectStock(item) {
   selectedStockSuggestion.value = item
   form.market_type = normalizeMarketTypeValue(item.market_type)
   syncCommissionWithMarketType(form.market_type)
+  syncKlineDataSourceWithMarket(form.market_type)
   syncTaskNameInput(true)
   stockSearchPanelOpen.value = true
 }

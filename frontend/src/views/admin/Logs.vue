@@ -26,7 +26,7 @@
         </div>
       </template>
 
-      <div class="logs-page__viewer">
+      <div ref="viewerRef" class="logs-page__viewer">
         <div v-if="loading" class="logs-page__hint">
           <el-icon class="is-loading"><Loading /></el-icon>
           加载中...
@@ -46,8 +46,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { getLogs, getLatestLogs, getConfig } from '@/api/config'
 import { useResponsive } from '@/composables/useResponsive'
@@ -59,6 +59,7 @@ const { componentSize } = useResponsive()
 // 日志上限（对齐静态版，避免内存占用过多）
 const MAX_LOGS = 500
 
+const viewerRef = ref()
 const logs = ref([])
 const loading = ref(false)
 const autoRefresh = ref(true)
@@ -101,6 +102,18 @@ const filterConfig = [
   },
 ]
 
+// 重渲染前记录滚动是否在底部，在底部则渲染后保持吸底（对齐静态版，容差 5px）
+function isViewerAtBottom() {
+  const el = viewerRef.value
+  if (!el) return true
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - 5
+}
+
+function stickViewerToBottom() {
+  const el = viewerRef.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
 async function loadLogs() {
   loading.value = true
   try {
@@ -109,10 +122,12 @@ async function loadLogs() {
     if (filters.value.search) params.search = filters.value.search
     if (filters.value.date) params.date = filters.value.date
 
+    const wasAtBottom = isViewerAtBottom()
     const res = await getLogs(params)
     logs.value = res.logs || []
     // 全量刷新后重置增量游标，避免 /logs/latest 重复追加
     lastLogTimestamp = logs.value[0]?.timestamp || ''
+    if (wasAtBottom) nextTick(() => stickViewerToBottom())
   } catch {
     ElMessage.error('加载日志失败')
   } finally {
@@ -148,7 +163,12 @@ function toggleAutoRefresh() {
   autoRefresh.value = !autoRefresh.value
 }
 
+// 卸载标志：onMounted 里读配置是异步的，若期间已切走页面，onUnmounted 先于
+// startTimers 执行（清不到 null 定时器），事后创建的轮询将永不停止
+let disposed = false
+
 function startTimers() {
+  if (disposed) return
   stopTimers()
   pollTimer = window.setInterval(() => {
     if (autoRefresh.value) loadLogs()
@@ -174,7 +194,10 @@ onMounted(async () => {
   startTimers()
 })
 
-onUnmounted(stopTimers)
+onUnmounted(() => {
+  disposed = true
+  stopTimers()
+})
 
 function clearFilters() {
   filters.value = { level: '', search: '', date: '' }
@@ -188,7 +211,10 @@ function formatLogLine(log) {
   return `[${time}] [${level}] ${source}${log.message || ''}`
 }
 
-function handleClearLogs() {
+async function handleClearLogs() {
+  // 对齐静态版 clearLogs：先 confirm 再提示（清空 API 未实现，仅占位）
+  const confirmed = await ElMessageBox.confirm('确定要清空所有日志吗？此操作不可恢复。', '确认清空', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
   ElMessage.warning('清空日志功能暂未实现')
 }
 

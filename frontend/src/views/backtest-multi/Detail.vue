@@ -60,9 +60,9 @@
               <h3 class="section-title section-title--muted">时间信息</h3>
             </div>
             <el-descriptions :column="1" size="small">
-              <el-descriptions-item label="创建时间">{{ task.created_at || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="开始执行时间">{{ task.start_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="结束时间">{{ task.end_time || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="创建时间">{{ formatDateTime(task.created_at) }}</el-descriptions-item>
+              <el-descriptions-item label="开始执行时间">{{ formatDateTime(task.start_time) }}</el-descriptions-item>
+              <el-descriptions-item label="结束时间">{{ formatDateTime(task.end_time) }}</el-descriptions-item>
               <el-descriptions-item label="执行时长">
                 {{ task.duration_seconds != null ? `${task.duration_seconds}s` : '-' }}
               </el-descriptions-item>
@@ -324,10 +324,23 @@ const taskConfigItems = computed(() => {
     daily_compound: '日收益加权复利',
     legacy_cumulative: '旧版累计收益加权（已停用）'
   }
+  // 与后端 app/utils/market.py MARKET_LABELS 保持同步。
+  const marketLabels = {
+    cn: 'A股', en: '美股', ca: '加拿大', kr: '韩国', jp: '日本',
+    hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
+    au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
+  }
+  const markets = [...new Set(products
+    .map((product) => String(product.market_type || '').trim().toLowerCase())
+    .filter(Boolean))].sort()
+  const marketText = markets.length
+    ? markets.map((market) => marketLabels[market] || market).join('、')
+    : null
   const items = [
     { label: 'K线开始日期', value: config.start_date },
     { label: 'K线结束日期', value: config.end_date },
     { label: '产品数量', value: products.length },
+    { label: '市场', value: marketText },
     { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
     { label: 'K线数据源', value: config.kline_data_source },
     { label: '固定产品批次', value: config.fixed_product_batch_id },

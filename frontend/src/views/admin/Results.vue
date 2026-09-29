@@ -100,7 +100,11 @@
           <pre class="mono-pre result-block result-block--limited">{{ prettyJson(currentResult.result) }}</pre>
         </section>
         <section v-if="currentResult.error_message" class="result-section">
-          <h4 class="section-label">错误信息</h4>
+          <div class="result-section__head">
+            <h4 class="section-label">错误信息</h4>
+            <!-- 对齐静态版 copyCurrentResultJson：错误段提供单按钮复制 -->
+            <el-button size="small" @click="copyError">复制错误信息</el-button>
+          </div>
           <pre class="mono-pre mono-pre--danger result-block">{{ currentResult.error_message }}</pre>
         </section>
       </div>
@@ -255,6 +259,15 @@ async function copyJson(value, label) {
   try {
     await navigator.clipboard.writeText(prettyJson(value))
     ElMessage.success(`已复制${label}`)
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
+async function copyError() {
+  try {
+    await navigator.clipboard.writeText(currentResult.value?.error_message || '')
+    ElMessage.success('已复制错误信息')
   } catch {
     ElMessage.error('复制失败')
   }

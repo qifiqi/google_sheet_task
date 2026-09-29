@@ -111,7 +111,7 @@
           </el-descriptions-item>
         </el-descriptions>
 
-        <el-row :gutter="12" style="margin-top:16px">
+        <el-row :gutter="12" class="admin-tasks-page__section">
           <el-col :span="12">
             <div class="admin-tasks-page__summary-card">
               <h4>参数摘要</h4>
@@ -135,12 +135,12 @@
           </el-col>
         </el-row>
 
-        <div style="margin-top:16px">
+        <div class="admin-tasks-page__section">
           <h4>任务配置</h4>
           <CodeBlock :content="detailTask.config || {}" />
         </div>
 
-        <div style="margin-top:16px">
+        <div class="admin-tasks-page__section">
           <h4>任务日志</h4>
           <div class="admin-tasks-page__logs">
             <template v-if="recentLogLines.length">
@@ -150,7 +150,7 @@
           </div>
         </div>
 
-        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <div class="admin-tasks-page__drawer-actions">
           <el-button type="primary" @click="goTaskDetail(detailTask)">执行详情页</el-button>
           <el-button v-if="detailTask.status !== 'running'" type="success" @click="openEditTask(detailTask.id)">编辑任务</el-button>
           <el-button v-if="detailTask.status === 'running'" type="warning" @click="handleCancel(detailTask.id)">停止任务</el-button>
@@ -180,7 +180,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="任务类型">
-              <el-select v-model="createForm.task_type" style="width:100%">
+              <el-select v-model="createForm.task_type" class="admin-tasks-page__full-width">
                 <el-option v-for="opt in taskTypeOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
               </el-select>
             </el-form-item>
@@ -213,7 +213,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="任务状态">
-              <el-select v-model="editForm.status" style="width:100%">
+              <el-select v-model="editForm.status" class="admin-tasks-page__full-width">
                 <el-option v-for="opt in taskStatusEditableOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
               </el-select>
             </el-form-item>
@@ -243,7 +243,7 @@
       <div class="admin-tasks-page__batch-summary">
         <div class="admin-tasks-page__batch-summary-head">
           <div class="admin-tasks-page__batch-summary-text">{{ batchSummaryText }}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="admin-tasks-page__batch-head-actions">
             <el-button size="small" :disabled="batchRestarting" @click="selectAllRestartable">全选当前页</el-button>
             <el-button size="small" :disabled="batchRestarting" @click="clearBatchSelection">清空</el-button>
           </div>
@@ -251,8 +251,8 @@
         <div class="admin-tasks-page__batch-progress">{{ batchProgressText }}</div>
       </div>
 
-      <div style="margin:12px 0">
-        <div style="font-weight:600;margin-bottom:8px">重启方式</div>
+      <div class="admin-tasks-page__restart-mode">
+        <div class="admin-tasks-page__restart-mode-label">重启方式</div>
         <el-radio-group v-model="batchRestartMode" :disabled="batchRestarting">
           <el-radio-button value="resume">从断点重启</el-radio-button>
           <el-radio-button value="fresh">从头重启</el-radio-button>
@@ -260,7 +260,7 @@
       </div>
 
       <div v-loading="batchLoading" class="admin-tasks-page__batch-list">
-        <div v-if="!batchTasks.length" class="admin-tasks-page__muted" style="text-align:center;padding:16px 0">当前页暂无任务</div>
+        <div v-if="!batchTasks.length" class="admin-tasks-page__muted admin-tasks-page__batch-empty">当前页暂无任务</div>
         <div
           v-for="task in batchTasks"
           :key="task.id"
@@ -298,9 +298,9 @@
       </div>
 
       <div class="admin-tasks-page__batch-footer-bar">
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="admin-tasks-page__batch-total">
           <span class="admin-tasks-page__muted">共 {{ batchTotal }} 条</span>
-          <el-select v-model="batchPageSize" size="small" style="width:100px" :disabled="batchRestarting" @change="handleBatchPageSizeChange">
+          <el-select v-model="batchPageSize" size="small" class="admin-tasks-page__batch-page-size" :disabled="batchRestarting" @change="handleBatchPageSizeChange">
             <el-option :value="10" label="10 / 页" />
             <el-option :value="20" label="20 / 页" />
             <el-option :value="50" label="50 / 页" />
@@ -318,8 +318,8 @@
       </div>
 
       <template #footer>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <span class="admin-tasks-page__muted" style="margin-right:auto">已选任务会逐个重启，单个失败不阻断后续任务。</span>
+        <div class="admin-tasks-page__batch-dialog-footer">
+          <span class="admin-tasks-page__muted admin-tasks-page__batch-footer-hint">已选任务会逐个重启，单个失败不阻断后续任务。</span>
           <el-button @click="batchDialogVisible = false">取消</el-button>
           <el-button type="success" :loading="batchRestarting" :disabled="batchSelectedIds.length < 1" @click="restartSelectedBatchTasks">批量重启</el-button>
         </div>
@@ -464,11 +464,11 @@ onMounted(async () => {
   } catch {
     // 枚举加载失败时沿用内置选项，不阻断页面
   }
-  // 轮询间隔读配置（frontend_polling_interval，默认 30s），读不到沿用默认
+  // 轮询间隔读配置（tasks_admin_refresh_interval，默认 30s），读不到沿用默认
   try {
     const res = await getConfig()
-    const interval = Number(res?.config?.frontend_polling_interval)
-    if (Number.isFinite(interval) && interval > 0 && interval !== DEFAULT_POLL_INTERVAL) {
+    const interval = Number(res?.config?.tasks_admin_refresh_interval)
+    if (Number.isFinite(interval) && interval > 0 && interval !== DEFAULT_POLL_INTERVAL && !disposed) {
       poller.stop()
       customPollTimer = window.setInterval(() => poller.tick(), interval)
     }
@@ -535,8 +535,12 @@ watch(
 const DEFAULT_POLL_INTERVAL = 30000
 const poller = usePolling(loadTasks, { interval: DEFAULT_POLL_INTERVAL, immediate: false })
 let customPollTimer = null
+// 卸载标志：读配置是异步的，若期间已切走页面，onUnmounted 先于定时器创建执行，
+// 事后创建的轮询将永不停止
+let disposed = false
 
 onUnmounted(() => {
+  disposed = true
   if (customPollTimer) {
     window.clearInterval(customPollTimer)
     customPollTimer = null
@@ -592,7 +596,9 @@ function refreshDetailIfShowing(id) {
 const stoppingTaskId = ref(null)
 
 async function handleCancel(id) {
-  await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' })
+  // 取消确认框不视为错误，静默返回
+  const confirmed = await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
   stoppingTaskId.value = id
   try {
     await cancelTask(id)
@@ -628,10 +634,15 @@ async function pollStopConfirmation(id, attempt = 0) {
 }
 
 async function handleRestart(id, resumeFromCheckpoint) {
-  await restartTask(id, { resume_from_checkpoint: resumeFromCheckpoint })
-  ElMessage.success('任务重启成功')
-  loadTasks()
-  refreshDetailIfShowing(id)
+  // 对齐静态版 restartTask：失败弹错误通知，不让 Promise 悬挂成 unhandled rejection
+  try {
+    await restartTask(id, { resume_from_checkpoint: resumeFromCheckpoint })
+    ElMessage.success('任务重启成功')
+    loadTasks()
+    refreshDetailIfShowing(id)
+  } catch (e) {
+    ElMessage.error(e.message || '任务重启失败')
+  }
 }
 
 function handleRestartCommand(cmd, task) {
@@ -664,7 +675,9 @@ async function handleCreateRestartTask(task) {
 }
 
 async function handleDelete(id) {
-  await ElMessageBox.confirm('确定要删除这个任务吗？删除后不可恢复。', '确认删除', { type: 'warning' })
+  // 取消确认框不视为错误，静默返回
+  const confirmed = await ElMessageBox.confirm('确定要删除这个任务吗？删除后不可恢复。', '确认删除', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
   await deleteTask(id)
   ElMessage.success('任务已删除')
   detailDrawerVisible.value = false
@@ -762,7 +775,6 @@ const batchResults = ref({})
 const batchRestarting = ref(false)
 const batchRestartMode = ref('resume')
 const batchProgressText = ref('尚未开始重启')
-const batchTaskCache = new Map()
 
 function isBatchRestartable(task) {
   return task && task.status !== 'running'
@@ -801,7 +813,6 @@ async function loadBatchTasks(pageNum = batchPage.value) {
   try {
     const res = await getTasks({ page: pageNum, per_page: batchPageSize.value })
     batchTasks.value = res.items || []
-    batchTasks.value.forEach((task) => batchTaskCache.set(String(task.id), task))
     batchPage.value = pageNum
     batchTotal.value = res.total || 0
   } catch (e) {
@@ -1005,6 +1016,62 @@ async function restartSelectedBatchTasks() {
   color: #93c5fd;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.admin-tasks-page__section {
+  margin-top: 16px;
+}
+
+.admin-tasks-page__drawer-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__full-width {
+  width: 100%;
+}
+
+.admin-tasks-page__batch-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__restart-mode {
+  margin: 12px 0;
+}
+
+.admin-tasks-page__restart-mode-label {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.admin-tasks-page__batch-empty {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.admin-tasks-page__batch-total {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-tasks-page__batch-page-size {
+  width: 100px;
+}
+
+.admin-tasks-page__batch-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__batch-footer-hint {
+  margin-right: auto;
 }
 
 .admin-tasks-page__batch-summary {

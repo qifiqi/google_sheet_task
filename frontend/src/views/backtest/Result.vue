@@ -351,6 +351,40 @@
 
       <el-empty v-if="!loading && !result" description="暂无回测结果" />
     </div>
+
+    <!-- 导出 Word 选项弹窗（翻译自静态 result.html #word-export-options-modal） -->
+    <el-dialog v-model="wordExportDialogVisible" title="导出 Word 报告" width="560px">
+      <el-form label-position="top">
+        <el-form-item label="价格类型">
+          <el-select v-model="wordExportPriceType">
+            <el-option value="" label="跟随任务（默认）" />
+            <el-option value="sp_price" label="收盘价" />
+            <el-option value="kp_price" label="开盘价" />
+            <el-option value="vwap_price" label="加权平均价" />
+            <el-option value="ohlc_price" label="OHLC（开高低收）" />
+            <el-option value="random_price" label="随机价" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="无风险利率（年化 %）">
+          <el-input-number
+            v-model="wordExportRiskFreePercent"
+            :min="0"
+            :max="100"
+            :step="0.01"
+            controls-position="right"
+          />
+        </el-form-item>
+        <div class="panel-note">用于夏普比率重算，默认 0。</div>
+        <div v-if="wordExportCurrentRiskFreeRate" class="panel-note">
+          任务当前无风险利率：{{ wordExportCurrentRiskFreeRate }}
+        </div>
+        <div class="panel-note">价格类型仅展示在报告信息中；策略与指数取任务本身收益序列。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="wordExportDialogVisible = false">取消</el-button>
+        <el-button type="success" :loading="exportingWord" @click="confirmWordExport">导出 Word</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -376,6 +410,24 @@ const taskId = ref('')
 const exportingCsv = ref(false)
 const exportingWord = ref(false)
 let exportBaseName = ''
+
+// 导出 Word 弹窗价格类型取值 ↔ 报告展示文案（与后端 get_price_type 一致，翻译自静态 WORD_PRICE_TYPE_LABELS）。
+const WORD_PRICE_TYPE_LABELS = {
+  kp_price: '开盘价',
+  sp_price: '收盘价',
+  vwap_price: '加权平均价',
+  ohlc_price: 'OHLC（开高低收）',
+  random_price: '随机价',
+}
+const WORD_PRICE_TYPE_VALUES_BY_LABEL = Object.fromEntries(
+  Object.entries(WORD_PRICE_TYPE_LABELS).map(([value, label]) => [label, value])
+)
+const wordExportDialogVisible = ref(false)
+const wordExportPriceType = ref('')
+const wordExportRiskFreePercent = ref(0)
+const wordExportCurrentRiskFreeRate = computed(() => (
+  wordReportPayload.value?.metadata?.risk_free_rate || ''
+))
 
 const { loadChartJs } = useChartJs()
 
@@ -417,7 +469,10 @@ const allPeriod = computed(() => {
 })
 
 function updateDocumentTitle() {
-  document.title = displayModelName.value ? `${displayModelName.value} 回测结果` : '回测结果'
+  // 与静态版 renderModelIdentity 一致：标题带「 - Jaspil 任务管理系统」后缀
+  document.title = displayModelName.value
+    ? `${displayModelName.value} 回测结果 - Jaspil 任务管理系统`
+    : '回测结果 - Jaspil 任务管理系统'
 }
 
 // ---------- 汇总卡片 ----------
@@ -713,8 +768,30 @@ async function exportResult() {
     const filename = exportBaseName.startsWith('backtest_result_')
       ? `${exportBaseName}_details.csv`
       : `${exportBaseName}.csv`
-    downloadBlob(blob, filename.endsWith('.csv') ? filename : `${filename}.csv`)
-    ElMessage.success(`开始下载：${filename}`)
+    const finalFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`
+    // File System Access API 优先（翻译自静态 exportV1Details：https + Chrome 才走保存对话框）
+    if (window.showSaveFilePicker && location.protocol === 'https:' && navigator.userAgent.includes('Chrome')) {
+      try {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: finalFilename,
+          types: [{ description: 'CSV files', accept: { 'text/csv': ['.csv'] } }],
+        })
+        const writable = await fileHandle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        ElMessage.success('文件已保存')
+        return
+      } catch (saveError) {
+        if (saveError?.name === 'AbortError') {
+          ElMessage.info('用户取消了保存操作')
+          return
+        }
+        console.warn('File System Access API failed, falling back to download:', saveError)
+      }
+    }
+    // 降级：默认下载（静态版此处为 prompt 改名，Vue 版保持直接下载）
+    downloadBlob(blob, finalFilename)
+    ElMessage.success(`开始下载：${finalFilename}`)
   } catch (error) {
     ElMessage.error(`导出失败：${error.message || '未知错误'}`)
   } finally {
@@ -722,16 +799,47 @@ async function exportResult() {
   }
 }
 
-async function exportWordReport() {
-  if (!wordReportPayload.value || exportingWord.value) {
-    if (!wordReportPayload.value) {
-      ElMessage.warning('当前结果没有可导出的收益序列')
-    }
+// 点导出先弹选项弹窗：价格类型预选任务自身配置（metadata.price_type 存展示文案，识别不了保持"跟随任务"）。
+function exportWordReport() {
+  if (!wordReportPayload.value) {
+    ElMessage.warning('当前结果没有可导出的收益序列')
     return
   }
+  const metaPriceLabel = wordReportPayload.value.metadata?.price_type
+  wordExportPriceType.value = WORD_PRICE_TYPE_VALUES_BY_LABEL[metaPriceLabel] || ''
+  wordExportRiskFreePercent.value = 0
+  wordExportDialogVisible.value = true
+}
+
+// 弹窗内无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03）。
+function confirmWordExport() {
+  const percent = Number(wordExportRiskFreePercent.value ?? 0)
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    ElMessage.warning('无风险利率需为 0～100 之间的数字（百分比）')
+    return
+  }
+  // merge 逻辑照搬静态 confirmWordExport：深拷贝 payload，仅覆盖所选字段
+  const payload = JSON.parse(JSON.stringify(wordReportPayload.value))
+  payload.metadata = {
+    ...(payload.metadata || {}),
+    risk_free_rate: `${percent.toFixed(2)}%`,
+  }
+  // 价格类型仅覆盖报告展示行；"跟随任务（默认）"保留 payload 原值。
+  if (wordExportPriceType.value) {
+    payload.metadata.price_type = WORD_PRICE_TYPE_LABELS[wordExportPriceType.value]
+  }
+  payload.runtime_params = {
+    ...(payload.runtime_params || {}),
+    risk_free_rate: percent / 100,
+  }
+  wordExportDialogVisible.value = false
+  downloadWordReport(payload)
+}
+
+async function downloadWordReport(payload) {
   exportingWord.value = true
   try {
-    const { blob, filename } = await exportBacktestWordReport(wordReportPayload.value)
+    const { blob, filename } = await exportBacktestWordReport(payload)
     downloadBlob(blob, filename)
     ElMessage.success('Word 报告已下载')
   } catch (error) {
