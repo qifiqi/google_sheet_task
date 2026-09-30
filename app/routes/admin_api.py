@@ -1,4 +1,4 @@
-"""管理后台 API（自 admin.py 页面蓝图归位，URL 不变）。
+"""管理后台 API（自 admin.py 页面蓝图归位，前缀 /api/admin 与 auth/scheduler 管理端对齐）。
 
 - dashboard/overview 与 model-summary 查询为服务层契约 payload，保持透传；
 - rebuild 端点挂保护性限流（api-model-query-audit/06 §3，rate_limit_rebuild）。
@@ -17,11 +17,11 @@ from app.utils.api_response import success
 from app.utils.auth import admin_required, login_required
 from app.utils.logger import get_logger
 
-admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
+admin_api_bp = Blueprint('admin_api', __name__)
 logger = get_logger(__name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 
-@admin_api_bp.route('/api/dashboard/overview')
+@admin_api_bp.route('/dashboard/overview')
 @login_required
 def dashboard_overview():
     """管理后台仪表盘总览数据
@@ -34,14 +34,14 @@ def dashboard_overview():
         )
     )
 
-@admin_api_bp.route('/api/model-summary')
+@admin_api_bp.route('/model-summary')
 @login_required
 def model_summary_api():
     """单模型汇总数据查询（服务层契约 payload 整体移入 data，键名不变）。"""
     payload = model_summary_service.query(getattr(g, "current_user", None), request.args.to_dict())
     return success(data=payload)
 
-@admin_api_bp.route('/api/model-summary/rebuild', methods=['POST'])
+@admin_api_bp.route('/model-summary/rebuild', methods=['POST'])
 @admin_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_rebuild', 2) or 2}/minute",
@@ -61,7 +61,7 @@ def rebuild_model_summary_api():
     )
     return success(data={'job': job})
 
-@admin_api_bp.route('/api/word-export-cache')
+@admin_api_bp.route('/word-export-cache')
 @admin_required
 def word_export_cache_list_api():
     """列出 Word 报告导出缓存条目（哈希键、任务/标的信息、大小与存活状态）。"""
@@ -71,7 +71,7 @@ def word_export_cache_list_api():
         'entries': list_word_export_cache(ttl_seconds),
     })
 
-@admin_api_bp.route('/api/word-export-cache/clear', methods=['POST'])
+@admin_api_bp.route('/word-export-cache/clear', methods=['POST'])
 @admin_required
 def word_export_cache_clear_api():
     """清理 Word 报告导出缓存：默认全清，可按 task_id 定向或仅清过期条目。"""
@@ -83,7 +83,7 @@ def word_export_cache_clear_api():
     )
     return success(data={'removed': removed})
 
-@admin_api_bp.route('/api/model-summary/rebuild/status')
+@admin_api_bp.route('/model-summary/rebuild/status')
 @login_required
 def model_summary_rebuild_status_api():
     """查询单模型汇总索引后台重建状态。"""
@@ -91,7 +91,7 @@ def model_summary_rebuild_status_api():
     job = model_summary_service.get_rebuild_job(job_id) if job_id else model_summary_service.latest_rebuild_job()
     return success(data={'job': job})
 
-@admin_api_bp.route('/api/tasks/<task_id>/runtime-detail')
+@admin_api_bp.route('/tasks/<task_id>/runtime-detail')
 @login_required
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""

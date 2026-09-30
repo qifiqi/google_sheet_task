@@ -532,7 +532,7 @@ PERMISSIONS = [
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
     ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
     ('page',         'page:backtest_multi_product:create', '访问多品数据回测创建页面',   '/backtest-multi-product/create'),
-    ('page',         'page:global_preview:single_product', '访问单品全局预览页面', '/global-preview/single_product'),
+    ('page',         'page:global_preview:single_product', '访问单品全局预览页面', '/global-preview/single-product'),
 ]
 
 # 主服务 SSO 默认角色（docs/design/sso-integration-2026-09/）。

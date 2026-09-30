@@ -226,7 +226,7 @@ def test_calculate_ratios_endpoint_forwards_risk_free_rate(app_factory, monkeypa
     monkeypatch.setenv("AUTH_ENABLED", "false")
     client = app.test_client()
     response = client.post(
-        "/backtest-multi-product/api/global-preview/rf-http-task/calculate-ratios",
+        "/api/backtest-multi-product/global-preview/rf-http-task/calculate-ratios",
         json={
             "ratios": [{"product_index": 0, "ratio": 50}, {"product_index": 1, "ratio": 50}],
             "runtime_params": {"risk_free_rate": 0.03},
@@ -251,7 +251,7 @@ def test_calculate_ratios_endpoint_rejects_invalid_risk_free_rate(app_factory):
     try:
         client = app.test_client()
         response = client.post(
-            "/backtest-multi-product/api/global-preview/rf-invalid-task/calculate-ratios",
+            "/api/backtest-multi-product/global-preview/rf-invalid-task/calculate-ratios",
             json={
                 "ratios": [{"product_index": 0, "ratio": 50}, {"product_index": 1, "ratio": 50}],
                 "runtime_params": {"risk_free_rate": "abc"},
@@ -315,7 +315,7 @@ def test_global_preview_query_forwards_risk_free_rate(app_factory, monkeypatch):
     monkeypatch.setenv("AUTH_ENABLED", "false")
     client = app.test_client()
     response = client.get(
-        "/backtest-multi-product/api/global-preview/rf-get-task?risk_free_rate=0.03"
+        "/api/backtest-multi-product/global-preview/rf-get-task?risk_free_rate=0.03"
     )
 
     assert response.status_code == 200

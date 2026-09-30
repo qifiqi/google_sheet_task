@@ -41,6 +41,9 @@
                     <button class="btn btn-outline-success" id="exportBtn" type="button" disabled>
                         <i class="bi bi-file-earmark-arrow-down me-1"></i>导出
                     </button>
+                    <button class="btn btn-outline-primary" id="exportWordBtn" type="button" disabled>
+                        <i class="bi bi-file-earmark-word me-1"></i>导出Word
+                    </button>
                 </div>
             </form>
         </div>
@@ -63,6 +66,37 @@
     </div>
 
     <div class="card shadow-sm d-none" id="previewCard"><div class="card-body p-0"><div class="preview-table-wrap" id="previewContainer"></div></div></div>
+
+    <div class="modal fade word-export-modal" id="wordExportModal" tabindex="-1" aria-labelledby="wordExportModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow">
+                <div class="modal-header bg-body-tertiary border-0 px-4 py-3">
+                    <div>
+                        <h5 class="modal-title fw-bold" id="wordExportModalLabel">导出 Word 报告</h5>
+                        <div class="small text-body-secondary mt-1">每个结果（股票×年份×参数方案）一个 RPT-S 文档，勾选后逐个导出下载。</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 border rounded-1 p-3 mb-3 bg-body-tertiary">
+                        <div class="fw-semibold" id="wordExportSummary">共 0 个结果，可导出 0 个，已选 0 个</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-light border" id="wordExportSelectAllBtn">全选可导出</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="wordExportClearBtn">清空</button>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-column gap-2" id="wordExportResultList"></div>
+                </div>
+                <div class="modal-footer bg-body-tertiary border-0 px-4 py-3">
+                    <div class="me-auto small text-body-secondary">相邻导出间隔 2 秒；单个失败不中断，结束后汇总。</div>
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4" id="confirmWordExportBtn" disabled>
+                        <i class="bi bi-file-earmark-word me-1"></i>导出已选 <span id="wordExportSelectedCount">0</span> 个
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
             </main>
         </div>

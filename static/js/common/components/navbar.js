@@ -164,7 +164,7 @@
         // admin 基座族：挂载点本身就是 <nav class="sidebar ...">，渲染时整组替换为
         // Offcanvas 类（02 §3.7 等价红线由本次 D7 行为修订解除，见文件头注释）。
         {
-            prefixes: ['/admin', '/performance_analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
+            prefixes: ['/admin', '/performance-analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
             build: adminSidebar,
             classes: 'offcanvas offcanvas-start sidebar',
             mountId: 'templateSidebar',

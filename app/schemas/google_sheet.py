@@ -22,7 +22,7 @@ class TokenImportSchema(APIModel):
 
 
 class WorksheetsQuerySchema(APIModel):
-    """POST /api/google-sheet/worksheets。"""
+    """POST /api/google-sheets/worksheets。"""
 
     spreadsheet_id: str = ""
     proxy_url: str | None = None

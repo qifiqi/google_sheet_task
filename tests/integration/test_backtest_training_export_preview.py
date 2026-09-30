@@ -90,7 +90,7 @@ def test_export_preview_matches_export_formatter(app_factory, monkeypatch):
         ]
 
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}/export-preview"
+            f"/api/backtest-training/task-result/{task_result.id}/export-preview"
         )
 
         assert response.status_code == 200
@@ -149,7 +149,7 @@ def test_export_preview_download_uses_same_export_data(app_factory, monkeypatch)
             fake_export_file,
         )
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}/export-preview/download"
+            f"/api/backtest-training/task-result/{task_result.id}/export-preview/download"
         )
 
         assert response.status_code == 200
@@ -172,7 +172,7 @@ def test_export_preview_uses_task_name_as_download_name(app_factory, monkeypatch
         )
 
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}/export-preview/download"
+            f"/api/backtest-training/task-result/{task_result.id}/export-preview/download"
         )
 
         assert "我的回测任务.csv" in unquote(response.headers["Content-Disposition"])
@@ -183,7 +183,7 @@ def test_export_preview_rejects_missing_result(app_factory, monkeypatch):
     with app.app_context():
         _allow_backtest_view(monkeypatch)
         response = app.test_client().get(
-            "/backtest-training/api/task-result/999999/export-preview"
+            "/api/backtest-training/task-result/999999/export-preview"
         )
 
         assert response.status_code == 404
@@ -196,7 +196,7 @@ def test_export_preview_rejects_non_backtest_result(app_factory, monkeypatch):
         _task, task_result = _add_result(task_type="google_sheet")
         _allow_backtest_view(monkeypatch)
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}/export-preview"
+            f"/api/backtest-training/task-result/{task_result.id}/export-preview"
         )
 
         assert response.status_code == 400
@@ -210,7 +210,7 @@ def test_export_preview_allows_result_without_interface_permission(app_factory, 
         _task, task_result = _add_result(calculate_metrics=_exportable_metrics())
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}/export-preview"
+            f"/api/backtest-training/task-result/{task_result.id}/export-preview"
         )
 
         assert response.status_code == 200

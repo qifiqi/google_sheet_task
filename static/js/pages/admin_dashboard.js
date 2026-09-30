@@ -203,7 +203,7 @@
     }
 
     function loadDashboard(showToast = false) {
-        ajaxRequest('/admin/api/dashboard/overview', 'GET', null, function(err, data) {
+        ajaxRequest('/api/admin/dashboard/overview', 'GET', null, function(err, data) {
             const overview = data && data.data ? data.data : null;
             if (err || !overview || !overview.success) {
                 showNotification('加载仪表盘失败', 'error');

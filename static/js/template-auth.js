@@ -21,7 +21,10 @@
         ["/task/create", "/google-sheet/create"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
-        ["/performance_analysis", "/performance_analysis/"],
+        ["/performance_analysis", "/performance-analysis/"],
+        ["/performance_analysis/", "/performance-analysis/"],
+        ["/performance_analysis/v2", "/performance-analysis/v2"],
+        ["/performance_analysis/weight_combination", "/performance-analysis/weight-combination"],
     ]);
 
     function parseJsonSafely(text) {

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.exceptions import ValidationError
+from app.exceptions import NotFoundError, ValidationError
 from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import normalize_ratio_display
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
@@ -211,7 +211,25 @@ def _resolve_stock_bounds(
 class PerformanceAnalysisService:
     """文本 / Google Sheet 两个分析入口的共享编排逻辑。"""
 
-    def analyze_text(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """统一分析入口：按载荷携带的数据来源分流，三种来源互斥且恰好一种。
+
+        - result_id：按任务结果分析（V2 结果分析 Tab）；
+        - spreadsheet_id：Google Sheet 链接（V2 Sheet Tab）；
+        - data：粘贴的三列收益文本（V2 粘贴 Tab / V1 首页）。
+        """
+        sources = [key for key in ("result_id", "spreadsheet_id") if payload.get(key)]
+        if payload.get("data"):
+            sources.append("data")
+        if len(sources) != 1:
+            raise ValidationError("请提供一种数据来源：结果 ID、Google Sheet 或粘贴数据")
+        if sources[0] == "result_id":
+            return self._analyze_result(payload)
+        if sources[0] == "spreadsheet_id":
+            return self._analyze_sheet(payload)
+        return self._analyze_text(payload)
+
+    def _analyze_text(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         input_data = payload.get("data", "")
         time_format = payload.get("time_format", "auto")
         runtime_params = _parse_runtime_params(payload.get("runtime_params"))
@@ -223,7 +241,7 @@ class PerformanceAnalysisService:
         )
         return _normalize_result(result)
 
-    def analyze_sheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_sheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         spreadsheet_id = payload.get("spreadsheet_id", "")
         google_sheet_name = payload.get("google_sheet_name", "auto")
         runtime_params = _parse_runtime_params(payload.get("runtime_params"))
@@ -231,6 +249,33 @@ class PerformanceAnalysisService:
         result = performance_analyzer.analyze_v1(
             spreadsheet_id=spreadsheet_id,
             google_sheet_name=google_sheet_name,
+            runtime_params=runtime_params,
+        )
+        return _normalize_result(result)
+
+    def _analyze_result(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """按任务结果 ID 分析：读取结果的收益序列后走与粘贴数据相同的指标管线。
+
+        收益序列提取复用 _product_data（优先 return_series，回退结果 JSON 内嵌行），
+        行形状与粘贴数据一致（date/index_return/start_return 三列）。
+        """
+        try:
+            result_id = int(payload.get("result_id"))
+        except (TypeError, ValueError):
+            raise ValidationError("请输入有效的结果 ID")
+        if result_id <= 0:
+            raise ValidationError("请输入有效的结果 ID")
+        runtime_params = _parse_runtime_params(payload.get("runtime_params"))
+
+        task_result = task_result_repository.get_export_entity(result_id)
+        if not task_result:
+            raise NotFoundError("任务结果不存在")
+        product = _product_data(task_result)
+        if not product["returns"]:
+            raise ValidationError("该结果没有可分析的收益数据")
+
+        result = performance_analyzer.analyze(
+            data=product["returns"],
             runtime_params=runtime_params,
         )
         return _normalize_result(result)

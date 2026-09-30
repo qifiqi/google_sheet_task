@@ -64,7 +64,7 @@ class StrategyBacktestReportService:
 
         # 每个基准各运行一次 V1 引擎（未选指数时为默认组合基准）：
         # 策略列与基准选择无关，各次运行完全一致；指数/超额列按各自运行结果取值。
-        runs = self._build_benchmark_runs(request)
+        runs, task_stock_code = self._build_benchmark_runs(request)
         result = runs[0].result
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
@@ -108,7 +108,11 @@ class StrategyBacktestReportService:
             generate_word_document(report_data, output_path)
             raw = output_path.read_bytes()
 
-        filename = request.filename or self._default_filename(request)
+        filename = request.filename or self._default_filename(
+            request,
+            period_text=f"{dates[0]:%Y%m%d}_{dates[-1]:%Y%m%d}",
+            task_stock_code=task_stock_code,
+        )
         if not filename.lower().endswith(".docx"):
             filename = f"{filename}.docx"
         return filename, BytesIO(raw)
@@ -138,15 +142,22 @@ class StrategyBacktestReportService:
             product for product in products if isinstance(product, dict)
         ]
 
-    def _default_filename(self, request: StrategyBacktestReportSchema) -> str:
-        """按报告类型、产品代码+权重和生成时间构造默认下载文件名。
+    def _default_filename(
+        self,
+        request: StrategyBacktestReportSchema,
+        period_text: str = "",
+        task_stock_code: str = "",
+    ) -> str:
+        """按报告类型、产品代码+权重、方案组、K线范围和生成时间构造默认下载文件名。
 
-        比例为 0 的产品不参与代码拼接；有效产品只剩 1 个时前缀按 RPT-S 输出，
-        单品权重恒为 100%，不再重复拼接。多产品按 ``代码_权重`` 拼接，权重为
-        百分比数字，与报告内"策略权重"表同源（同一 normalize/percent 口径）。
-        权重不带 % 后缀：纯 ASCII 文件名经 Content-Disposition 原样下发，前端
-        decodeURIComponent 遇到裸 % 会抛 URI malformed；也不用括号等附加符号，
-        保持文件名简短。加权形式超长时回落纯代码形式，保护 Windows 路径长度。
+        分段规范：段间 `-`、段内 `_`。组合段（RPT-M 现状）为 代码_权重；RPT-S 的
+        task 来源没有 products，用收益序列的股票代码补位；RPT-M 附方案组段（G组号）；
+        周期段取组合收益首末交易日（即报告真实 K 线范围）。任意信息缺失逐级回落，
+        最差退回 RPT-<类型>-<时间戳>。比例为 0 的产品不参与代码拼接；有效产品只剩
+        1 个时前缀按 RPT-S 输出，单品权重恒为 100%，不再重复拼接。权重不带 % 后缀：
+        纯 ASCII 文件名经 Content-Disposition 原样下发，前端 decodeURIComponent 遇到
+        裸 % 会抛 URI malformed；也不用括号等附加符号，保持文件名简短。加权形式超长
+        时回落纯代码形式，保护 Windows 路径长度。
         """
         products = self._active_report_products(request.products)
         report_type = (
@@ -165,8 +176,19 @@ class StrategyBacktestReportService:
         fragments = (
             weighted if len(products) > 1 and len("-".join(weighted)) <= 180 else plain
         )
-        suffix = "-".join([*fragments, datetime.now().strftime("%Y%m%d%H%M%S")])
-        return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
+        if not fragments and task_stock_code:
+            fragments = [task_stock_code]
+
+        segments: list[str] = [*fragments]
+        group_key = getattr(request, "group_key", None)
+        if request.report_type == "RPT-M" and group_key not in (None, ""):
+            segments.append(f"G{group_key}")
+        if period_text:
+            segments.append(period_text)
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        suffix = "-".join([*segments, timestamp])
+        return f"{report_type}-{suffix}" if suffix else f"{report_type}-{timestamp}"
 
     @staticmethod
     def _filename_weight_text(product: dict[str, Any]) -> str:
@@ -190,7 +212,7 @@ class StrategyBacktestReportService:
         """基准代码集合（权重表/标签的 "(指数)" 后缀标记用）。"""
         return {code for code, _weight in StrategyBacktestReportService._benchmark_entries(payload)}
 
-    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> list[_BenchmarkRun]:
+    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> tuple[list[_BenchmarkRun], str]:
         """组合收益 + 各基准注入后逐次运行 V1 引擎；未选指数时为单个默认组合基准。
 
         统一日期轴 = 组合共同交易日 ∩ 全部基准序列交易日，整份报告（表格/图表/
@@ -199,12 +221,14 @@ class StrategyBacktestReportService:
         include_composite_benchmark 开关决定组合指数是否与自定义指数并列成列
         （默认包含，组合列头固定为"组合指数"）；关闭且未选自定义指数时仍回落
         组合，保证报告恒有基准。
+        第二个返回值为 task 来源的股票代码（非 task 来源为空串），供默认文件名使用。
         """
         runtime = self._runtime_params(request.runtime_params)
+        task_stock_code = ""
         if request.report_type == "RPT-M":
             data = self._combine_product_returns(request)
         else:
-            data = self._resolve_source_returns({
+            data, task_stock_code = self._resolve_source_returns({
                 "returns": request.returns,
                 "task_id": request.task_id,
                 "return_series_id": request.return_series_id,
@@ -259,7 +283,7 @@ class StrategyBacktestReportService:
                 label=label,
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
             ))
-        return runs
+        return runs, task_stock_code
 
     @staticmethod
     def _weight_percent_text(weight: Decimal) -> str:
@@ -316,10 +340,10 @@ class StrategyBacktestReportService:
         ])
         return {row["date"]: row["index_return"] for row in scaled}
 
-    def _resolve_source_returns(self, source: dict[str, Any]) -> list[dict[str, Any]]:
-        """读取一种收益来源，并规范为按日期升序的累计收益率。"""
+    def _resolve_source_returns(self, source: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+        """读取一种收益来源并规范为按日期升序的累计收益率；附带来源股票代码（非 task 来源为空）。"""
         if source.get("returns"):
-            return self._normalize_returns(source["returns"])
+            return self._normalize_returns(source["returns"]), ""
         if source.get("task_id"):
             return self._returns_from_task(
                 str(source["task_id"]),
@@ -330,7 +354,7 @@ class StrategyBacktestReportService:
             spreadsheet_id,
             str(source["google_sheet_name"]),
         )
-        return self._normalize_returns(rows)
+        return self._normalize_returns(rows), ""
 
     @staticmethod
     def _spreadsheet_id(source: dict[str, Any]) -> str:
@@ -345,8 +369,8 @@ class StrategyBacktestReportService:
         raise ValueError("google_sheet_url 无法解析 spreadsheet_id")
 
     @staticmethod
-    def _returns_from_task(task_id: str, return_series_id: Any) -> list[dict[str, Any]]:
-        """处理_returns_from_task相关逻辑。"""
+    def _returns_from_task(task_id: str, return_series_id: Any) -> tuple[list[dict[str, Any]], str]:
+        """按任务解析收益序列；返回 (收益行, 序列股票代码) 供默认文件名使用。"""
         if return_series_id is not None:
             series_id = parse_int(return_series_id)
             if series_id is None:
@@ -354,7 +378,10 @@ class StrategyBacktestReportService:
             series = task_result_repository.get_return_entity(series_id)
             if not series or series.task_id != task_id:
                 raise ValueError("return_series_id 不属于指定 task_id")
-            return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
+            return (
+                StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
+                str(series.stock_code or "").strip().upper(),
+            )
 
         series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
         if not series_ids:
@@ -364,7 +391,10 @@ class StrategyBacktestReportService:
         series = task_result_repository.get_return_entity(series_ids[0])
         if not series:
             raise ValueError("任务收益序列不存在")
-        return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
+        return (
+            StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
+            str(series.stock_code or "").strip().upper(),
+        )
 
     def _combine_product_returns(
         self,
@@ -374,13 +404,13 @@ class StrategyBacktestReportService:
         """将多产品组合委托给统一组合器；比例为 0 的产品不参与组合。"""
         products = request.products
         weighting_mode = request.weighting_mode or "daily_compound"
-        inputs = [
-            {
-                "returns": self._resolve_source_returns(product),
+        inputs = []
+        for product in self._active_report_products(products):
+            rows, _stock_code = self._resolve_source_returns(product)
+            inputs.append({
+                "returns": rows,
                 "ratio": product.get("ratio", product.get("weight")),
-            }
-            for product in self._active_report_products(products)
-        ]
+            })
         return combine_product_returns(inputs, weighting_mode=weighting_mode)
 
     @staticmethod

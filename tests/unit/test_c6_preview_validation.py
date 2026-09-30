@@ -82,7 +82,7 @@ def test_calculate_ratios_with_bad_ratio_returns_400(app_factory):
         token = create_access_token(user.id)
 
     resp = client.post(
-        "/backtest-multi-product/api/global-preview/bmp-ratio-task/calculate-ratios",
+        "/api/backtest-multi-product/global-preview/bmp-ratio-task/calculate-ratios",
         headers={"Authorization": f"Bearer {token}"},
         json={"ratios": [{"ratio": "not-a-number"}]},
     )

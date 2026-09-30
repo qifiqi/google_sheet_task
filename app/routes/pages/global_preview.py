@@ -18,7 +18,7 @@ register_page_routes(
     bp,
     [
         ("", "global_preview/index.html"),
-        ("/single_product", "global_preview/index.html"),
+        ("/single-product", "global_preview/index.html"),
     ],
     guard=page_login_required,
 )

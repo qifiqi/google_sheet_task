@@ -338,6 +338,9 @@ class ExportService:
             if word_payload is None:
                 raise ValidationError("task_id 不是有效的多产品回测任务")
             payload = StrategyBacktestReportSchema.model_validate(word_payload)
+            # 方案组号随请求回填：word_payload 不含 group_key，
+            # 默认文件名的方案段（G组号）需要它。
+            payload.group_key = report_request.group_key
 
         if report_request.index_benchmarks:
             payload.index_benchmarks = report_request.index_benchmarks

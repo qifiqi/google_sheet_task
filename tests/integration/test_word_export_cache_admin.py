@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from app.utils.ttl_cache import get_or_build_word_export
 
 REPORT_URL = "/api/exports/backtest-reports/word"
-LIST_URL = "/admin/api/word-export-cache"
-CLEAR_URL = "/admin/api/word-export-cache/clear"
+LIST_URL = "/api/admin/word-export-cache"
+CLEAR_URL = "/api/admin/word-export-cache/clear"
 
 
 class _CachePayload(BaseModel):

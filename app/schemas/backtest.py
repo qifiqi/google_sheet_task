@@ -85,7 +85,8 @@ class StrategyBacktestReportSchema(APIModel):
     # RPT-M 组合指数开关：是否把全部产品按比例组合作为一个基准列（列头固定为
     # "组合指数"，无括号标记）；关闭且未选自定义指数时仍回落组合，保证报告恒有基准。
     include_composite_benchmark: bool = True
-    # group_key 形态专用字段（仅 export_service 消费，generate_word 不使用）。
+    # group_key 形态专用字段：export_service 按任务构建 products 后回填到载荷，
+    # generate_word 的默认文件名方案段（G组号）消费。
     group_key: str | None = None
     ratios: Any = None
 
@@ -222,7 +223,7 @@ class StrategyBacktestReportSchema(APIModel):
 
 
 class UpdateRatiosSchema(APIModel):
-    """PUT /backtest-multi-product/api/global-preview/<task_id>/ratios。"""
+    """PUT /api/backtest-multi-product/global-preview/<task_id>/ratios。"""
 
     ratios: list[Any]
     # 保存比例后返回的预览载荷按同一口径重算，语义同 CalculateRatiosSchema。
@@ -230,7 +231,7 @@ class UpdateRatiosSchema(APIModel):
 
 
 class ReturnSeriesExportSchema(APIModel):
-    """POST /backtest-multi-product/api/global-preview/<task_id>/return-series。
+    """POST /api/backtest-multi-product/global-preview/<task_id>/return-series。
 
     纯数据载荷：直查 t_param_task_results_return 返回累计收益序列；
     ratios 覆盖产品比例（未传用任务默认比例），group_key 过滤参数方案。
@@ -242,6 +243,6 @@ class ReturnSeriesExportSchema(APIModel):
 
 
 class PreviewGroupSchema(APIModel):
-    """POST /global-preview/api/tasks/<task_id>/preview-group。"""
+    """POST /api/global-preview/tasks/<task_id>/preview-group。"""
 
     result_ids: list[int] = []

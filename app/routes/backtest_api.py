@@ -35,6 +35,7 @@ from app.services.backtest_report_query_service import (
     build_backtest_result_export_rows,
     build_c3_summary_rows,
     build_global_preview_payload,
+    build_single_product_word_report_payload,
     infer_backtest_model_version,
     load_backtest_task,
     load_backtest_task_result,
@@ -43,15 +44,14 @@ from app.services.performance_analysis.historical_metrics import extract_core_me
 from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.utils.request_parsing import parse_body, parse_query
+from app.utils.request_parsing import parse_body, parse_pagination, parse_query
 from app.utils.return_series import parse_return_series_fields
 from app.utils.task_types import normalize_task_type
 
 
-bt_api_bp = Blueprint("backtest_training_api", __name__, url_prefix="/backtest-training")
-bmp_api_bp = Blueprint("backtest_multi_product_api", __name__, url_prefix="/backtest-multi-product")
+bt_api_bp = Blueprint("backtest_training_api", __name__)
+bmp_api_bp = Blueprint("backtest_multi_product_api", __name__)
 
 
 
@@ -78,7 +78,7 @@ def _parse_json(raw, default):
 # ==================== bt：任务结果详情 / 导出 / 全局预览构建 ====================
 
 
-@bt_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
+@bt_api_bp.route("/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
@@ -87,7 +87,6 @@ def get_task_result_detail(task_result_id):
     export_data = build_backtest_result_export_data(task_result, task)
 
     task_config = task.to_dict().get("config") or {}
-    sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
     return_series = (
         task_manager.get_return_entity(task_result.return_series_id)
         if task_result.return_series_id
@@ -95,27 +94,16 @@ def get_task_result_detail(task_result_id):
     )
     return success(data={
         "result": _sanitize_json_value(export_data["analyze_result"]),
-        "word_report_payload": {
-            "report_type": "RPT-S",
-            "task_id": task.id,
-            "return_series_id": task_result.return_series_id,
-            "products": [{
-                "stock_code": return_series.stock_code,
-                "product_name": return_series.stock_name,
-            }] if return_series else [],
-            "metadata": {
-                "model_version": get_backtest_model_version(
-                    sheet.get("title")
-                    or task_config.get("title")
-                    or task_config.get("spreadsheet_title")
-                ),
-                "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
-            },
-        } if task_result.return_series_id else None,
+        # RPT-S 请求载荷与全局预览导出弹窗共用同一构建器（backtest_report_query_service）。
+        "word_report_payload": (
+            build_single_product_word_report_payload(
+                task.id, task_config, task_result.return_series_id, return_series,
+            ) if task_result.return_series_id else None
+        ),
     })
 
 
-@bt_api_bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
+@bt_api_bp.route("/task-result/<int:task_result_id>/export-preview", methods=["GET"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
@@ -137,7 +125,7 @@ def get_task_result_export_preview(task_result_id):
     })
 
 
-@bt_api_bp.route("/api/task-summary/<task_id>", methods=["GET"])
+@bt_api_bp.route("/task-summary/<task_id>", methods=["GET"])
 @login_required
 def get_task_summary(task_id):
     task = load_backtest_task(task_id)
@@ -230,7 +218,7 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
     }
 
 
-@bmp_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
+@bmp_api_bp.route("/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def bmp_get_task_result_detail(task_result_id):
     task_result = task_manager.get_required_result_entity(task_result_id)
@@ -287,7 +275,7 @@ def bmp_get_task_result_detail(task_result_id):
     })
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
+@bmp_api_bp.route("/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
@@ -307,7 +295,7 @@ def bmp_calculate_ratios(task_id):
     return success(data=_sanitize_json_value(payload))
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/ratios", methods=["PUT"])
+@bmp_api_bp.route("/global-preview/<task_id>/ratios", methods=["PUT"])
 @login_required
 def bmp_update_ratios(task_id):
     task = _load_multi_product_task_or_raise(task_id)
@@ -324,7 +312,7 @@ def bmp_update_ratios(task_id):
     )
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/return-series", methods=["POST"])
+@bmp_api_bp.route("/global-preview/<task_id>/return-series", methods=["POST"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
@@ -388,8 +376,7 @@ def _make_task_results_by_task_id_view(task_guard):
         """Return paginated task result summaries for the detail page."""
         task_guard(task_id)
 
-        page = max(request.args.get("page", default=1, type=int) or 1, 1)
-        per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
+        page, per_page = parse_pagination(default_page=1, default_per_page=10, max_per_page=100)
         page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
         results = [
             {**item, "parameters": _parse_json(item["parameters"], {})}
@@ -443,17 +430,17 @@ def _make_global_preview_view(task_guard, payload_builder):
 
 for _target_bp in (bt_api_bp, bmp_api_bp):
     _target_bp.add_url_rule(
-        "/api/import-excel", endpoint="import_excel",
+        "/import-excel", endpoint="import_excel",
         view_func=_import_excel_view, methods=["POST"],
     )
     _target_bp.add_url_rule(
-        "/api/task-results/<task_id>", endpoint="task_results_by_task_id",
+        "/task-results/<task_id>", endpoint="task_results_by_task_id",
         view_func=_make_task_results_by_task_id_view(
             _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task
         ),
     )
     _target_bp.add_url_rule(
-        "/api/global-preview/<task_id>", endpoint="global_preview",
+        "/global-preview/<task_id>", endpoint="global_preview",
         view_func=_make_global_preview_view(
             _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task,
             _build_multi_product_global_preview_with_query if _target_bp is bmp_api_bp else build_global_preview_payload,

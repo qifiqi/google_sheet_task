@@ -168,7 +168,7 @@ def test_calculate_ratios_endpoint_returns_enveloped_payload(app_factory, monkey
     monkeypatch.setenv("AUTH_ENABLED", "false")
     client = app.test_client()
     response = client.post(
-        "/backtest-multi-product/api/global-preview/zero-ratio-http/calculate-ratios",
+        "/api/backtest-multi-product/global-preview/zero-ratio-http/calculate-ratios",
         json={"ratios": [{"product_index": 0, "ratio": 100}, {"product_index": 1, "ratio": 0}]},
     )
 

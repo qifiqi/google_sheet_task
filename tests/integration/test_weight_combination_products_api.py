@@ -1,5 +1,5 @@
-"""权重组合分析产品列表接口（GET /performance_analysis/v1/weight_combination/products）
-与带产品筛选/单股范围的分析请求（POST /performance_analysis/v1/weight_combination）。
+"""权重组合分析产品列表接口（GET /api/performance-analysis/weight-combination/products）
+与带产品筛选/单股范围的分析请求（POST /api/performance-analysis/weight-combination）。
 
 覆盖鉴权、query 校验、任务不存在、多品配置比例回填、"无收益序列"标记，
 以及组合枚举是否遵守选中的产品与单股范围。
@@ -77,7 +77,7 @@ def _seed_task(app, task_id):
 def test_products_endpoint_requires_auth(app_factory):
     client = app_factory.test_client()
     resp = client.get(
-        "/performance_analysis/v1/weight_combination/products?task_id=any",
+        "/api/performance-analysis/weight-combination/products?task_id=any",
         headers={"Accept": "*/*"},
     )
     assert resp.status_code == 401
@@ -86,7 +86,7 @@ def test_products_endpoint_requires_auth(app_factory):
 
 def test_products_endpoint_rejects_missing_task_id(app_factory):
     client, headers = _login(app_factory)
-    resp = client.get("/performance_analysis/v1/weight_combination/products", headers=headers)
+    resp = client.get("/api/performance-analysis/weight-combination/products", headers=headers)
     assert resp.status_code == 400
     assert resp.get_json()["status"] == "error"
 
@@ -96,7 +96,7 @@ def test_products_endpoint_returns_ratios_and_availability(app_factory):
     _seed_task(app_factory, "wc-task-1")
 
     resp = client.get(
-        "/performance_analysis/v1/weight_combination/products?task_id=wc-task-1",
+        "/api/performance-analysis/weight-combination/products?task_id=wc-task-1",
         headers=headers,
     )
 
@@ -119,7 +119,7 @@ def test_products_endpoint_returns_ratios_and_availability(app_factory):
 def test_products_endpoint_returns_404_for_unknown_task(app_factory):
     client, headers = _login(app_factory)
     resp = client.get(
-        "/performance_analysis/v1/weight_combination/products?task_id=missing-task",
+        "/api/performance-analysis/weight-combination/products?task_id=missing-task",
         headers=headers,
     )
     assert resp.status_code == 404
@@ -131,7 +131,7 @@ def test_analysis_stream_honours_selection_and_ranges(app_factory):
     result_ids = _seed_task(app_factory, "wc-task-2")
 
     resp = client.post(
-        "/performance_analysis/v1/weight_combination",
+        "/api/performance-analysis/weight-combination",
         json={
             "task_id": "wc-task-2",
             "step": 25,
@@ -170,7 +170,7 @@ def test_analysis_endpoint_rejects_ranges_off_grid(app_factory):
     result_ids = _seed_task(app_factory, "wc-task-3")
 
     resp = client.post(
-        "/performance_analysis/v1/weight_combination",
+        "/api/performance-analysis/weight-combination",
         json={
             "task_id": "wc-task-3",
             "step": 25,

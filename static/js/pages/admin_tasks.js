@@ -680,7 +680,7 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
     function showTaskDetail(taskId) {
         currentTaskId = taskId;
         currentTaskType = findCurrentTask(taskId)?.task_type || null;
-        ajaxRequest(`/admin/api/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
+        ajaxRequest(`/api/admin/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
             if (err || !data || data.status !== 'success') {
                 showNotification('获取任务详情失败', 'error');
                 return;

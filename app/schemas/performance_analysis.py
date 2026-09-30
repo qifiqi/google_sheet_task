@@ -9,11 +9,15 @@ from typing import Any
 from pydantic import Field, RootModel, model_validator,BaseModel
 
 class PerformanceAnalysisPayloadSchema(RootModel[dict[str, Any]]):
-    """POST /performance_analysis/analyze 与 /performance_analysis/v1/analyze 请求体。"""
+    """POST /api/performance-analysis/analyze 统一分析请求体。
+
+    body 边界仅约束为 JSON 对象；来源分流（result_id / spreadsheet_id / data）
+    与深度校验由 performance_analysis_service.analyze 负责（含多态行格式）。
+    """
 
 
 class WeightCombinationProductsQuerySchema(BaseModel):
-    """GET /performance_analysis/v1/weight_combination/products 查询参数。"""
+    """GET /api/performance-analysis/weight-combination/products 查询参数。"""
 
     task_id: str = Field(..., min_length=1)
 
@@ -32,7 +36,7 @@ class WeightCombinationRangeItem(BaseModel):
 
 
 class WeightCombinationSchema(BaseModel):
-    """POST /performance_analysis/v1/weight_combination 请求体。
+    """POST /api/performance-analysis/weight-combination 请求体。
 
     用于描述"按权重组合多只股票的收益序列"这一请求的参数约束。
     所有权重相关参数都要求是 step 的整数倍，保证内部按"单元(unit)"枚举时

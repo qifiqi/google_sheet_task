@@ -140,59 +140,59 @@
     backtest: {
       // 单品数据回测（/backtest-training 自有 API，信封与 /api/tasks 同一格式）
       importExcel: function (formData) {
-        return post("/backtest-training/api/import-excel", formData);
+        return post("/api/backtest-training/import-excel", formData);
       },
       taskResults: function (taskId, query) {
         return get(
-          "/backtest-training/api/task-results/" +
+          "/api/backtest-training/task-results/" +
             taskId +
             (query ? "?" + query : ""),
         );
       },
       taskResult: function (resultId, options) {
-        return get("/backtest-training/api/task-result/" + resultId, options);
+        return get("/api/backtest-training/task-result/" + resultId, options);
       },
       taskResultExportPreview: function (resultId) {
         return get(
-          "/backtest-training/api/task-result/" + resultId + "/export-preview",
+          "/api/backtest-training/task-result/" + resultId + "/export-preview",
         );
       },
       taskSummary: function (taskId) {
-        return get("/backtest-training/api/task-summary/" + taskId);
+        return get("/api/backtest-training/task-summary/" + taskId);
       },
       globalPreview: function (taskId) {
-        return get("/backtest-training/api/global-preview/" + taskId);
+        return get("/api/backtest-training/global-preview/" + taskId);
       },
     },
     backtestMulti: {
       // 多品数据回测（/backtest-multi-product 自有 API）
       taskResults: function (taskId, query) {
         return get(
-          "/backtest-multi-product/api/task-results/" +
+          "/api/backtest-multi-product/task-results/" +
             taskId +
             (query ? "?" + query : ""),
         );
       },
       taskResult: function (resultId, options) {
         return get(
-          "/backtest-multi-product/api/task-result/" + resultId,
+          "/api/backtest-multi-product/task-result/" + resultId,
           options,
         );
       },
       taskSummary: function (taskId) {
-        return get("/backtest-multi-product/api/task-summary/" + taskId);
+        return get("/api/backtest-multi-product/task-summary/" + taskId);
       },
       // query（可选）：预览口径查询串（如 risk_free_rate=0.03），缺省与历史请求逐字一致。
       globalPreview: function (taskId, query) {
         return get(
-          "/backtest-multi-product/api/global-preview/" +
+          "/api/backtest-multi-product/global-preview/" +
             taskId +
             (query ? "?" + query : ""),
         );
       },
       calculateRatios: function (taskId, payload) {
         return post(
-          "/backtest-multi-product/api/global-preview/" +
+          "/api/backtest-multi-product/global-preview/" +
             taskId +
             "/calculate-ratios",
           payload,
@@ -200,13 +200,13 @@
       },
       updateRatios: function (taskId, payload) {
         return put(
-          "/backtest-multi-product/api/global-preview/" + taskId + "/ratios",
+          "/api/backtest-multi-product/global-preview/" + taskId + "/ratios",
           payload,
         );
       },
       returnSeries: function (taskId, payload) {
         return post(
-          "/backtest-multi-product/api/global-preview/" +
+          "/api/backtest-multi-product/global-preview/" +
             taskId +
             "/return-series",
           payload,
@@ -216,11 +216,11 @@
     previewHub: {
       // 独立全局预览中心（/global-preview 自有 API）
       task: function (taskId) {
-        return get("/global-preview/api/tasks/" + taskId);
+        return get("/api/global-preview/tasks/" + taskId);
       },
       previewGroup: function (taskId, payload) {
         return post(
-          "/global-preview/api/tasks/" + taskId + "/preview-group",
+          "/api/global-preview/tasks/" + taskId + "/preview-group",
           payload,
         );
       },
@@ -247,7 +247,7 @@
         return get("/api/google-sheets" + (query ? "?" + query : ""));
       },
       worksheets: function (payload) {
-        return post("/api/google-sheet/worksheets", payload);
+        return post("/api/google-sheets/worksheets", payload);
       },
       tokens: function (query) {
         return get("/api/google-sheet-tokens" + (query ? "?" + query : ""));
@@ -329,16 +329,16 @@
       // admin 模型汇总页沿用页面内 JWT Authorization 头，经 options 透传。
       summary: function (query, options) {
         return get(
-          "/admin/api/model-summary" + (query ? "?" + query : ""),
+          "/api/admin/model-summary" + (query ? "?" + query : ""),
           options,
         );
       },
       rebuild: function (payload, options) {
-        return post("/admin/api/model-summary/rebuild", payload, options);
+        return post("/api/admin/model-summary/rebuild", payload, options);
       },
       rebuildStatus: function (query, options) {
         return get(
-          "/admin/api/model-summary/rebuild/status" +
+          "/api/admin/model-summary/rebuild/status" +
             (query ? "?" + query : ""),
           options,
         );
@@ -347,16 +347,10 @@
     performanceAnalysis: {
       // 绩效分析页面自有 API（首页、V2 页共用），信封与 /api/* 同一格式；
       // 原调用点显式携带 X-CSRFToken，wire 格式保持不变。调用方需要完整信封时传 { envelope: true }。
+      // 统一分析入口：payload 按来源分流（result_id / spreadsheet_id / data）。
       analyze: function (payload, options) {
         return post(
-          "/performance_analysis/analyze",
-          payload,
-          withCsrfToken(options),
-        );
-      },
-      analyzeV1: function (payload, options) {
-        return post(
-          "/performance_analysis/v1/analyze",
+          "/api/performance-analysis/analyze",
           payload,
           withCsrfToken(options),
         );
@@ -364,7 +358,7 @@
       // 与 googleSheet.worksheets 同一 URL，但 绩效分析页原调用点带 X-CSRFToken，分开定义各自 wire 格式零变化。
       worksheets: function (payload, options) {
         return post(
-          "/api/google-sheet/worksheets",
+          "/api/google-sheets/worksheets",
           payload,
           withCsrfToken(options),
         );
@@ -372,7 +366,7 @@
       // 权重组合分析：任务下可参与组合的产品与已配置比例（单股范围面板数据源）。
       weightCombinationProducts: function (taskId, options) {
         return get(
-          "/performance_analysis/v1/weight_combination/products?task_id=" +
+          "/api/performance-analysis/weight-combination/products?task_id=" +
             encodeURIComponent(taskId),
           options,
         );
@@ -382,7 +376,7 @@
       // 合并导出是流式下载（ReadableStream 读进度），返回原始 Response，
       // 不走信封解包；鉴权拦截由 template-auth.js 的 fetch 拦截照常生效。
       batchTasks: function (taskIds) {
-        return fetch("/api/exports/tasks/batch", {
+        return fetch("/api/exports/tasks/batch-export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ task_ids: taskIds }),
@@ -410,7 +404,7 @@
       },
       // 全局预览批量 ZIP 导出（backtest 列表页），文件流下载，返回原始 Response。
       globalPreviewsBatch: function (taskIds) {
-        return fetch("/api/exports/global-previews/batch", {
+        return fetch("/api/exports/global-previews/batch-export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ task_ids: taskIds }),
@@ -422,7 +416,7 @@
       },
       // 多品回测结果 CSV 导出（multi 结果页），文件流下载，返回原始 Response。
       backtestResultPerformanceAnalysis: function (payload) {
-        return fetch("/api/exports/performance_analysis", {
+        return fetch("/api/exports/performance-analysis", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

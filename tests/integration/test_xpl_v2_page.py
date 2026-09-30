@@ -144,7 +144,9 @@ def test_v2_json_returns_are_normalized_without_a_product():
     })
 
     assert request.report_type == "RPT-S"
-    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+    rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    assert rows == _report_payload()["returns"]
+    assert stock_code == ""
 
 
 def test_v2_google_sheet_returns_are_normalized(monkeypatch):
@@ -161,7 +163,9 @@ def test_v2_google_sheet_returns_are_normalized(monkeypatch):
         "google_sheet_name": "回测",
     })
 
-    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+    rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    assert rows == _report_payload()["returns"]
+    assert stock_code == ""
 
 
 def test_single_product_task_uses_linked_return_series(app_factory):
@@ -189,7 +193,9 @@ def test_single_product_task_uses_linked_return_series(app_factory):
 
         request = StrategyBacktestReportSchema.model_validate({"task_id": task.id})
 
-        assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+        rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+        assert rows == _report_payload()["returns"]
+        assert stock_code == "600519.SH"
 
 
 def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
@@ -221,8 +227,9 @@ def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
         ],
     })
 
-    runs = strategy_backtest_report_service._build_benchmark_runs(request)
+    runs, task_stock_code = strategy_backtest_report_service._build_benchmark_runs(request)
 
+    assert task_stock_code == ""
     assert len(runs) == 1 and runs[0].label == "组合指数"
     returns = captured[0]
     assert returns[0]["index_return"] == pytest.approx(0.075)
@@ -340,7 +347,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     """F5 静态化后页面 JS 抽离至 static/js/pages/performance_analysis_v2.js：
     DOM 断言仍打 HTML，脚本内容断言改读 pages JS 文件（同一交付物）。"""
     client = _page_cookie_client(app_factory)
-    response = client.get('/performance_analysis/v2')
+    response = client.get('/performance-analysis/v2')
 
     assert response.status_code == 200
     body = response.get_data(as_text=True)
@@ -348,6 +355,10 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     assert 'Google Sheet' in body
     assert '粘贴数据' in body
     assert '导入 Excel' in body
+    assert '结果分析' in body
+    assert 'id="result-tab"' in body
+    assert 'id="v2-result-id-input"' in body
+    assert 'id="v2-result-select"' in body
     assert 'id="btn-analyze-v2"' in body
     assert 'id="btn-export-word"' in body
     assert 'id="word-export-options-modal"' in body
@@ -368,7 +379,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
 
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
     client = app_factory.test_client()
-    response = client.post('/performance_analysis/analyze', headers=_page_user_headers(app_factory), json={
+    response = client.post('/api/performance-analysis/analyze', headers=_page_user_headers(app_factory), json={
         "data": "\n".join([
             "2024-01-01\t0.01\t0.02",
             "2024-01-02\t0.02\t0.03",
@@ -379,3 +390,147 @@ def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
 
     assert response.status_code == 200
     assert response.get_json()["status"] == "success"
+
+
+def _seed_task_result_with_returns(app, result_json="{}", with_series=True):
+    """构造一个带收益序列的成功结果，返回 result_id。"""
+    import json as _json
+
+    with app.app_context():
+        task = Task(id="xpl-analyze-result-task", name="结果分析任务", task_type="backtest_training", status="completed", config="{}")
+        db.session.add(task)
+        db.session.flush()
+        series_id = None
+        if with_series:
+            series = TaskResultReturn(
+                task_id=task.id,
+                **build_return_series_fields(
+                    [
+                        {"date": "2024-01-01", "index_return": 0.01, "start_return": 0.02},
+                        {"date": "2024-01-02", "index_return": 0.02, "start_return": 0.03},
+                        {"date": "2024-01-03", "index_return": 0.01, "start_return": 0.01},
+                    ],
+                    stock_code="600519",
+                    stock_name="贵州茅台",
+                ),
+            )
+            db.session.add(series)
+            db.session.flush()
+            series_id = series.id
+        result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"600519","stock_name":"贵州茅台"}',
+            result=result_json,
+            return_series_id=series_id,
+            success=True,
+        )
+        db.session.add(result)
+        db.session.commit()
+        return result.id
+
+
+def test_analyze_result_runs_task_result_returns(app_factory):
+    app = app_factory
+    result_id = _seed_task_result_with_returns(app)
+    headers = _page_user_headers(app, username="xpl-analyze-result-user")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": result_id},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "success"
+    assert body["data"]["results"]
+
+
+def test_analyze_result_rejects_result_without_returns(app_factory):
+    app = app_factory
+    result_id = _seed_task_result_with_returns(app, result_json='{"result":{}}', with_series=False)
+    headers = _page_user_headers(app, username="xpl-analyze-result-empty")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": result_id},
+    )
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert "没有可分析的收益数据" in body["message"]
+
+
+def test_analyze_result_returns_404_for_missing_result(app_factory):
+    app = app_factory
+    headers = _page_user_headers(app, username="xpl-analyze-result-missing")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": 99999999},
+    )
+
+    assert response.status_code == 404
+
+
+def test_word_report_accepts_task_return_series_source(app_factory, monkeypatch):
+    """全局预览页 Word 导出契约：RPT-S 用 task_id + return_series_id 按结果循环调用。
+
+    每个结果（股票×年份×参数方案）一个文档；filename 由前端按结果传入。
+    """
+    from io import BytesIO
+
+    app = app_factory
+    with app.app_context():
+        task = Task(id="word-series-source-task", name="序列来源", task_type="backtest_training", status="completed", config="{}")
+        series = TaskResultReturn(
+            task_id=task.id,
+            **build_return_series_fields(
+                [
+                    {"date": "2024-01-01", "index_return": 0.01, "start_return": 0.02},
+                    {"date": "2024-01-02", "index_return": 0.02, "start_return": 0.03},
+                ],
+                stock_code="600519",
+                stock_name="贵州茅台",
+            ),
+        )
+        db.session.add_all([task, series])
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"600519","year":"2024"}',
+            result="{}",
+            return_series_id=series.id,
+            success=True,
+        ))
+        db.session.commit()
+        series_id = series.id
+
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    calls = []
+
+    def fake_generate_word(request):
+        calls.append(request)
+        return f"{request.filename}.docx", BytesIO(b"data")
+
+    monkeypatch.setattr(
+        "app.services.export_service.strategy_backtest_report_service.generate_word",
+        fake_generate_word,
+    )
+
+    response = app.test_client().post('/api/exports/backtest-reports/word', json={
+        "report_type": "RPT-S",
+        "task_id": "word-series-source-task",
+        "return_series_id": series_id,
+        "filename": "600519_2024_result1",
+    })
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert calls[0].task_id == "word-series-source-task"
+    assert calls[0].return_series_id == series_id
+    assert "600519_2024_result1" in response.headers["Content-Disposition"]

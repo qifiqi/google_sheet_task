@@ -3,7 +3,7 @@ from flask import Blueprint
 from app.routes.pages import register_page_routes
 from app.utils.auth import page_login_required
 
-admin_bp = Blueprint('admin', __name__)
+admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 # (rule, template)；全部页面统一 page_login_required（ponytail 审计 D1 表驱动）
 PAGES = [

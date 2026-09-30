@@ -822,7 +822,7 @@
         try {
             abortController = new AbortController();
 
-            const response = await fetch('/performance_analysis/v1/weight_combination', {
+            const response = await fetch('/api/performance-analysis/weight-combination', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),

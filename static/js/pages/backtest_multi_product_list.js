@@ -3,7 +3,7 @@
 // 接口调用经 common/api.js。
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_multi_product';
-const BATCH_EXPORT_API = '/api/exports/global-previews/batch';
+const BATCH_EXPORT_API = '/api/exports/global-previews/batch-export';
 const DEFAULT_PAGE_SIZE = 20;
 const BATCH_EXPORT_MAX_TASKS = 10;
 const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';

@@ -30,7 +30,7 @@
     <h1 class="h2">V2：回测数据分析</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
-            <a class="btn btn-sm btn-outline-secondary" href="/performance_analysis/">
+            <a class="btn btn-sm btn-outline-secondary" href="/performance-analysis/">
                 <i class="bi bi-arrow-left"></i> 返回
             </a>
         </div>
@@ -58,6 +58,10 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="import-excel-tab" data-bs-toggle="tab" data-bs-target="#import-excel-pane"
                             type="button" role="tab" aria-controls="import-excel-pane" aria-selected="false">导入 Excel</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="result-tab" data-bs-toggle="tab" data-bs-target="#result-pane"
+                            type="button" role="tab" aria-controls="result-pane" aria-selected="false">结果分析</button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane"
@@ -129,6 +133,21 @@
                             </dl>
                             <div class="small text-body-secondary mt-2" id="v2-excel-status">请选择 .xlsx 或 .xls 文件。</div>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="result-pane" role="tabpanel" aria-labelledby="result-tab" tabindex="0">
+                <div class="row g-2 align-items-start">
+                    <div class="col-lg-5">
+                        <input type="text" class="form-control" id="v2-result-id-input" autocomplete="off"
+                               aria-label="任务 ID 或结果 ID"
+                               placeholder="任务 ID 或 结果 ID（纯数字直接分析）"/>
+                        <div class="small text-body-secondary mt-1" id="v2-result-status" style="min-height: 1.2em;">
+                            输入任务 ID 后回车或失焦获取结果列表；直接输入结果 ID（纯数字）可直接分析。
+                        </div>
+                    </div>
+                    <div class="col-lg-5 d-none" id="v2-result-select-wrap">
+                        <select id="v2-result-select" class="form-select" aria-label="选择结果 ID"></select>
                     </div>
                 </div>
             </div>

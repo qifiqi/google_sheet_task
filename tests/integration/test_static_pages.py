@@ -44,7 +44,7 @@ STATIC_PAGES = [
     ("/backtest-multi-product/global-preview/bt-task-1", "/static/js/pages/backtest_multi_product_global_preview.js"),
     ("/backtest-multi-product/result/123", "/static/js/pages/backtest_multi_product_result.js"),
     # F4: global_preview 独立入口
-    ("/global-preview/single_product", "/static/js/pages/global_preview_index.js"),
+    ("/global-preview/single-product", "/static/js/pages/global_preview_index.js"),
     # F5: admin 族 13 页（基座已内联展开 + admin-shell.js；导航条由 navbar.js 渲染）
     # /admin/ 自 5d6f325 起重定向到 /admin/dashboard，静态页断言走真实模板路径
     ("/admin/dashboard", "/static/js/pages/admin_dashboard.js"),
@@ -62,8 +62,8 @@ STATIC_PAGES = [
     # /admin/eastmoney-kline 为纯 iframe 壳页，无页面 JS，仅断言 pages css 与零 Jinja
     ("/admin/eastmoney-kline", "/static/css/pages/admin_eastmoney_kline.css", False),
     # F5: xpl 两页（基座内联展开；CDN jquery/datatables/chart.js 保留外链；v1 页面链已删除）
-    ("/performance_analysis/", "/static/js/pages/performance_analysis_index.js"),
-    ("/performance_analysis/v2", "/static/js/pages/performance_analysis_v2.js"),
+    ("/performance-analysis/", "/static/js/pages/performance_analysis_index.js"),
+    ("/performance-analysis/v2", "/static/js/pages/performance_analysis_v2.js"),
     # F5: eastmoney_kline 独立页（已模块化，自带 layui/utils 脚本）
     ("/eastmoney-kline", "/static/js/pages/eastmoney_kline_index.js", False),
     # F5: 登录页（独立页，loginNextUrl 由 login.js 从 ?next= 填充）
@@ -99,3 +99,28 @@ def test_static_page_served_without_jinja(app_factory, _page_user, url, page_js,
     assert page_js in body
     if require_common:
         assert "/static/js/common/api.js" in body
+
+
+def test_c_series_detail_pages_link_to_single_product_preview(app_factory, _page_user):
+    """C 系列四个详情页头部带「全局预览」入口；链接由页面 JS 按 task_id 回填。"""
+    app = app_factory
+    client = app.test_client()
+    for version in ("c3", "c4", "c5", "c7"):
+        url = "/google-sheet/detail" if version == "c3" else f"/google-sheet/detail?version={version}"
+        body = client.get(url, headers=_page_user["headers"]).get_data(as_text=True)
+        assert 'id="global-preview-link"' in body, version
+        assert 'href="/global-preview/single-product"' in body, version
+        page_js = "google_sheet_detail.js" if version == "c3" else f"google_sheet_{version}_detail.js"
+        with open(f"static/js/pages/{page_js}", encoding="utf-8") as f:
+            assert "single-product?task_id=" in f.read(), version
+
+
+def test_single_product_preview_supports_task_id_query_param(app_factory, _page_user):
+    """预览中心支持 ?task_id= 直达（自动查询逻辑在页面 JS 中）。"""
+    app = app_factory
+    client = app.test_client()
+    assert client.get("/global-preview/single-product", headers=_page_user["headers"]).status_code == 200
+    with open("static/js/pages/global_preview_index.js", encoding="utf-8") as f:
+        page_js = f.read()
+    assert "window.location.search).get('task_id')" in page_js
+    assert "taskIdInput').value = urlTaskId" in page_js

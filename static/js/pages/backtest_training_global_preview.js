@@ -23,6 +23,8 @@
         loadGlobalPreview();
         document.getElementById('exportGlobalPreviewBtn')?.addEventListener('click', exportGlobalPreview);
         document.getElementById('exportSeriesBtn')?.addEventListener('click', exportReturnSeries);
+        document.getElementById('exportWordBtn')?.addEventListener('click', openExportWordModal);
+        document.getElementById('confirmExportWordBtn')?.addEventListener('click', confirmExportWord);
         document.getElementById('groupSelect')?.addEventListener('change', (event) => {
             activeGroupKey = event.target.value;
             renderActiveGroup();
@@ -66,6 +68,125 @@
                 ratios: null,
             })
             .catch((error) => alert(error.message || '导出失败'));
+    }
+
+    // ===== 导出 Word（RPT-S）：弹窗选择导出哪个参数的结果 =====
+    // 价格类型取值 ↔ 报告展示文案（与后端 get_price_type 一致，同训练结果页弹窗）。
+    const WORD_PRICE_TYPE_LABELS = {
+        kp_price: '开盘价',
+        sp_price: '收盘价',
+        vwap_price: '加权平均价',
+        ohlc_price: 'OHLC（开高低收）',
+        random_price: '随机价'
+    };
+
+    // 可导出列 = 当前分组下成功且后端附带 RPT-S 请求载荷的结果列。
+    function exportableWordColumns() {
+        const groups = Array.isArray(previewPayload?.groups) ? previewPayload.groups : [];
+        const group = groups.find((item) => item.group_key === activeGroupKey);
+        const columns = Array.isArray(group?.columns) ? group.columns : [];
+        return columns.filter((column) => column.success && column.word_report_payload);
+    }
+
+    function openExportWordModal() {
+        const exportable = exportableWordColumns();
+        if (!exportable.length) {
+            alert('当前分组没有可导出的参数结果（需要成功且带收益序列）');
+            return;
+        }
+        renderWordExportParamList(exportable);
+        const rateInput = document.getElementById('word-export-risk-free-rate');
+        if (rateInput) rateInput.value = '0';
+        const priceSelect = document.getElementById('word-export-price-type');
+        if (priceSelect) priceSelect.value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('exportWordModal')).show();
+    }
+
+    function renderWordExportParamList(columns) {
+        const container = document.getElementById('wordExportParamList');
+        container.innerHTML = columns.map((column, index) => `
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="wordExportParam"
+                       id="wordExportParam${escapeHtml(String(column.result_id))}"
+                       value="${escapeHtml(String(column.result_id))}" ${index === 0 ? 'checked' : ''}>
+                <label class="form-check-label" for="wordExportParam${escapeHtml(String(column.result_id))}">
+                    ${escapeHtml(column.header || `结果 ${column.result_id}`)}
+                    <span class="text-body-secondary small">（结果 ID: ${escapeHtml(String(column.result_id))}）</span>
+                </label>
+            </div>
+        `).join('');
+    }
+
+    async function confirmExportWord() {
+        const selectedId = document.querySelector('input[name="wordExportParam"]:checked')?.value;
+        if (!selectedId) {
+            alert('请先选择要导出的参数结果');
+            return;
+        }
+        const column = exportableWordColumns()
+            .find((item) => String(item.result_id) === String(selectedId));
+        const basePayload = column?.word_report_payload;
+        if (!basePayload) {
+            alert('所选参数结果没有可导出的收益序列');
+            return;
+        }
+
+        // 无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03），
+        // 双通道写入（metadata 展示 + runtime_params 重算），同训练结果页导出弹窗。
+        let riskFreePercent = 0;
+        const raw = document.getElementById('word-export-risk-free-rate')?.value?.trim();
+        if (raw !== '' && raw !== undefined) {
+            riskFreePercent = Number(raw);
+            if (!Number.isFinite(riskFreePercent) || riskFreePercent < 0 || riskFreePercent > 100) {
+                alert('无风险利率需为 0～100 之间的数字（百分比）');
+                return;
+            }
+        }
+
+        const btn = document.getElementById('confirmExportWordBtn');
+        btn.disabled = true;
+        const original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
+
+        try {
+            const payload = JSON.parse(JSON.stringify(basePayload));
+            payload.metadata = {
+                ...(payload.metadata || {}),
+                risk_free_rate: `${riskFreePercent.toFixed(2)}%`,
+            };
+            // 价格类型仅覆盖报告展示行；"跟随任务（默认）"保留 payload 原值。
+            const priceValue = document.getElementById('word-export-price-type')?.value || '';
+            if (priceValue) {
+                payload.metadata.price_type = WORD_PRICE_TYPE_LABELS[priceValue];
+            }
+            payload.runtime_params = {
+                ...(payload.runtime_params || {}),
+                risk_free_rate: riskFreePercent / 100,
+            };
+
+            const response = await Api.endpoints.export.wordReport(payload);
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || 'Word 导出失败');
+            }
+            const filename = response.headers.get('Content-Disposition')
+                ?.match(/filename[^;=\n]*=(?:UTF-8''|")?([^;\n"]+)/i)?.[1]
+                || 'RPT-S.docx';
+            const objectUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement('a');
+            link.href = objectUrl;
+            link.download = decodeURIComponent(filename.replace(/^"|"$/g, ''));
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(objectUrl);
+            bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
+        } catch (error) {
+            alert(error.message || 'Word 导出失败');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
     }
 
     async function exportGlobalPreview() {

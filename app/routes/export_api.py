@@ -38,6 +38,13 @@ _export_limit = limiter.limit(
     key_func=rate_limit_user_key,
 )
 
+# Word 报告端点被全局预览页按"股票×年份×参数方案"逐个循环调用，调用量远高于
+# 普通单文件导出，单独放宽（默认 60/min，可经系统配置 rate_limit_word_report 调整）。
+_word_report_limit = limiter.limit(
+    lambda: f"{rate_limit_config('rate_limit_word_report', 60) or 60}/minute",
+    key_func=rate_limit_user_key,
+)
+
 
 def _require_completed_task(task: dict):
     if str(task.get("status") or "").lower() == "completed":
@@ -118,7 +125,7 @@ def export_task_results_by_stock(task_id):
     return _file_response(export_service.export_task_results_by_stock(task["id"]))
 
 
-@export_api_bp.route("/tasks/batch", methods=["POST"])
+@export_api_bp.route("/tasks/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_task_results_batch():
@@ -168,7 +175,7 @@ def export_global_preview_by_stock(task_id):
     return _stream_response(generated)
 
 
-@export_api_bp.route("/global-previews/batch", methods=["POST"])
+@export_api_bp.route("/global-previews/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_global_preview_batch():
@@ -188,7 +195,7 @@ def export_backtest_result(result_id):
     return _file_response(export_service.export_backtest_result(result_id))
 
 
-@export_api_bp.route("/performance_analysis", methods=["POST"])
+@export_api_bp.route("/performance-analysis", methods=["POST"])
 @login_required
 @_export_limit
 def export_performance_analysis():
@@ -197,7 +204,7 @@ def export_performance_analysis():
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])
 @login_required
-@_export_limit
+@_word_report_limit
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
     report_request = parse_body(StrategyBacktestReportSchema)

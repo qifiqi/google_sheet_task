@@ -95,7 +95,8 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # ---- API 反代 Flask ----
+    # ---- API 反代 Flask（全部 JSON API 统一 /api/** 单前缀：管理端 /api/admin/*、
+    #      回测子域 /api/backtest-training/* 等均由此规则覆盖，无需为子域单列）----
     location /api/ {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host $host;

@@ -1,6 +1,6 @@
 """收益序列导出接口回归：直查收益表、纯数据载荷、比例权重与校验。
 
-覆盖 POST /backtest-multi-product/api/global-preview/<task_id>/return-series：
+覆盖 POST /api/backtest-multi-product/global-preview/<task_id>/return-series：
 - 数据直查 t_param_task_results_return（list_return_entities_in_write_order），按
   stock_code 归位产品、写入序定位参数方案；
 - 序列行原样返回累计收益（index_return / start_return），无任何派生列——
@@ -170,7 +170,7 @@ def test_return_series_endpoint_envelope_and_validation(app_factory, monkeypatch
     client = app.test_client()
 
     ok = client.post(
-        "/backtest-multi-product/api/global-preview/rse-http/return-series",
+        "/api/backtest-multi-product/global-preview/rse-http/return-series",
         json={},
     )
     assert ok.status_code == 200
@@ -180,14 +180,14 @@ def test_return_series_endpoint_envelope_and_validation(app_factory, monkeypatch
     assert body["data"]["products"][0]["weight"] == pytest.approx(0.25)
 
     mismatch = client.post(
-        "/backtest-multi-product/api/global-preview/rse-http/return-series",
+        "/api/backtest-multi-product/global-preview/rse-http/return-series",
         json={"ratios": [{"product_index": 0, "ratio": 100}]},
     )
     assert mismatch.status_code == 400
     assert "比例数量" in mismatch.get_json()["message"]
 
     single_response = client.post(
-        "/backtest-multi-product/api/global-preview/rse-single/return-series",
+        "/api/backtest-multi-product/global-preview/rse-single/return-series",
         json={},
     )
     assert single_response.status_code == 200
