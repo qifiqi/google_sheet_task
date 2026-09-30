@@ -5,9 +5,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google_task:1.0.5
+    image: google_task:1.0.7
     restart: unless-stopped
     init: true
+    # nginx 暂时停用：app 直接对外 8081。
+    # 将来启用 nginx 时：改回 expose "5000" + 回环调试口 "127.0.0.1:8082:5000"，
+    # 并整体放开下方 nginx 服务块，把 8081 让给 nginx。
     ports:
       - "8081:5000"
     volumes:
@@ -22,4 +25,81 @@ services:
       - .env.production
       - .env
     stop_grace_period: 45s
-  
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 前端入口（部署模式 A，docs/design/frontend-refactor/05-deployment.md §3）：
+  # /static/** 与页面 HTML 直发（gzip + 强缓存），/api/** 反代 app。
+  # 镜像由 dockers/Dockerfile.nginx 构建，模板/静态资源烧进镜像，与 google_task 同版本号发布。
+  # 【暂时停用 2026-09-29】启用步骤：① 放开本块；② app 收回 expose "5000" +
+  #    回环调试口，把 8081 让出；③ 构建 google_nginx 镜像（见 dockers/构建.md §5）。
+  # nginx:
+  #   build:
+  #     context: ..
+  #     dockerfile: dockers/Dockerfile.nginx
+  #   image: google_nginx:1.0.7
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8081:80"
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "3"
+  #   depends_on:
+  #     - app
+
+  # 线上数据库：数据落在宿主机 /opt/google_task/pgdata
+  # 镜像版本须与 dump 来源对齐：自定义格式 1.16 由 PG17 的 pg_dump 产出，PG16 的 pg_restore 读不了
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    shm_size: 256mb
+    ports:
+      # 仅绑定本机回环，供服务器本地 psql/备份使用；不对外网开放
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: google_task
+      POSTGRES_PASSWORD: "Hello1234*"
+      POSTGRES_DB: googlesheet_validator
+    volumes:
+      - /opt/google_task/pgdata:/var/lib/postgresql/data
+      # dump 导入/备份导出的中转目录：宿主机放文件，容器内路径 /backup 直接可见
+      - /opt/google_task/backup:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U google_task -d googlesheet_validator"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # MySQL 5.7：承接 Navicat 备份（20260929135821.nb3）恢复的存量数据。
+  # 数据落在宿主机 /opt/google_task/mysqldata——这个历史目录名现在名副其实存 MySQL；
+  # 仅绑定本机回环。PG 的旧数据目录原本占用此路径，改名 pgdata 后腾出（见上方 postgres）。
+  mysql:
+    image: mysql:5.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "Hello1234*"
+      # Navicat 恢复时数据进入该库；nb3 备份本身不含 CREATE DATABASE
+      MYSQL_DATABASE: googlesheet_validator
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --max-allowed-packet=64M
+    volumes:
+      - /opt/google_task/mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pHello1234*"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
