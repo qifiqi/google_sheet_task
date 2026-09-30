@@ -11,7 +11,7 @@ from flask import Blueprint, request
 
 from app.services.task import task_manager
 from app.exceptions import NotFoundError
-from app.schemas.task import TaskResultListQuery
+from app.schemas.task import TaskResultListQuery, TaskResultsQuerySchema
 from app.utils.api_response import success
 from app.utils.request_parsing import parse_query
 from app.utils.auth import login_required
@@ -29,6 +29,13 @@ def get_task_results(task_id):
     全部结果（CSV 全量导出依赖此模式）。
     """
     task_manager.get_required_task(task_id)
+
+    # fields 白名单投影：下拉/索引类消费方裁剪响应，避开 result 大 JSON；
+    # 缺省走历史全量 to_dict（CSV/详情消费方不受影响）。
+    fields = parse_query(TaskResultsQuerySchema).fields
+    if fields:
+        items = task_manager.get_task_results_fields(task_id, fields)
+        return success(data={"items": items, "total": len(items)})
 
     page = request.args.get('page', type=int)
     per_page = request.args.get('per_page', type=int)

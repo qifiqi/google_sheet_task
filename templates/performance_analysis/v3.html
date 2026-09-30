@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V3 回测数据分析 - Jaspil 任务管理系统</title>
+
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
+    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <link href="/static/css/pages/performance_analysis_v3.css" rel="stylesheet">
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-2 border-bottom">
+    <h1 class="h2">V3：回测数据分析</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a class="btn btn-sm btn-outline-secondary" href="/performance-analysis/">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- 数据来源 -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+        <div class="d-flex flex-wrap align-items-end gap-2">
+            <ul class="nav nav-tabs flex-grow-1" id="v3-source-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="google-sheet-tab" data-bs-toggle="tab" data-bs-target="#google-sheet-pane"
+                            type="button" role="tab" aria-controls="google-sheet-pane" aria-selected="true">Google Sheet</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="paste-data-tab" data-bs-toggle="tab" data-bs-target="#paste-data-pane"
+                            type="button" role="tab" aria-controls="paste-data-pane" aria-selected="false">粘贴数据</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="import-excel-tab" data-bs-toggle="tab" data-bs-target="#import-excel-pane"
+                            type="button" role="tab" aria-controls="import-excel-pane" aria-selected="false">导入 Excel</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="result-tab" data-bs-toggle="tab" data-bs-target="#result-pane"
+                            type="button" role="tab" aria-controls="result-pane" aria-selected="false">结果分析</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane"
+                            type="button" role="tab" aria-controls="config-pane" aria-selected="false">参数配置</button>
+                </li>
+            </ul>
+            <button class="btn btn-primary mb-1" id="btn-analyze-v3" type="button" disabled>
+                <i class="bi bi-lightning-charge-fill me-1"></i>分析
+            </button>
+        </div>
+        <div class="tab-content pt-3" id="v3-source-tab-content">
+            <div class="tab-pane fade show active" id="google-sheet-pane" role="tabpanel" aria-labelledby="google-sheet-tab" tabindex="0">
+                <div class="row g-2 align-items-start">
+                    <div class="col-lg-7">
+                        <input type="text" class="form-control" id="gs-url"
+                               placeholder="Google Sheet URL：https://docs.google.com/spreadsheets/d/..." autocomplete="off"/>
+                        <div class="small text-body-secondary mt-1" id="gs-meta" style="min-height: 1.2em;"></div>
+                    </div>
+                    <div class="col-lg-3">
+                        <select id="gs-sheet-name" class="form-select" disabled>
+                            <option value="">工作表：请先输入 URL</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-2">
+                        <button class="btn btn-outline-primary" id="btn-fetch-sheets" type="button">
+                            <i class="bi bi-list-task me-1"></i>获取
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="paste-data-pane" role="tabpanel" aria-labelledby="paste-data-tab" tabindex="0">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-8">
+                        <textarea class="form-control font-monospace" id="v3-paste-data" rows="8"
+                                  aria-label="回测收益数据"
+                                  placeholder="date&#9;index_return&#9;start_return&#10;2025-01-02&#9;0.0123&#9;0.0156&#10;2025-01-03&#9;-0.0081&#9;-0.0042"></textarea>
+                    </div>
+                    <div class="col-lg-4 d-flex">
+                        <div class="border rounded-1 bg-body-tertiary p-3 h-100 w-100">
+                            <div class="fw-semibold mb-2">输入说明</div>
+                            <div class="small fw-semibold mb-1">回测收益数据</div>
+                            <div class="small text-body-secondary mb-3" id="v3-paste-status">需要三列：日期、指数收益、模型收益。</div>
+                            <div class="small text-body-secondary">支持从 Excel 复制，列可由 Tab、逗号或空格分隔。首行如为列头会自动跳过。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="import-excel-pane" role="tabpanel" aria-labelledby="import-excel-tab" tabindex="0">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-7 d-flex">
+                        <input class="d-none" type="file" id="v3-excel-file" accept=".xlsx,.xls">
+                        <div class="border border-secondary-subtle rounded-1 p-4 text-center h-100 w-100 d-flex flex-column justify-content-center">
+                            <i class="bi bi-file-earmark-excel text-success fs-3 d-block mb-2"></i>
+                            <div class="fw-semibold">选择本地 Excel 文件</div>
+                            <div class="small text-body-secondary mt-1 mb-3">文件仅在当前浏览器中读取，不上传到服务器。</div>
+                            <button class="btn btn-outline-primary" id="btn-select-v3-excel" type="button">
+                                <i class="bi bi-upload me-1"></i>选择 Excel 文件
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-lg-5 d-flex">
+                        <div class="border rounded-1 bg-body-tertiary p-3 h-100 w-100">
+                            <div class="fw-semibold mb-2">导入规则</div>
+                            <dl class="row small mb-0">
+                                <dt class="col-4 text-body-secondary fw-normal">工作表</dt><dd class="col-8">默认第 1 个工作表</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">数据范围</dt><dd class="col-8">仅读取前三列（A:C）</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">首行处理</dt><dd class="col-8">识别为列头时自动跳过</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">标准字段</dt><dd class="col-8 font-monospace">date / index_return / start_return</dd>
+                            </dl>
+                            <div class="small text-body-secondary mt-2" id="v3-excel-status">请选择 .xlsx 或 .xls 文件。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="result-pane" role="tabpanel" aria-labelledby="result-tab" tabindex="0">
+                <div class="row g-2 align-items-start">
+                    <div class="col-lg-5">
+                        <input type="text" class="form-control" id="v3-result-id-input" autocomplete="off"
+                               aria-label="任务 ID 或结果 ID"
+                               placeholder="任务 ID 或 结果 ID（纯数字直接分析）"/>
+                        <div class="small text-body-secondary mt-1" id="v3-result-status" style="min-height: 1.2em;">
+                            输入任务 ID 后回车或失焦获取结果列表；直接输入结果 ID（纯数字）可直接分析。
+                        </div>
+                    </div>
+                    <div class="col-lg-7 d-none" id="v3-result-select-wrap">
+                        <select id="v3-result-select" class="form-select" aria-label="选择结果 ID"></select>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="config-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-downturn-threshold">市场下跌阶段阈值（指数月收益 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-downturn-threshold" value="-2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.1 市场下跌阶段判定阈值，默认 -2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-upturn-threshold">市场上涨阶段阈值（指数月收益 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-upturn-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.2 市场上涨阶段判定阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-extreme-threshold">极端单日涨跌阈值（单日涨/跌 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-extreme-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.3 涨幅/跌幅天数与涨跌比统计阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-drawdown-threshold">单日回撤统计阈值（单日跌幅 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-drawdown-threshold" value="5" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-risk-free-rate">无风险利率（年化）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-risk-free-rate" value="0" min="0" max="100" step="0.01">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">夏普比率与索提诺比率的无风险利率，默认 0%（与历史口径一致）。</div>
+                    </div>
+                    <div class="col-12 small text-body-secondary">
+                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值与无风险利率（弹窗内可按单次导出临时覆盖）。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据集栏：分析结果在此登记，勾选即参与对比 -->
+<div class="card border-0 shadow-sm mb-3" id="dataset-card">
+    <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="small fw-semibold text-body-secondary"><i class="bi bi-collection me-1"></i>数据集</span>
+            <div class="v3-dataset-bar flex-grow-1" id="v3-dataset-bar">
+                <span class="small text-body-secondary" id="v3-dataset-empty">暂无数据集，分析后自动登记。</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 分区锚点导航 -->
+<nav class="v3-section-nav" id="v3-section-nav">
+    <ul class="nav nav-pills flex-nowrap overflow-auto" id="v3-section-nav-list">
+        <li class="nav-item"><a class="nav-link active" data-target="sec-kpi">核心指标</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-nav">净值与回撤</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-annual">年度绩效</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-monthly">月度透视</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-dist">收益分布</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-extreme">风险与极端行情</a></li>
+        <li class="nav-item"><a class="nav-link" data-target="sec-details">数据明细</a></li>
+    </ul>
+</nav>
+
+<div class="v3-color-legend mb-3">
+    颜色约定：<span class="v3-swatch" style="background:var(--v3-bench)"></span>基准（指数）
+    <span class="v3-swatch" style="background:var(--v3-strat)"></span>策略
+    <span class="v3-swatch" style="background:var(--v3-excess)"></span>超额
+    ｜ 涨跌着色：<span class="v3-up fw-semibold">红=正/涨</span>、<span class="v3-down fw-semibold">绿=负/跌</span>
+    <span class="ms-2" id="v3-caliber-chips"></span>
+</div>
+
+<!-- ① 来源信息 + 核心 KPI -->
+<section id="sec-kpi" class="mb-4">
+    <div class="small text-body-secondary mb-2" id="v3-source-info" style="min-height:1.2em;"></div>
+    <div id="v3-kpi-container"></div>
+</section>
+
+<!-- ② 净值与回撤 -->
+<section id="sec-nav" class="mb-4">
+    <h2 class="v3-section-title">净值与回撤</h2>
+    <div id="sec-nav-body">
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="card-title mb-0">策略净值曲线（含基准与超额）</h6>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="v3-nav-log-toggle">
+                            <label class="form-check-label small" for="v3-nav-log-toggle">对数轴</label>
+                        </div>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="v3-chart-box tall"><canvas id="v3-chart-nav"></canvas></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">水下回撤曲线（净值距历史高点）</h6></div>
+                    <div class="card-body p-2">
+                        <div class="v3-chart-box"><canvas id="v3-chart-underwater"></canvas></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">累计超额收益曲线（策略累计收益 - 基准累计收益）</h6></div>
+                    <div class="card-body p-2">
+                        <div class="v3-chart-box"><canvas id="v3-chart-excess-line"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ③ 年度绩效 -->
+<section id="sec-annual" class="mb-4">
+    <h2 class="v3-section-title">年度绩效</h2>
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">年度收益率对比</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-annual-returns"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">年度最大回撤对比</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-annual-drawdown"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100" id="v3-excess-annual-card">
+                <div class="card-header py-2"><h6 class="card-title mb-0">年超额收益（策略 - 基准）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-excess-annual"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">风险调整指标雷达（归一化，越大越好）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-radar"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ④ 月度透视 -->
+<section id="sec-monthly" class="mb-4">
+    <h2 class="v3-section-title">月度透视</h2>
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h6 class="card-title mb-0">月度收益热力图（红=正，绿=负）</h6>
+                    <div class="btn-group btn-group-sm" role="group" id="v3-heatmap-switch">
+                        <button class="btn btn-outline-secondary active" data-view="index" type="button">基准</button>
+                        <button class="btn btn-outline-secondary" data-view="start" type="button">策略</button>
+                        <button class="btn btn-outline-secondary" data-view="excess" type="button">超额</button>
+                    </div>
+                </div>
+                <div class="card-body p-2">
+                    <div class="table-responsive"><div id="v3-heatmap"></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100" id="v3-monthly-excess-card">
+                <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（策略 - 基准）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box tall"><canvas id="v3-chart-monthly-excess"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">滚动收益（3/6/12 月窗口：均值 + 胜率）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box tall"><canvas id="v3-chart-rolling"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header py-2"><h6 class="card-title mb-0">月度收益散点（x=基准，y=策略，右上半区=跑赢）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-scatter"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ⑤ 收益分布 -->
+<section id="sec-dist" class="mb-4">
+    <h2 class="v3-section-title">收益分布</h2>
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header py-2">
+                    <h6 class="card-title mb-0">日收益率分布直方图（对称分箱对齐 Word 报告，超出 <span id="v3-hist-limit">-</span>% 并入两端）</h6>
+                </div>
+                <div class="card-body p-2">
+                    <div class="v3-chart-box tall"><canvas id="v3-chart-hist-daily"></canvas></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">月度收益区间分布（占比）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-dist-monthly"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">日度收益区间分布（占比）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-dist-daily"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100" id="v3-dist-excess-card">
+                <div class="card-header py-2"><h6 class="card-title mb-0">超额月度收益区间分布（占比）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-dist-excess"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">分布形态指标（偏度 / 峰度 / 波动率）</h6></div>
+                <div class="card-body p-2"><div id="v3-dist-shape-cards"></div></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ⑥ 风险与极端行情 -->
+<section id="sec-extreme" class="mb-4">
+    <h2 class="v3-section-title">风险与极端行情</h2>
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">极端行情阶段表现（下跌 / 上涨）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-extreme"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">极端单日涨跌（超阈值天数与涨跌比）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-daily-extreme"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（含年度最大）</h6></div>
+                <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-repair-days"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header py-2"><h6 class="card-title mb-0">资金曲线特征</h6></div>
+                <div class="card-body p-2"><div id="v3-capital-cards"></div></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ⑦ 数据明细（八章表格 + Sheet 结果 + 全量指标 + JSON） -->
+<div class="card border-0 shadow-sm mb-4" id="sec-details">
+    <div class="card-header bg-body-tertiary border-0 py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#v3-details-collapse" aria-expanded="false" aria-controls="v3-details-collapse">
+                <i class="bi bi-layout-text-sidebar-reverse me-1"></i>数据明细（与 Word 报告八章对齐，展开/收起）
+            </button>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v3" disabled>
+                    <i class="bi bi-download me-1"></i>导出 Excel
+                </button>
+                <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
+                    <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="collapse" id="v3-details-collapse">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <div class="list-group" id="v3-detail-tabs" role="tablist">
+                        <button class="list-group-item list-group-item-action active" data-bs-toggle="list" data-bs-target="#tab-ret" type="button" role="tab">一、收益类</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-risk" type="button" role="tab">二、风险类</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-ra" type="button" role="tab">三、风险调整</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-monthly" type="button" role="tab">四、月度分布</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-daily" type="button" role="tab">五、日度分布</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-excess" type="button" role="tab">六、超额收益</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-extreme" type="button" role="tab">七、极端行情</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-capital" type="button" role="tab">八、资金曲线</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-sheet" type="button" role="tab" id="tab-sheet-btn">Sheet 结果</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-allmetrics" type="button" role="tab">全量指标</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list" data-bs-target="#tab-raw" type="button" role="tab">全量 JSON</button>
+                    </div>
+                </div>
+                <div class="col-md-10">
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-ret" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-core-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准收益</th><th class="num">策略收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-annual-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>滚动周期</th><th class="num">基准平均收益</th><th class="num">策略平均收益</th><th class="num">策略胜率</th></tr></thead><tbody id="tbl-v3-rolling"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准年化</th><th class="num">策略年化</th><th class="num">超额</th><th>区间</th></tr></thead><tbody id="tbl-v3-excess-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年月</th><th class="num">基准月收益</th><th class="num">策略月收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-monthly-excess"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-risk" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-core"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准回撤</th><th class="num">策略回撤</th><th>日期(基准/策略)</th></tr></thead><tbody id="tbl-v3-annual-drawdown"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-ra" role="tabpanel">
+                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-adjusted"></tbody></table></div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-monthly" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-monthly-overview"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">基准月数</th><th class="num">基准占比</th><th class="num">策略月数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-monthly-dist"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-daily" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-overview"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">基准天数</th><th class="num">基准占比</th><th class="num">策略天数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-daily-dist"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-excess" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">数值</th></tr></thead><tbody id="tbl-v3-excess-stats"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>超额区间</th><th class="num">月数</th><th class="num">占比</th></tr></thead><tbody id="tbl-v3-excess-dist"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>滚动窗口</th><th class="num">平均超额</th><th class="num">正超额概率</th></tr></thead><tbody id="tbl-v3-excess-rolling"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-extreme" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-downfall"></tbody></table></div><div class="small text-body-secondary mt-1">市场下跌阶段（指数月收益低于阈值）</div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-upward"></tbody></table></div><div class="small text-body-secondary mt-1">市场上涨阶段（指数月收益高于阈值）</div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-extreme"></tbody></table></div></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-capital" role="tabpanel">
+                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-capital"></tbody></table></div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-sheet" role="tabpanel">
+                            <div class="small text-body-secondary mb-2">Google Sheet 模板自带的结果区键值（C 系列模板），仅 Sheet 来源分析时存在。</div>
+                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody id="tbl-v3-sheet-result"></tbody></table></div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-allmetrics" role="tabpanel">
+                            <div class="table-responsive" style="max-height: 560px; overflow: auto;">
+                                <table class="table table-sm table-striped mb-0 v3-metrics-table">
+                                    <thead><tr><th>指标</th><th>Key</th><th>数值</th></tr></thead>
+                                    <tbody id="tbl-v3-all-metrics"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-raw" role="tabpanel">
+                            <div class="d-flex justify-content-end mb-2">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-copy-raw-json">复制</button>
+                            </div>
+                            <pre id="pre-v3-raw-json" class="mb-0" style="max-height: 520px; overflow:auto;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="loading-overlay"
+     class="position-fixed top-0 start-0 w-100 h-100 d-none d-flex flex-column justify-content-center align-items-center bg-dark bg-opacity-75"
+     style="z-index: 9999;">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <div class="mt-3 text-white fs-5">请求中，请稍候...</div>
+</div>
+
+<div class="modal fade" id="word-export-options-modal" tabindex="-1" aria-labelledby="word-export-options-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="word-export-options-title">导出 Word 报告</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-1 position-relative">
+                    <label for="word-export-stock" class="form-label">股票</label>
+                    <input id="word-export-stock" class="form-control" autocomplete="off" placeholder="输入股票代码或名称搜索">
+                    <div id="word-export-stock-results" class="list-group position-absolute top-100 start-0 w-100 d-none"
+                         style="z-index: 2; max-height: 15rem; overflow-y: auto;"></div>
+                    <div class="form-text">请从内部股票查询结果中选择。</div>
+                </div>
+                <div class="row g-3 mt-1">
+                    <div class="col-12 col-sm-7">
+                        <label for="word-export-price-type" class="form-label">价格类型</label>
+                        <select id="word-export-price-type" class="form-select">
+                            <option value="sp_price" selected>收盘价</option>
+                            <option value="kp_price">开盘价</option>
+                            <option value="vwap_price">加权平均价</option>
+                            <option value="ohlc_price">OHLC（开高低收）</option>
+                            <option value="random_price">随机价</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-5">
+                        <label for="word-export-risk-free-rate" class="form-label">无风险利率（年化）</label>
+                        <div class="input-group">
+                            <input id="word-export-risk-free-rate" type="number" class="form-control"
+                                   min="0" max="100" step="0.01" value="0" aria-describedby="word-export-risk-free-rate-help">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div id="word-export-risk-free-rate-help" class="form-text">用于夏普比率计算，默认 0。</div>
+                    </div>
+                </div>
+                <div class="small text-body-secondary mt-3">报告权重固定为 100.00%；无风险利率同时展示在报告信息中。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="btn-confirm-word-export">导出 Word</button>
+            </div>
+        </div>
+    </div>
+</div>
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+    <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+    <script src="/static/js/common/metric-names.js"></script>
+    <script src="/static/js/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script src="/static/js/pages/performance_analysis_v3.js"></script>
+</body>
+</html>

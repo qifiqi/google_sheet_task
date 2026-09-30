@@ -30,9 +30,9 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    depends_on:
-      postgres:
-        condition: service_healthy
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
 
   # 前端入口（部署模式 A，docs/design/frontend-refactor/05-deployment.md §3）：
   # /static/** 与页面 HTML 直发（gzip + 强缓存），/api/** 反代 app。
@@ -57,27 +57,27 @@ services:
 
   # 线上数据库：数据落在宿主机 /opt/google_task/pgdata
   # 镜像版本须与 dump 来源对齐：自定义格式 1.16 由 PG17 的 pg_dump 产出，PG16 的 pg_restore 读不了
-  postgres:
-    image: postgres:17
-    restart: unless-stopped
-    shm_size: 256mb
-    ports:
-      # 仅绑定本机回环，供服务器本地 psql/备份使用；不对外网开放
-      - "127.0.0.1:5432:5432"
-    environment:
-      POSTGRES_USER: google_task
-      POSTGRES_PASSWORD: "Hello1234*"
-      POSTGRES_DB: googlesheet_validator
-    volumes:
-      - /opt/google_task/pgdata:/var/lib/postgresql/data
-      # dump 导入/备份导出的中转目录：宿主机放文件，容器内路径 /backup 直接可见
-      - /opt/google_task/backup:/backup
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U google_task -d googlesheet_validator"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+#  postgres:
+#    image: postgres:17
+#    restart: unless-stopped
+#    shm_size: 256mb
+#    ports:
+#      # 仅绑定本机回环，供服务器本地 psql/备份使用；不对外网开放
+#      - "127.0.0.1:5432:5432"
+#    environment:
+#      POSTGRES_USER: google_task
+#      POSTGRES_PASSWORD: "Hello1234*"
+#      POSTGRES_DB: googlesheet_validator
+#    volumes:
+#      - /opt/google_task/pgdata:/var/lib/postgresql/data
+#      # dump 导入/备份导出的中转目录：宿主机放文件，容器内路径 /backup 直接可见
+#      - /opt/google_task/backup:/backup
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U google_task -d googlesheet_validator"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 10
+#      start_period: 20s
 
   # MySQL 5.7：承接 Navicat 备份（20260929135821.nb3）恢复的存量数据。
   # 数据落在宿主机 /opt/google_task/mysqldata——这个历史目录名现在名副其实存 MySQL；

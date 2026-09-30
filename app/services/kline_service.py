@@ -9,7 +9,8 @@ from app.utils.logger import get_logger
 
 import asyncio
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
+from itertools import groupby
 from typing import Any, Callable, Iterable
 from stock_sdk import StockClient
 
@@ -65,6 +66,18 @@ VALID_DATA_SOURCES = {
     DATA_SOURCE_DATABASE,
     DATA_SOURCE_AKSHARE,
 }
+
+# 日线周期标识（东财 klt 口径）。内部 K 线库只存日线，分钟周期必须绕开内部库直取外部源。
+DAILY_KLINE_TYPE = "101"
+_DAILY_KLINE_TYPES = {"", DAILY_KLINE_TYPE}
+
+# 周/月K：dfcf/qq 原生提供；其余日线口径源（akshare/yahoo/tdx/内部库）按日线聚合推算。
+KLINE_TYPE_WEEK = "102"
+KLINE_TYPE_MONTH = "103"
+_AGGREGATED_KLINE_TYPES = {KLINE_TYPE_WEEK, KLINE_TYPE_MONTH}
+_NATIVE_PERIOD_SOURCES = {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}
+# 聚合推算时放大日线拉取条数（周×7、月×31，聚合后仍截最新 limit 根）。
+_AGGREGATE_DAILY_FACTOR = {KLINE_TYPE_WEEK: 7, KLINE_TYPE_MONTH: 31}
 
 
 def _resolve_stock_base_url() -> str | None:
@@ -254,7 +267,8 @@ class KlineService:
 
         data = stock_data.get_data_all_list({
             "begin_date": rows[0]["stock_date"],
-            "end_time": rows[7]["stock_date"],
+            # 区间查询窗取第 8 根（与既有调用方 limit>=100 的口径一致）；行数不足时取末根，避免 IndexError
+            "end_time": rows[min(7, len(rows) - 1)]["stock_date"],
             "stock_code": stock_code,
         })
         data = data.ret_obj
@@ -307,6 +321,7 @@ class KlineService:
         adjust_type: str | None = None,
         exchange_market: str | None = None,
         stock_name: str | None = None,
+        kline_type: str = DAILY_KLINE_TYPE,
     ) -> list[dict[str, Any]]:
         source = self.normalize_data_source(data_source, self.sources)
         raw_code = str(stock_code or "").strip().upper()
@@ -320,9 +335,11 @@ class KlineService:
         if not code:
             raise ValueError("股票代码不能为空")
         limit = max(1, int(limit or 1))
+        kline_type = str(kline_type or DAILY_KLINE_TYPE).strip()
 
         internal_rows = []
-        if supports_internal_kline(market_type):
+        is_daily = kline_type in _DAILY_KLINE_TYPES
+        if is_daily and supports_internal_kline(market_type):
             internal_rows = self._normalize_rows(
                 self.read_internal_kline_data(
                     stock_code=source_code,
@@ -344,23 +361,36 @@ class KlineService:
         if source == DATA_SOURCE_DATABASE:
             source = DATA_SOURCE_DFCF
 
+        # 周月K在非原生源上按日线聚合推算：放大日线条数、以日线周期拉取。
+        aggregate_from_daily = (
+            kline_type in _AGGREGATED_KLINE_TYPES
+            and source not in _NATIVE_PERIOD_SOURCES
+        )
+        fetch_limit = (
+            limit * _AGGREGATE_DAILY_FACTOR[kline_type]
+            if aggregate_from_daily
+            else limit
+        )
         rows, resolved_name = self._fetch_external(
             source,
             source_code,
             market_type,
-            limit,
+            fetch_limit,
             adjust_type,
             exchange_market,
             stock_name,
             start_date,
             end_date,
+            DAILY_KLINE_TYPE if aggregate_from_daily else kline_type,
         )
         normalized_rows = self._normalize_rows(
             rows, code, resolved_name, source,
             market_type=market_type,
             exchange_market=exchange_market,
         )
-        if normalized_rows and supports_internal_kline(market_type):
+        if aggregate_from_daily:
+            normalized_rows = self._aggregate_klines(normalized_rows, kline_type)
+        if normalized_rows and is_daily and supports_internal_kline(market_type):
             self.write_internal_kline_data(
                 normalized_rows,
                 stock_code=source_code,
@@ -391,6 +421,7 @@ class KlineService:
         stock_name: str | None,
         start_date: str | None,
         end_date: str | None,
+        kline_type: str = DAILY_KLINE_TYPE,
     ) -> tuple[Iterable[dict[str, Any]], str]:
         if source == DATA_SOURCE_TDX:
             exchange, resolved_name, resolved_code = (
@@ -428,6 +459,7 @@ class KlineService:
             "start_date": start_date,
             "end_date": end_date,
             "stock_name": resolved_name,
+            "kline_type": kline_type,
         })
         return rows or [], resolved_name
 
@@ -436,6 +468,7 @@ class KlineService:
             request["stock_code"],
             request["exchange_market"],
             request["limit"],
+            kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,
             adjust_type=request.get("adjust_type"),
         )
 
@@ -444,6 +477,7 @@ class KlineService:
             request["stock_code"],
             request["exchange_market"],
             limit=request["limit"],
+            kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,
             adjust_type=request.get("adjust_type"),
             market_type=request.get("market_type"),
         )
@@ -613,10 +647,42 @@ class KlineService:
         try:
             return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
         except ValueError:
+            parsed = KlineService._parse_compact_datetime(text)
+            if parsed is not None:
+                return parsed.date().isoformat()
             try:
                 return datetime.strptime(text, "%Y/%m/%d").date().isoformat()
             except ValueError:
                 return ""
+
+    @staticmethod
+    def _normalize_stock_datetime(value: Any) -> str:
+        """来源日期带时间部分（分钟线）时返回 "YYYY-MM-DD HH:MM"；日线返回空串。
+
+        分钟K线同一天会有多根记录，stock_date 仍归属到日（内部逻辑不变），
+        展示层用本字段保留根级时间。
+        """
+        if value in (None, ""):
+            return ""
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = KlineService._parse_compact_datetime(text)
+        if parsed is None or (parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0):
+            return ""
+        return parsed.strftime("%Y-%m-%d %H:%M")
+
+    @staticmethod
+    def _parse_compact_datetime(text: str) -> datetime | None:
+        """解析腾讯系纯数字日期：YYYYMMDD / YYYYMMDDHHMM / YYYYMMDDHHMMSS。"""
+        if not text.isdigit() or len(text) not in (8, 12, 14):
+            return None
+        formats = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
+        try:
+            return datetime.strptime(text, formats[len(text)])
+        except ValueError:
+            return None
 
     @staticmethod
     def _normalize_rows(
@@ -684,6 +750,8 @@ class KlineService:
                     "stock_code": code,
                     "stock_name": name,
                     "stock_date": stock_date,
+                    # 分钟线保留根级时间；日线为空串，不改变既有行形状。
+                    "stock_datetime": KlineService._normalize_stock_datetime(date),
                     "volume": volume,
                     "amount": amount,
                     "vwap": vwap,
@@ -694,3 +762,43 @@ class KlineService:
             normalized.append(row)
         normalized.sort(key=lambda row: row["stock_date"])
         return normalized
+
+    @staticmethod
+    def _aggregate_klines(
+        rows: list[dict[str, Any]],
+        kline_type: str,
+    ) -> list[dict[str, Any]]:
+        """日线聚合为周K/月K（供仅日线口径的数据源推算周期K）。
+
+        输入须为升序日线行。分组键：周K为自然周周一、月K为 YYYY-MM；
+        OHLC 取组内首开/末收/最高/最低，量额求和、vwap=Σamount/Σvolume；
+        行日期为组内最后交易日（与东财周期K口径一致）。振幅/涨跌幅等衍生
+        指标不在聚合层伪造，由展示端按收盘序列推算。
+        """
+        def group_key(stock_date: str) -> str:
+            date = datetime.fromisoformat(stock_date)
+            if kline_type == KLINE_TYPE_WEEK:
+                return (date - timedelta(days=date.weekday())).date().isoformat()
+            return stock_date[:7]
+
+        aggregated: list[dict[str, Any]] = []
+        for _, group in groupby(rows, key=lambda row: group_key(row["stock_date"])):
+            items = list(group)
+            first, last = items[0], items[-1]
+            volume = sum(float(item.get("volume") or 0) for item in items)
+            amount = sum(float(item.get("amount") or 0) for item in items)
+            close = float(last.get("close") or 0)
+            aggregated.append({
+                "stock_code": first.get("stock_code"),
+                "stock_name": first.get("stock_name"),
+                "stock_date": last["stock_date"],
+                "open": first.get("open"),
+                "high": max(float(item["high"]) for item in items),
+                "low": min(float(item["low"]) for item in items),
+                "close": last.get("close"),
+                "volume": volume,
+                "amount": amount,
+                "vwap": round(amount / volume, 3) if volume else close,
+                "data_source": last.get("data_source"),
+            })
+        return aggregated

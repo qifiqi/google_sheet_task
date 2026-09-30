@@ -15,6 +15,7 @@ register_page_routes(
     [
         ("/", "performance_analysis/index.html"),
         ("/v2", "performance_analysis/v2.html"),
+        ("/v3", "performance_analysis/v3.html"),
         ("/weight-combination", "performance_analysis/weight_combination.html"),
     ],
     guard=page_login_required,

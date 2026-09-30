@@ -144,7 +144,7 @@ def test_v2_json_returns_are_normalized_without_a_product():
     })
 
     assert request.report_type == "RPT-S"
-    rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
     assert rows == _report_payload()["returns"]
     assert stock_code == ""
 
@@ -163,7 +163,7 @@ def test_v2_google_sheet_returns_are_normalized(monkeypatch):
         "google_sheet_name": "回测",
     })
 
-    rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
     assert rows == _report_payload()["returns"]
     assert stock_code == ""
 
@@ -193,9 +193,10 @@ def test_single_product_task_uses_linked_return_series(app_factory):
 
         request = StrategyBacktestReportSchema.model_validate({"task_id": task.id})
 
-        rows, stock_code = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+        rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
         assert rows == _report_payload()["returns"]
         assert stock_code == "600519.SH"
+        assert stock_name == "贵州茅台"
 
 
 def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
@@ -227,7 +228,7 @@ def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
         ],
     })
 
-    runs, task_stock_code = strategy_backtest_report_service._build_benchmark_runs(request)
+    runs, task_stock_code, task_stock_name = strategy_backtest_report_service._build_benchmark_runs(request)
 
     assert task_stock_code == ""
     assert len(runs) == 1 and runs[0].label == "组合指数"
@@ -534,3 +535,89 @@ def test_word_report_accepts_task_return_series_source(app_factory, monkeypatch)
     assert calls[0].task_id == "word-series-source-task"
     assert calls[0].return_series_id == series_id
     assert "600519_2024_result1" in response.headers["Content-Disposition"]
+
+
+def test_task_results_fields_projection(app_factory):
+    """fields 白名单投影：下拉/索引消费方避开 result 大 JSON，附收益起止日期。"""
+    app = app_factory
+    _seed_task_result_with_returns(app)
+    headers = _page_user_headers(app, username="xpl-results-fields-user")
+    client = app.test_client()
+    url = '/api/tasks/xpl-analyze-result-task/results'
+
+    body = client.get(
+        url + '?fields=id,task_id,parameters,return_series_id,success,return_date_range',
+        headers=headers,
+    ).get_json()
+    items = body["data"]["items"]
+    assert len(items) == 1
+    item = items[0]
+    assert set(item.keys()) == {
+        "id", "task_id", "parameters", "return_series_id", "success", "return_date_range",
+    }
+    assert item["return_date_range"] == {"start": "2024-01-01", "end": "2024-01-03"}
+
+    # 未知字段 → 400，支持列表随消息下发
+    bad = client.get(url + '?fields=id,nope', headers=headers)
+    assert bad.status_code == 400
+    assert "nope" in bad.get_json()["message"]
+
+    # 缺省（不带 fields）仍是历史全量 to_dict，result 大 JSON 在
+    full = client.get(url, headers=headers).get_json()
+    assert "result" in full["data"]["items"][0]
+
+
+def test_generate_word_backfills_products_for_task_source(app_factory, monkeypatch):
+    """task 来源 RPT-S 自动补 products：权重表的股票代码/名称/市场口径不再为空。
+
+    股票取自收益序列，market_type/exchange_market 取自任务配置。
+    """
+    app = app_factory
+    with app.app_context():
+        task = Task(id="word-backfill-task", name="补位", task_type="backtest_training", status="completed",
+                    config='{"market_type":"cn","exchange_market":"SH"}')
+        series = TaskResultReturn(
+            task_id=task.id,
+            **build_return_series_fields(
+                _report_payload()["returns"],
+                stock_code="600519.SH",
+                stock_name="贵州茅台",
+            ),
+        )
+        db.session.add_all([task, series])
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id, step_index=0, parameters="{}", result="{}",
+            return_series_id=series.id, success=True,
+        ))
+        db.session.commit()
+        series_id = series.id
+
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    service = strategy_backtest_report_service
+    index_df = _Frame({
+        "date": _Column([datetime(2026, 8, 20), datetime(2026, 8, 21)]),
+        "index_return": _Column([0.01, -0.01]),
+    })
+    index_df.empty = False
+    canned_runs = [SimpleNamespace(code=None, weight=1, label="组合指数",
+                                   result=SimpleNamespace(metrics={"x": 1}, index_df=index_df))]
+    monkeypatch.setattr(service, "_build_benchmark_runs", lambda request: (canned_runs, "600519.SH", "贵州茅台"))
+    monkeypatch.setattr(service, "_build_chart_data", lambda runs: {})
+    monkeypatch.setattr(service, "_correlation_matrix", lambda request, result: None)
+    monkeypatch.setattr(service, "_conclusion", lambda runs, first, last: ["结论"])
+    monkeypatch.setattr("app.services.strategy_backtest_report_service.generate_report_charts", lambda chart_data, temp_dir: {})
+
+    request = StrategyBacktestReportSchema.model_validate({
+        "report_type": "RPT-S",
+        "task_id": "word-backfill-task",
+        "return_series_id": series_id,
+    })
+    filename, buffer = service.generate_word(request)
+
+    assert request.products[0]["stock_code"] == "600519.SH"
+    assert request.products[0]["product_name"] == "贵州茅台"
+    assert request.products[0]["market_type"] == "cn"
+    assert request.products[0]["exchange_market"] == "SH"
+    assert filename.startswith("RPT-S-600519.SH-")
+    assert buffer.getvalue()

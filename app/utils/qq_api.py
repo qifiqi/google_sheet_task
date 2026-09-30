@@ -36,6 +36,8 @@ class QQStockApi:
     """
 
     KLINE_URL = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
+    # 分钟K线独立端点：fqkline 不接受分钟周期；mkline 无复权参数，周期为 m1/m5/m15/m30/m60。
+    MKLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
 
     # 重试配置
     MAX_RETRIES = 3
@@ -54,10 +56,13 @@ class QQStockApi:
         '101': 'day',
         '102': 'week',
         '103': 'month',
-        '5': 'min5',
-        '15': 'min15',
-        '30': 'min30',
-        '60': 'min60',
+    }
+    MINUTE_TYPE_MAP = {
+        '1': 'm1',
+        '5': 'm5',
+        '15': 'm15',
+        '30': 'm30',
+        '60': 'm60',
     }
 
     def __init__(self):
@@ -200,11 +205,16 @@ class QQStockApi:
             normalized_code = normalized_code[2:]
         qq_symbol = f"{market_prefix}{normalized_code}"
 
-        qq_kline_type = self.KLINE_TYPE_MAP.get(kline_type, 'day')
-        qq_adjust = sina_adjust(adjust_type, default='qfq')
+        is_minute = str(kline_type) in self.MINUTE_TYPE_MAP
+        if is_minute:
+            qq_kline_type = self.MINUTE_TYPE_MAP[str(kline_type)]
+        else:
+            qq_kline_type = self.KLINE_TYPE_MAP.get(kline_type, 'day')
+        # 分钟K线（mkline）不支持复权参数；日线/周月K沿用 fqkline 的 adjust 段。
+        qq_adjust = '' if is_minute else sina_adjust(adjust_type, default='qfq')
 
-        # 确定响应中的 key：qfqday / qfqweek / qfqmonth / qfqmin5 ...
-        # 不复权时 key 为 day / week / month ...
+        # 确定响应中的 key：qfqday / qfqweek / qfqmonth；不复权时 key 为 day / week / month ...
+        # 分钟K线 key 即 m5/m15/...（无复权前缀）。
         if qq_adjust:
             data_key = f"{qq_adjust}{qq_kline_type}"
         else:
@@ -216,11 +226,15 @@ class QQStockApi:
 
         while remaining > 0:
             batch_size = min(remaining, self.MAX_BATCH_SIZE)
-            param = f"{qq_symbol},{qq_kline_type},{cursor_date},,{batch_size},{qq_adjust}"
+            if is_minute:
+                param = f"{qq_symbol},{qq_kline_type},{cursor_date},,{batch_size}"
+            else:
+                param = f"{qq_symbol},{qq_kline_type},{cursor_date},,{batch_size},{qq_adjust}"
 
             self.logger.debug("腾讯K线请求: param=%s", param)
             try:
-                response = self._get(self.KLINE_URL, params={"param": param})
+                kline_url = self.MKLINE_URL if is_minute else self.KLINE_URL
+                response = self._get(kline_url, params={"param": param})
             except requests.RequestException:
                 self.logger.exception("腾讯K线接口请求失败")
                 break

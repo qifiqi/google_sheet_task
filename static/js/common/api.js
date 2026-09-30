@@ -136,6 +136,10 @@
       search: function (query, options) {
         return get("/api/search-stocks" + (query ? "?" + query : ""), options);
       },
+      // K线查询（/api/klines）：query 为序列化查询串（stock_code/data_source/kline_type 等）。
+      klines: function (query, options) {
+        return get("/api/klines" + (query ? "?" + query : ""), options);
+      },
     },
     backtest: {
       // 单品数据回测（/backtest-training 自有 API，信封与 /api/tasks 同一格式）

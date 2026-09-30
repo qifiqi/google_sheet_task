@@ -9,6 +9,10 @@ const previewCache = new Map();
 
 // Word 导出按“股票×年份×参数方案”逐个调用 Word 报告接口，前端限速避免拥挤。
 const WORD_EXPORT_INTERVAL_MS = 2000;
+// 结果索引用的轻量字段集（fields 白名单投影）：避开 result 大 JSON；
+// return_date_range 为服务端计算字段（收益序列首末日期），供卡片展示。
+const RESULT_FIELDS_QUERY =
+    "fields=id,task_id,parameters,return_series_id,success,return_date_range";
 // 结果列表索引（按任务缓存）：result_id → 收益序列/股票/年份，供 Word 导出循环使用。
 let taskResultIndex = null;
 let taskResultIndexTaskId = '';
@@ -144,15 +148,21 @@ async function loadTaskResultIndex() {
     // 按结果循环调用的数据源；按任务缓存，重复点击不再拉取。
     // Api.endpoints.task.results 失败直接 throw，成功返回信封 data（{items,...}）。
     if (taskResultIndexTaskId === currentTaskId && taskResultIndex) return taskResultIndex;
-    const data = await Api.endpoints.task.results(encodeURIComponent(currentTaskId));
+    const data = await Api.endpoints.task.results(encodeURIComponent(currentTaskId), RESULT_FIELDS_QUERY);
     const items = data?.items || [];
-    taskResultIndex = items.map((item) => ({
-        resultId: item.id,
-        returnSeriesId: item.return_series_id,
-        stockCode: String(item.parameters?.stock_code || '').toUpperCase(),
-        year: item.parameters?.year != null ? String(item.parameters.year) : '',
-        success: item.success !== false,
-    }));
+    taskResultIndex = items.map((item) => {
+        const params = item.parameters || {};
+        return {
+            resultId: item.id,
+            taskId: item.task_id,
+            returnSeriesId: item.return_series_id,
+            stockCode: String(params.stock_code || '').toUpperCase(),
+            stockName: String(params.stock_name || params.product_name || ''),
+            year: params.year != null ? String(params.year) : '',
+            success: item.success !== false,
+            returnDateRange: item.return_date_range || null,
+        };
+    });
     taskResultIndexTaskId = currentTaskId;
     return taskResultIndex;
 }
@@ -200,6 +210,8 @@ function renderWordExportList() {
         container.innerHTML = items.map((item) => {
             const eligible = item.success && item.returnSeriesId;
             const selected = wordExportSelection.has(String(item.resultId));
+            const range = item.returnDateRange;
+            const rangeText = range?.start && range?.end ? ` · ${range.start} ~ ${range.end}` : '';
             const reason = item.success ? '缺少收益序列，不可导出' : '失败结果，不可导出';
             const boxClass = [
                 'd-flex', 'align-items-start', 'gap-2', 'border', 'rounded-1', 'p-2',
@@ -211,7 +223,7 @@ function renderWordExportList() {
                         ${eligible && selected ? 'checked' : ''} ${eligible ? '' : 'disabled'}>
                     <span class="flex-grow-1">
                         <span class="d-block fw-semibold">${escapeHtml(wordExportItemLabel(item))}</span>
-                        <span class="d-block small text-body-secondary">${eligible ? '可导出 · RPT-S 文档' : escapeHtml(reason)}</span>
+                        <span class="d-block small text-body-secondary">${escapeHtml(eligible ? `可导出 · RPT-S 文档${rangeText}` : reason)}</span>
                     </span>
                 </label>`;
         }).join('');

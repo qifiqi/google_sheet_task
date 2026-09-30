@@ -34,6 +34,10 @@ class TaskResultMixin:
 
         return task_result_repository.list_by_task(task_id)
 
+    def get_task_results_fields(self, task_id: str, fields: list[str]) -> list[dict]:
+        """字段白名单投影的任务结果列表（fields 查询参数；下拉/索引类消费方）。"""
+        return task_result_repository.list_by_task_fields(task_id, fields)
+
     def get_results_paginated(
         self,
         page: int,

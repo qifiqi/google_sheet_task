@@ -64,7 +64,7 @@ STATIC_PAGES = [
     # F5: xpl 两页（基座内联展开；CDN jquery/datatables/chart.js 保留外链；v1 页面链已删除）
     ("/performance-analysis/", "/static/js/pages/performance_analysis_index.js"),
     ("/performance-analysis/v2", "/static/js/pages/performance_analysis_v2.js"),
-    # F5: eastmoney_kline 独立页（已模块化，自带 layui/utils 脚本）
+    # F5: eastmoney_kline 独立页（Bootstrap 骨架 + klinecharts，经 /api/klines 取数）
     ("/eastmoney-kline", "/static/js/pages/eastmoney_kline_index.js", False),
     # F5: 登录页（独立页，loginNextUrl 由 login.js 从 ?next= 填充）
     ("/login", "/static/js/pages/login.js", False),

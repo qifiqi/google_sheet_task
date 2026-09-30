@@ -16,6 +16,7 @@ from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.portfolio_combiner import combine_product_returns
 from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import extract_return_rows, parse_return_series_fields
+from app.utils.value_parser import coerce_bool
 
 _EMPTY_RESULT_DATA: Dict[str, Any] = {"results": [], "metrics": {}}
 
@@ -44,16 +45,23 @@ def _parse_runtime_params(payload):
         raise ValidationError(str(exc))
 
 
-def _normalize_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """把绩效分析器的 {status, message, results, metrics} 规整为统一形态。"""
+def _normalize_result(result: Dict[str, Any], *, include_series: bool = False) -> Dict[str, Any]:
+    """把绩效分析器的 {status, message, results, metrics} 规整为统一形态。
+
+    include_series 时透传分析器导出的净值序列（V3 页面画净值/水下曲线消费）；
+    缺省不带 series 键，老调用方（V1/V2/全局预览）响应保持不变。
+    """
     ok = result.get("status") == "success"
+    data: Dict[str, Any] = {
+        "results": result.get("results", []),
+        "metrics": result.get("metrics", {}),
+    }
+    if include_series:
+        data["series"] = result.get("series")
     return {
         "ok": ok,
         "message": result.get("message", ""),
-        "data": {
-            "results": result.get("results", []),
-            "metrics": result.get("metrics", {}),
-        },
+        "data": data,
     }
 
 
@@ -217,19 +225,21 @@ class PerformanceAnalysisService:
         - result_id：按任务结果分析（V2 结果分析 Tab）；
         - spreadsheet_id：Google Sheet 链接（V2 Sheet Tab）；
         - data：粘贴的三列收益文本（V2 粘贴 Tab / V1 首页）。
+        - include_series：可选项，响应 data 附带净值序列（V3 图表消费）。
         """
+        include_series = coerce_bool(payload.get("include_series"), False)
         sources = [key for key in ("result_id", "spreadsheet_id") if payload.get(key)]
         if payload.get("data"):
             sources.append("data")
         if len(sources) != 1:
             raise ValidationError("请提供一种数据来源：结果 ID、Google Sheet 或粘贴数据")
         if sources[0] == "result_id":
-            return self._analyze_result(payload)
+            return self._analyze_result(payload, include_series=include_series)
         if sources[0] == "spreadsheet_id":
-            return self._analyze_sheet(payload)
-        return self._analyze_text(payload)
+            return self._analyze_sheet(payload, include_series=include_series)
+        return self._analyze_text(payload, include_series=include_series)
 
-    def _analyze_text(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_text(self, payload: Dict[str, Any], *, include_series: bool = False) -> Dict[str, Any]:
         input_data = payload.get("data", "")
         time_format = payload.get("time_format", "auto")
         runtime_params = _parse_runtime_params(payload.get("runtime_params"))
@@ -238,10 +248,11 @@ class PerformanceAnalysisService:
             data=input_data,
             time_format=time_format,
             runtime_params=runtime_params,
+            include_series=include_series,
         )
-        return _normalize_result(result)
+        return _normalize_result(result, include_series=include_series)
 
-    def _analyze_sheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_sheet(self, payload: Dict[str, Any], *, include_series: bool = False) -> Dict[str, Any]:
         spreadsheet_id = payload.get("spreadsheet_id", "")
         google_sheet_name = payload.get("google_sheet_name", "auto")
         runtime_params = _parse_runtime_params(payload.get("runtime_params"))
@@ -250,10 +261,11 @@ class PerformanceAnalysisService:
             spreadsheet_id=spreadsheet_id,
             google_sheet_name=google_sheet_name,
             runtime_params=runtime_params,
+            include_series=include_series,
         )
-        return _normalize_result(result)
+        return _normalize_result(result, include_series=include_series)
 
-    def _analyze_result(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_result(self, payload: Dict[str, Any], *, include_series: bool = False) -> Dict[str, Any]:
         """按任务结果 ID 分析：读取结果的收益序列后走与粘贴数据相同的指标管线。
 
         收益序列提取复用 _product_data（优先 return_series，回退结果 JSON 内嵌行），
@@ -277,8 +289,9 @@ class PerformanceAnalysisService:
         result = performance_analyzer.analyze(
             data=product["returns"],
             runtime_params=runtime_params,
+            include_series=include_series,
         )
-        return _normalize_result(result)
+        return _normalize_result(result, include_series=include_series)
 
     def list_weight_combination_products(self, task_id: str) -> Dict[str, Any]:
         """列出任务下可参与权重组合的产品及已配置比例（前端"单股范围"面板数据源）。

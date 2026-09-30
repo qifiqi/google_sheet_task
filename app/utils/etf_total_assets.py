@@ -3,7 +3,8 @@
 按市场分发到各数据源适配文件，调用方只认本模块：
 - 海外市场：yf_api（Yahoo totalAssets，未披露时回退 marketCap 总市值，
   基金计价货币原值，不做汇率归一）；
-- A股：数据源暂未接入，调用位置保留于 akshare_api，当前恒 None。
+- A股：dfcf_api（东方财富延迟行情 f116 总市值：场内基金（ETF/LOF）为
+  最新价×总份额，即基金规模量级；个股即总市值。单位元，不做汇率归一）。
 
 取不到值（非 ETF / 数据源缺失 / 网络失败）一律返回 None，
 由展示层渲染 "-"，本模块不携带展示语义。
@@ -73,11 +74,12 @@ def get_etf_total_assets_detail(
 def _fetch_total_assets_detail(code: str, market: str, exchange_market: Any) -> tuple[float | None, bool | None]:
     try:
         if market == "cn":
-            # A股调用位置保留：实现见 AkshareApi.get_total_assets，接入数据源前恒 None。
-            from app.utils.akshare_api import AkshareApi
+            # A股：东方财富延迟行情 f116，场内基金（ETF/LOF）≈规模、个股=总市值；
+            # is_etf 由代码前缀判定（沪 5 / 深 15-16 开头为场内基金）。
+            from app.utils.dfcf_api import DFCJStockApi
 
-            return AkshareApi().get_total_assets(code, market_type=market), None
-        # akshare 首次 import 需数秒，海外分支不为其付出成本；yfinance 同理按需加载。
+            return DFCJStockApi().get_total_assets_with_source(code)
+        # 数据源适配模块均按需加载，非本市场分支不为其付出 import 成本。
         from app.utils.yf_api import YFApi
 
         ticker = to_yahoo_ticker(code, market, exchange_market)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from app.repositories import task_result_repository
+from app.repositories import task_repository, task_result_repository
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_charts import generate_correlation_heatmap, generate_report_charts
@@ -64,10 +65,19 @@ class StrategyBacktestReportService:
 
         # 每个基准各运行一次 V1 引擎（未选指数时为默认组合基准）：
         # 策略列与基准选择无关，各次运行完全一致；指数/超额列按各自运行结果取值。
-        runs, task_stock_code = self._build_benchmark_runs(request)
+        runs, task_stock_code, task_stock_name = self._build_benchmark_runs(request)
         result = runs[0].result
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
+
+        # task 来源 RPT-S 的载荷没有 products：权重表的股票代码/名称取不到，
+        # 平均成交额与 ETF 资产总数也因为没有标的身份而降级 "-"。
+        # 用收益序列上的股票信息 + 任务配置市场口径补位（与 RPT-M 透传口径一致）；
+        # 序列上连代码都没有时无法补位，维持原状。
+        if request.task_id and request.report_type != "RPT-M" and not request.products and task_stock_code:
+            request.products = [self._task_source_product(
+                request.task_id, task_stock_code, task_stock_name,
+            )]
 
         # 把 DataFrame 和指标字典转换成通用 Word JSON；图表按基准序列循环渲染。
         chart_data = self._build_chart_data(runs)
@@ -142,6 +152,29 @@ class StrategyBacktestReportService:
             product for product in products if isinstance(product, dict)
         ]
 
+    def _task_source_product(self, task_id: str, stock_code: str, stock_name: str) -> dict[str, Any]:
+        """task 来源 RPT-S 的权重表产品行：股票来自收益序列，市场口径来自任务配置。
+
+        market_type/exchange_market 与 RPT-M 的透传口径一致（平均成交额取数
+        避免纯数字港股代码被误判为 A 股）。
+        """
+        config: dict[str, Any] = {}
+        task = task_repository.get_entity(task_id)
+        if task is not None:
+            try:
+                parsed = json.loads(task.config) if task.config else {}
+            except (TypeError, ValueError):
+                parsed = {}
+            if isinstance(parsed, dict):
+                config = parsed
+        return {
+            "stock_code": stock_code,
+            "product_name": stock_name or stock_code,
+            "ratio": "100.00%",
+            "market_type": config.get("market_type"),
+            "exchange_market": config.get("exchange_market"),
+        }
+
     def _default_filename(
         self,
         request: StrategyBacktestReportSchema,
@@ -212,7 +245,7 @@ class StrategyBacktestReportService:
         """基准代码集合（权重表/标签的 "(指数)" 后缀标记用）。"""
         return {code for code, _weight in StrategyBacktestReportService._benchmark_entries(payload)}
 
-    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> tuple[list[_BenchmarkRun], str]:
+    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> tuple[list[_BenchmarkRun], str, str]:
         """组合收益 + 各基准注入后逐次运行 V1 引擎；未选指数时为单个默认组合基准。
 
         统一日期轴 = 组合共同交易日 ∩ 全部基准序列交易日，整份报告（表格/图表/
@@ -221,14 +254,15 @@ class StrategyBacktestReportService:
         include_composite_benchmark 开关决定组合指数是否与自定义指数并列成列
         （默认包含，组合列头固定为"组合指数"）；关闭且未选自定义指数时仍回落
         组合，保证报告恒有基准。
-        第二个返回值为 task 来源的股票代码（非 task 来源为空串），供默认文件名使用。
+        第二、三个返回值为 task 来源的股票代码/名称（非 task 来源为空），供
+        权重表补位与默认文件名使用。
         """
         runtime = self._runtime_params(request.runtime_params)
-        task_stock_code = ""
+        task_stock_code = task_stock_name = ""
         if request.report_type == "RPT-M":
             data = self._combine_product_returns(request)
         else:
-            data, task_stock_code = self._resolve_source_returns({
+            data, task_stock_code, task_stock_name = self._resolve_source_returns({
                 "returns": request.returns,
                 "task_id": request.task_id,
                 "return_series_id": request.return_series_id,
@@ -283,7 +317,7 @@ class StrategyBacktestReportService:
                 label=label,
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
             ))
-        return runs, task_stock_code
+        return runs, task_stock_code, task_stock_name
 
     @staticmethod
     def _weight_percent_text(weight: Decimal) -> str:
@@ -340,10 +374,10 @@ class StrategyBacktestReportService:
         ])
         return {row["date"]: row["index_return"] for row in scaled}
 
-    def _resolve_source_returns(self, source: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
-        """读取一种收益来源并规范为按日期升序的累计收益率；附带来源股票代码（非 task 来源为空）。"""
+    def _resolve_source_returns(self, source: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+        """读取一种收益来源并规范为按日期升序的累计收益率；附带来源股票代码/名称（非 task 来源为空）。"""
         if source.get("returns"):
-            return self._normalize_returns(source["returns"]), ""
+            return self._normalize_returns(source["returns"]), "", ""
         if source.get("task_id"):
             return self._returns_from_task(
                 str(source["task_id"]),
@@ -354,7 +388,7 @@ class StrategyBacktestReportService:
             spreadsheet_id,
             str(source["google_sheet_name"]),
         )
-        return self._normalize_returns(rows), ""
+        return self._normalize_returns(rows), "", ""
 
     @staticmethod
     def _spreadsheet_id(source: dict[str, Any]) -> str:
@@ -369,8 +403,8 @@ class StrategyBacktestReportService:
         raise ValueError("google_sheet_url 无法解析 spreadsheet_id")
 
     @staticmethod
-    def _returns_from_task(task_id: str, return_series_id: Any) -> tuple[list[dict[str, Any]], str]:
-        """按任务解析收益序列；返回 (收益行, 序列股票代码) 供默认文件名使用。"""
+    def _returns_from_task(task_id: str, return_series_id: Any) -> tuple[list[dict[str, Any]], str, str]:
+        """按任务解析收益序列；返回 (收益行, 股票代码, 股票名称) 供权重表与默认文件名使用。"""
         if return_series_id is not None:
             series_id = parse_int(return_series_id)
             if series_id is None:
@@ -381,6 +415,7 @@ class StrategyBacktestReportService:
             return (
                 StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
                 str(series.stock_code or "").strip().upper(),
+                str(series.stock_name or "").strip(),
             )
 
         series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
@@ -394,6 +429,7 @@ class StrategyBacktestReportService:
         return (
             StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
             str(series.stock_code or "").strip().upper(),
+            str(series.stock_name or "").strip(),
         )
 
     def _combine_product_returns(
@@ -406,7 +442,7 @@ class StrategyBacktestReportService:
         weighting_mode = request.weighting_mode or "daily_compound"
         inputs = []
         for product in self._active_report_products(products):
-            rows, _stock_code = self._resolve_source_returns(product)
+            rows, _stock_code, _stock_name = self._resolve_source_returns(product)
             inputs.append({
                 "returns": rows,
                 "ratio": product.get("ratio", product.get("weight")),

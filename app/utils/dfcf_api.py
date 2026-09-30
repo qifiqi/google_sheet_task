@@ -22,6 +22,9 @@ os.environ["REQUESTS_CA_BUNDLE"] = requests.utils.DEFAULT_CA_BUNDLE_PATH
 
 logger = get_logger(__name__)
 
+# A股行情快照字段：f57 代码、f58 名称、f116 总市值（fltt=2 下单位为元）。
+_A_SHARE_QUOTE_FIELDS = "f57,f58,f116"
+
 
 class DFCJStockApi:
     """
@@ -214,6 +217,65 @@ class DFCJStockApi:
             # 兼容历史上直接调用解析方法的代码；正式接口始终传入 market 参数。
             return str(stock_code or "").isdigit()
         return str(stock_type).strip() in {"0", "1"}
+
+    def get_total_assets(self, stock_code):
+        """A股 ETF 资产总数 / 个股总市值（元）；取不到返回 None。"""
+        return self.get_total_assets_with_source(stock_code)[0]
+
+    def get_total_assets_with_source(self, stock_code):
+        """返回 (资产值, 是否 ETF)：东方财富延迟行情 f116 总市值。
+
+        场内基金（ETF/LOF）f116 = 最新价×总份额，即基金规模量级，等价海外分支
+        的 totalAssets；个股 f116 即总市值，等价 marketCap 回退。停牌、未披露
+        或请求失败一律返回 (None, None)，由 etf_total_assets 层做 TTL 缓存与降级。
+        """
+        code = str(stock_code or "").strip().upper().split(".")[0]
+        if not code.isdigit():
+            return None, None
+        try:
+            data = self._fetch_a_share_quote(code)
+            total_market_cap = self._to_positive_float(data.get("f116"))
+            if total_market_cap is None:
+                self.logger.warning("东方财富行情无有效总市值: code=%s data=%s", code, data)
+                return None, None
+            return total_market_cap, self._is_a_share_fund(code)
+        except Exception as exc:
+            self.logger.warning("东方财富 A股总市值获取失败 %s: %s", code, exc)
+            return None, None
+
+    def _fetch_a_share_quote(self, code):
+        """请求单只 A股行情快照并返回 data 字典；异常统一上抛由调用方降级。"""
+        # push2 系主机与 K线（push2his）同族、同 WAF 风险，复用 dfcf_kline_proxy_enabled
+        # 代理开关；市值/规模属日频量级数据，push2delay 的 15 分钟延迟无影响。
+        secid = f"{self._quote_market_id(code)}.{code}"
+        response = self.__get(
+            "https://push2delay.eastmoney.com/api/qt/stock/get",
+            params={"invt": "2", "fltt": "2", "fields": _A_SHARE_QUOTE_FIELDS, "secid": secid},
+            headers=self._generate_headers(referer="https://quote.eastmoney.com/"),
+            timeout=10,
+            use_proxy=self._should_use_proxy_for_kline(),
+        )
+        return (response.json() or {}).get("data") or {}
+
+    @staticmethod
+    def _quote_market_id(code) -> str:
+        """行情 secid 市场：沪 1（6/9 开头个股与 5 开头场内基金），其余归深 0。"""
+        return "1" if str(code).startswith(("5", "6", "9")) else "0"
+
+    @staticmethod
+    def _is_a_share_fund(code) -> bool:
+        """场内基金（ETF/LOF）判定，与 AKShare K线路径同规则：沪 5xxxxx / 深 15-16xxxx。"""
+        code = str(code)
+        return code.startswith("5") or code[:2] in {"15", "16"}
+
+    @staticmethod
+    def _to_positive_float(value):
+        """行情字段数值化：fltt=2 下未披露值为 '-'；总市值不可能非正，一并按 None 处理。"""
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
 
     def get_search_list_by_stock_code(self, stock, page_size=20):
         normalized_page_size = max(1, min(int(page_size or 20), 20))

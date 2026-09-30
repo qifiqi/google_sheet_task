@@ -348,7 +348,7 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
         }],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert [row["date"] for row in stub.calls[0]] == ["2024-01-02", "2024-01-06"]
     assert [row["index_return"] for row in stub.calls[0]] == [0.20, 0.25]
@@ -375,7 +375,7 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
         ],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
     assert [run.label for run in runs] == ["指数(AAA.US 100%)", "指数(BBB.US 100%)"]
@@ -402,7 +402,7 @@ def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
         }],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert [run.label for run in runs] == ["组合指数", "指数(0700.HK)"]
     assert runs[0].code is None and runs[1].code == "0700.HK"
@@ -428,7 +428,7 @@ def test_build_benchmark_runs_composite_falls_back_when_disabled_without_custom(
         "products": [],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert [run.label for run in runs] == ["组合指数"]
     assert runs[0].code is None
@@ -459,7 +459,7 @@ def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
         }],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     # 满配日收益 10%/18.18% → 半仓 5%/9.09% → 复利累计 5%/14.77%。
     scaled = stub.calls[0]
@@ -487,7 +487,7 @@ def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatc
         }],
     })()
 
-    runs, _task_stock_code = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
     # 同股不同比例：列头只展示比例，不再重复代码。

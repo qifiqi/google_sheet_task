@@ -731,15 +731,13 @@
 
     // ---- 结果分析 tab：任务 ID 拉取结果列表，或直接输入结果 ID 分析 ----
 
+    // 下拉用的轻量字段集（fields 白名单投影）：避开 result 大 JSON；
+    // return_date_range 为服务端计算字段（收益序列首末日期）。
+    const RESULT_FIELDS_QUERY =
+        "fields=id,task_id,parameters,return_series_id,success,error_message,return_date_range";
+
     // result_id → {task_id, return_series_id, stockCode, stockName}，供 Word 报告来源与股票预填。
     const resultTabSeriesByResultId = new Map();
-
-    function formatV2ResultTime(value) {
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) return '';
-        const pad = (n) => String(n).padStart(2, '0');
-        return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
-    }
 
     function buildV2ResultOptionLabel(item) {
         const params = item.parameters || {};
@@ -751,8 +749,8 @@
             ? params.parameter.filter((v) => v !== null && v !== undefined && `${v}` !== '').map(String)
             : [];
         if (parameterList.length) parts.push(`参数 ${parameterList.join('/')}`);
-        const timeText = formatV2ResultTime(item.timestamp);
-        if (timeText) parts.push(timeText);
+        const range = item.return_date_range;
+        if (range?.start && range?.end) parts.push(`${range.start} ~ ${range.end}`);
         let label = parts.join(' · ');
         if (item.success === false) {
             const reason = String(item.error_message || '').trim().slice(0, 40);
@@ -794,7 +792,7 @@
         status.textContent = '正在获取结果列表…';
         try {
             // task.results 失败直接 throw，成功返回信封 data（{items,...}）。
-            const data = await Api.endpoints.task.results(encodeURIComponent(taskId));
+            const data = await Api.endpoints.task.results(encodeURIComponent(taskId), RESULT_FIELDS_QUERY);
             // 输入在等待期间可能已被改掉，此时丢弃过期响应。
             if (getV2ResultInputValue() !== taskId) return;
             const items = data?.items || [];
@@ -850,7 +848,7 @@
         let seriesInfo = resultTabSeriesByResultId.get(String(resultId));
         if (!seriesInfo) {
             try {
-                const detail = await Api.endpoints.results.get(resultId);
+                const detail = await Api.endpoints.adminResults.detail(resultId);
                 seriesInfo = {
                     task_id: detail?.task_id || '',
                     return_series_id: detail?.return_series_id || null,

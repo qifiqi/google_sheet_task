@@ -11,12 +11,14 @@ import pandas as pd
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.logger import get_logger
+from app.utils.value_parser import _convert_pandas_to_native
 
 logger = get_logger(__name__)
 
 
 class GoogleSheetAnalysisMixin:
-    def analyze_v1(self, spreadsheet_id: str, google_sheet_name: str, runtime_params=None) -> Dict[str, Any]:
+    def analyze_v1(self, spreadsheet_id: str, google_sheet_name: str, runtime_params=None,
+                   include_series: bool = False) -> Dict[str, Any]:
         """
         分析输入的Excel数据并返回结果和指标
 
@@ -26,15 +28,29 @@ class GoogleSheetAnalysisMixin:
             # parsed_data = self._parse_input_data(data)
             _data, _data_result, sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
             # 计算指标
-            metrics = self.get_calculate_metrics_v1(_data, runtime_params=runtime_params)
+            series = None
+            if include_series:
+                # 带序列出口：同一 V1 门面按 return_dataframes 取回净值帧（facade.build_series_payload）
+                from app.services.performance_analysis.facade import build_series_payload
+
+                v1_result = self.get_calculate_metrics_v1_with_dataframes(
+                    _data, runtime_params=runtime_params
+                )
+                metrics = _convert_pandas_to_native(v1_result.metrics)
+                series = build_series_payload(v1_result)
+            else:
+                metrics = self.get_calculate_metrics_v1(_data, runtime_params=runtime_params)
 
             metrics['sheet_result'] = _data_result
             # 准备返回结果
-            return {
+            payload = {
                 'status': 'success',
                 'results': metrics,
                 # 'metrics': metrics
             }
+            if include_series:
+                payload['series'] = series
+            return payload
 
         except Exception as e:
             logger.error(f"分析数据时出错: {str(e)}", exc_info=True)
