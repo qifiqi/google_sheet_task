@@ -222,18 +222,33 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         elif len(parameters) != expected_parameter_count:
             raise ValidationError("所有产品的参数行数必须一致，才能按行号对齐")
 
+        sheet = _normalize_sheet(product)
+        price_mode = normalize_price_mode(product.get("price_mode") or config.get("price_mode"))
+        # C7.0.3 模板执行期无条件按 OHLC 取价（_build_product_kline）。创建期按产品校验：
+        # 显式指定非 OHLC 直接拒绝（界面显示必须与实际生效一致），未指定时归一为 OHLC；
+        # 混排的非 C7.0.3 产品不受影响。存量任务重启不走本校验（restart 不重跑 normalize），
+        # 执行期强制继续兜底。
+        if BacktestTrainingService._is_c7_0_3({"sheet": sheet}):
+            explicit_price_mode = str(product.get("price_mode") or config.get("price_mode") or "").strip().lower()
+            if explicit_price_mode and explicit_price_mode != "ohlc_price":
+                product_name = str(product.get("product_name") or product.get("name") or stock_code).strip()
+                raise ValidationError(
+                    f"产品 {index}（{product_name}）使用 C7.0.3 模板，价格模式必须为 OHLC（开高低收）"
+                )
+            price_mode = "ohlc_price"
+
         normalized_products.append({
             **product,
             "product_index": index - 1,
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
             "market_type": market_type,
-            "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
+            "price_mode": price_mode,
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
-            "sheet": _normalize_sheet(product),
+            "sheet": sheet,
             "parameters": parameters,
         })
 

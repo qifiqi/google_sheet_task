@@ -46,7 +46,13 @@ const globalMarketTypeSelect = document.getElementById('globalMarketType');
 const globalKlineAdjustmentSelect = document.getElementById('globalKlineAdjustment');
 const globalPriceModeSelect = document.getElementById('globalPriceMode');
 const globalKlineDataSourceSelect = document.getElementById('globalKlineDataSource');
+const globalSheetInfo = document.getElementById('globalSheetInfo');
+const globalParamSection = document.getElementById('globalParamSection');
 let globalSheetTimer = null;
+let globalParamPropagationTimer = null;
+let globalSheetRequestId = 0;
+let globalSheetLastId = '';
+let globalSheetStatus = 'idle';
 
 function extractSpreadsheetId(rawUrl) {
     const match = String(rawUrl || '').trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -61,14 +67,33 @@ function inferModelVersion(title) {
     return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
-// Sheet 标题含 C7.0.3 时价格模式默认切换为 OHLC（开高低收），其余回默认收盘价；
-// 用户手动改过价格模式后不再自动切换。
+// Sheet 标题含 C7.0.3 时价格模式默认切换为 OHLC（开高低收，后端对 C7.0.3 强制 OHLC，
+// 这里只保证界面显示与实际生效一致）：
+// - 自有链接的卡片按自身 Sheet 检测结果锁定，不再被全局价格模式覆盖；
+// - 继承全局链接的卡片只切值不锁定，跟随全局（全局识别到 C7.0.3 时自身已切 OHLC）；
+// - 用户手动改过价格模式后不再自动切换；换回非 C7.0.3 Sheet 时自动解锁并回到全局当前值。
 function applyPriceModeDefault(card, title) {
     if (card.dataset.priceModeTouched === '1') {
         return;
     }
+    const priceSelect = card.querySelector('.price-mode');
+    if (!priceSelect) {
+        return;
+    }
     const isC703 = String(title || '').toUpperCase().includes('C7.0.3');
-    card.querySelector('.price-mode').value = isC703 ? 'ohlc_price' : 'sp_price';
+    if (isC703) {
+        priceSelect.value = 'ohlc_price';
+        if (card.querySelector('.sheet-url')?.value.trim()) {
+            card.dataset.priceTouched = '1';
+            card.dataset.priceModeAuto = '1';
+        }
+        return;
+    }
+    if (card.dataset.priceModeAuto === '1') {
+        delete card.dataset.priceTouched;
+        delete card.dataset.priceModeAuto;
+        priceSelect.value = globalPriceModeSelect?.value || 'sp_price';
+    }
 }
 
 function marketOptionsHtml(selectedMarket) {
@@ -105,16 +130,65 @@ function getCardSheetUrl(card) {
     return globalSheetUrlInput?.value.trim() || '';
 }
 
-// 市场联动数据源：A股保持当前数据源不变；改成除 A股以外的市场一律切 Yahoo。
+// 市场联动数据源：非 A股统一 Yahoo；切回 A股时，仅当 Yahoo 是此前联动自动切的
+// 才恢复默认 AKShare，用户手动选的数据源不动。
 function syncCardDataSourceWithMarket(card, marketType) {
-    if (String(marketType || '').trim().toLowerCase() === 'cn') {
+    const sourceSelect = card.querySelector('.kline-data-source');
+    if (!sourceSelect) {
         return;
     }
-    const sourceSelect = card.querySelector('.kline-data-source');
-    if (sourceSelect) {
+    if (String(marketType || '').trim().toLowerCase() !== 'cn') {
         sourceSelect.value = 'yahoo';
         card.dataset.sourceTouched = '1';
+        card.dataset.sourceAuto = '1';
+        return;
     }
+    if (card.dataset.sourceAuto === '1') {
+        sourceSelect.value = 'akshare';
+        delete card.dataset.sourceTouched;
+        delete card.dataset.sourceAuto;
+    }
+}
+
+// 与后端 infer_market_type 同规则：标准后缀优先，其次纯数字按 A股，其余按美股。
+const STOCK_SUFFIX_MARKETS = {
+    '.SS': 'cn', '.SH': 'cn', '.SZ': 'cn', '.BJ': 'cn',
+    '.US': 'en', '.TO': 'ca', '.KS': 'kr', '.T': 'jp', '.HK': 'hk',
+    '.L': 'uk', '.PA': 'fr', '.DE': 'de', '.SI': 'sg', '.AX': 'au', '.KL': 'my'
+};
+
+function inferMarketTypeFromCode(rawCode) {
+    const code = String(rawCode || '').trim().toUpperCase();
+    // 含中文等非代码字符（如股票名称）不推断，避免误判市场。
+    if (!code || !/^[A-Z0-9./-]+$/.test(code)) {
+        return '';
+    }
+    const dotIndex = code.lastIndexOf('.');
+    if (dotIndex > 0) {
+        const market = STOCK_SUFFIX_MARKETS[code.slice(dotIndex)];
+        if (market) {
+            return market;
+        }
+    }
+    return /^\d+$/.test(code) ? 'cn' : 'en';
+}
+
+// 手输股票代码联动市场：按代码推断并同步市场/手续费/数据源；
+// 用户点过搜索建议或手动选过市场（marketManual）后以用户选择为准，不再推断。
+function applyStockMarketInference(card, rawCode) {
+    if (card.dataset.marketManual === '1') {
+        return;
+    }
+    const market = inferMarketTypeFromCode(rawCode);
+    const marketSelect = card.querySelector('.market-type');
+    if (!market || !marketSelect || marketSelect.value === market) {
+        return;
+    }
+    marketSelect.value = market;
+    card.dataset.marketTouched = '1';
+    syncCardDataSourceWithMarket(card, market);
+    syncEmptyCommissionRows(card);
+    updateProductSummary(card);
 }
 
 function getDefaultCommissionByMarket(marketType) {
@@ -122,6 +196,10 @@ function getDefaultCommissionByMarket(marketType) {
 }
 
 function getCardMarketType(card) {
+    // 全局参数区是"伪卡片"（复用参数表工具函数），市场取全局市场下拉。
+    if (card?.dataset?.isGlobalParam === '1') {
+        return globalMarketTypeSelect?.value || 'cn';
+    }
     return card.querySelector('.market-type')?.value || 'cn';
 }
 
@@ -168,7 +246,16 @@ function updateRatioTotal() {
 }
 
 function formatMarketLabel(marketType) {
-    return String(marketType || '').trim().toLowerCase() === 'en' ? '美股 en' : 'A股 cn';
+    const normalized = String(marketType || '').trim().toLowerCase();
+    if (!normalized || normalized === 'cn') {
+        return 'A股 cn';
+    }
+    if (normalized === 'en') {
+        return '美股 en';
+    }
+    // 其余市场（香港/日本/期货等）按全局市场下拉的选项文案展示。
+    const option = globalMarketTypeSelect?.querySelector(`option[value="${normalized}"]`);
+    return option ? `${option.textContent} ${normalized}` : normalized;
 }
 
 function updateProductSummary(card) {
@@ -316,7 +403,7 @@ function addProduct(defaults = {}) {
                 </div>
                 <div class="col-xl-2">
                     <label class="form-label">价格模式</label>
-                    <select class="form-select price-mode">
+                    <select class="form-select price-mode" title="识别到 C7.0.3 Sheet 时自动切换为 OHLC；手动修改后不再自动切换">
                         <option value="vwap_price">加权平均价</option>
                         <option value="kp_price">开盘价</option>
                         <option value="sp_price" selected>收盘价</option>
@@ -350,6 +437,8 @@ function addProduct(defaults = {}) {
                 <button class="btn btn-outline-secondary btn-sm param-help-button" type="button" aria-label="查看粘贴与复制说明">
                     <i class="bi bi-exclamation-circle"></i>
                 </button>
+                <span class="badge text-bg-warning rounded-pill param-custom-badge d-none" title="该产品参数已手动修改，不再跟随全局参数">参数已自定义</span>
+                <button class="btn btn-outline-secondary btn-sm reset-params d-none" type="button" title="放弃当前参数，重新跟随全局参数"><i class="bi bi-arrow-counterclockwise me-1"></i>重置为全局参数</button>
                 <span class="small text-body-secondary align-self-center param-action-status"></span>
             </div>
             <div class="table-responsive">
@@ -366,6 +455,8 @@ function addProduct(defaults = {}) {
     card.querySelector('.kline-data-source').value = inherited.kline_data_source || 'akshare';
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
+    // 新卡片创建时继承全局参数行（版本一致且有内容时）。
+    applyGlobalParamsToCard(card);
     card.querySelector('.ratio-input').addEventListener('input', () => {
         updateRatioTotal();
         updateProductSummary(card);
@@ -396,6 +487,21 @@ function setParamActionStatus(card, message, className = 'small text-body-second
     const status = card.querySelector('.param-action-status');
     status.className = className;
     status.textContent = message;
+}
+
+// 产品参数表一旦手动编辑即脱钩，不再跟随全局参数；"重置为全局参数"恢复跟随。
+function markParamTouched(card) {
+    if (!card || card.dataset.paramTouched === '1') {
+        return;
+    }
+    card.dataset.paramTouched = '1';
+    updateParamFollowStatus(card);
+}
+
+function updateParamFollowStatus(card) {
+    const touched = card.dataset.paramTouched === '1';
+    card.querySelector('.param-custom-badge')?.classList.toggle('d-none', !touched);
+    card.querySelector('.reset-params')?.classList.toggle('d-none', !touched);
 }
 
 function clearSheetMeta(card) {
@@ -459,6 +565,8 @@ async function analyzeSheet(card, options = {}) {
             resetParameterTable(card, nextVersion);
         }
         applyPriceModeDefault(card, title);
+        // 卡片版本随自有 Sheet 变化后重新对齐全局参数（未自定义且版本一致时下发）。
+        applyGlobalParamsToCard(card);
         setSheetInfo(card, `${title || spreadsheetId} / ${sheetName}`, 'small text-success sheet-info');
     } catch (error) {
         if (error.name === 'AbortError') {
@@ -848,14 +956,21 @@ productsContainer.addEventListener('click', (event) => {
     }
     if (event.target.closest('.add-param')) {
         addParameterRow(card);
+        markParamTouched(card);
         return;
     }
     if (event.target.closest('.delete-param')) {
         event.target.closest('tr')?.remove();
+        markParamTouched(card);
+        return;
+    }
+    if (event.target.closest('.reset-params')) {
+        resetCardParamsToGlobal(card);
         return;
     }
     const pasteButton = event.target.closest('.paste-param');
     if (pasteButton) {
+        markParamTouched(card);
         pasteParametersFromClipboard(card, pasteButton);
         return;
     }
@@ -871,6 +986,7 @@ productsContainer.addEventListener('click', (event) => {
         card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
         card.dataset.exchangeMarket = stockItem.dataset.exchangeMarket || '';
         card.dataset.marketTouched = '1';
+        card.dataset.marketManual = '1';
         syncCardDataSourceWithMarket(card, card.querySelector('.market-type').value);
         syncEmptyCommissionRows(card);
         updateProductSummary(card);
@@ -886,12 +1002,20 @@ productsContainer.addEventListener('input', (event) => {
         scheduleSheetAnalyze(card);
         return;
     }
+    const paramInput = event.target.closest('.param-input');
+    if (paramInput) {
+        markParamTouched(event.target.closest('.product-card'));
+        return;
+    }
     const stockInput = event.target.closest('.stock-code');
     if (!stockInput) return;
     const card = event.target.closest('.product-card');
     card.dataset.exchangeMarket = '';
     window.clearTimeout(stockTimers[card.dataset.productId]);
-    stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
+    stockTimers[card.dataset.productId] = window.setTimeout(() => {
+        applyStockMarketInference(card, stockInput.value);
+        fetchStockSuggestions(card, stockInput.value);
+    }, 600);
 });
 
 // 产品卡片内手动修改过的字段记为"已自定义"，不再跟随全局设置变化。
@@ -905,6 +1029,7 @@ productsContainer.addEventListener('change', (event) => {
     }
     if (event.target.closest('.market-type')) {
         card.dataset.marketTouched = '1';
+        card.dataset.marketManual = '1';
         syncCardDataSourceWithMarket(card, event.target.value);
         return;
     }
@@ -914,6 +1039,7 @@ productsContainer.addEventListener('change', (event) => {
     }
     if (event.target.closest('.kline-data-source')) {
         card.dataset.sourceTouched = '1';
+        delete card.dataset.sourceAuto;
     }
 });
 
@@ -953,19 +1079,171 @@ function applyGlobalSettingsToCards() {
     });
 }
 
-// 全局市场联动全局数据源：非 A股统一切 Yahoo；A股则保持当前数据源不变。
+// ---- 全局参数下发 ----
+// 顶部全局参数表整表下发到"未自定义参数 且 模板版本一致"的产品卡片，保持行号对齐；
+// 版本不同的卡片（自有 Sheet 是别的模板）跳过继承，需自行填写参数。
+function isParamFollowEnabled(card) {
+    const cardVersion = card.dataset.modelVersion || 'c3';
+    const globalVersion = globalParamSection?.dataset.modelVersion || 'c3';
+    return card.dataset.paramTouched !== '1' && cardVersion === globalVersion;
+}
+
+function applyGlobalParamsToCard(card) {
+    if (!globalParamSection || !isParamFollowEnabled(card)) {
+        return;
+    }
+    const version = card.dataset.modelVersion || 'c3';
+    const globalRows = collectParameterRows(globalParamSection);
+    // C3 手续费默认值按市场不同：全局默认值原样下发会带错费率，
+    // 命中全局市场默认值的单元格替换为目标卡片市场的默认值，自定义值原样透传。
+    const globalCommissionDefault = String(getCardDefaultCommission(globalParamSection)).trim();
+    const cardCommissionDefault = String(getCardDefaultCommission(card)).trim();
+    card.querySelector('.param-body').innerHTML = '';
+    if (!globalRows.length) {
+        addParameterRow(card);
+        return;
+    }
+    globalRows.forEach((row) => {
+        const values = [...row];
+        if (version === 'c3' && globalCommissionDefault
+            && String(values[0] ?? '').trim() === globalCommissionDefault) {
+            values[0] = cardCommissionDefault || values[0];
+        }
+        addParameterRow(card, values);
+    });
+}
+
+function applyGlobalParamsToCards() {
+    getProductCards().forEach(applyGlobalParamsToCard);
+}
+
+// 表格输入类操作密集触发，下发做 250ms 防抖；结构性操作（粘贴/加行）完成后同样收敛到这里。
+function scheduleGlobalParamPropagation() {
+    if (!globalParamSection) {
+        return;
+    }
+    window.clearTimeout(globalParamPropagationTimer);
+    globalParamPropagationTimer = window.setTimeout(applyGlobalParamsToCards, 250);
+}
+
+function resetCardParamsToGlobal(card) {
+    delete card.dataset.paramTouched;
+    updateParamFollowStatus(card);
+    if (!isParamFollowEnabled(card)) {
+        setParamActionStatus(
+            card,
+            `产品模板为 ${(card.dataset.modelVersion || 'c3').toUpperCase()}，与全局参数版本不一致，未跟随`,
+            'small text-warning align-self-center param-action-status'
+        );
+        return;
+    }
+    applyGlobalParamsToCard(card);
+    setParamActionStatus(card, '已重置为全局参数', 'small text-success align-self-center param-action-status');
+}
+
+// 全局价格模式的 C7.0.3 默认：识别全局 Sheet 标题后切换全局价格模式，
+// 再经 applyGlobalSettingsToCards 下发到未自定义的产品卡片；手动改过全局价格模式后不再自动切换。
+function applyGlobalPriceModeDefault(title) {
+    if (!globalPriceModeSelect || globalPriceModeSelect.dataset.touched === '1') {
+        return;
+    }
+    const isC703 = String(title || '').toUpperCase().includes('C7.0.3');
+    const nextValue = isC703 ? 'ohlc_price' : 'sp_price';
+    if (globalPriceModeSelect.value !== nextValue) {
+        globalPriceModeSelect.value = nextValue;
+        applyGlobalSettingsToCards();
+    }
+}
+
+function setGlobalSheetInfo(message, className = 'small text-body-secondary') {
+    if (!globalSheetInfo) {
+        return;
+    }
+    globalSheetInfo.className = className;
+    globalSheetInfo.textContent = message;
+}
+
+// 全局链接单独识别一次，用于驱动全局价格模式的 C7.0.3 默认值与识别状态展示；
+// 产品卡片继承同一链接时仍各自识别（卡片还需标题推断模型版本）。
+async function analyzeGlobalSheet() {
+    const spreadsheetId = extractSpreadsheetId(globalSheetUrlInput?.value || '');
+    if (!spreadsheetId) {
+        globalSheetRequestId += 1;
+        globalSheetLastId = '';
+        globalSheetStatus = 'idle';
+        setGlobalSheetInfo('尚未识别全局 Sheet（下方产品可留空继承）');
+        return;
+    }
+    if (globalSheetStatus === 'success' && globalSheetLastId === spreadsheetId) {
+        return;
+    }
+    const requestId = ++globalSheetRequestId;
+    globalSheetStatus = 'loading';
+    setGlobalSheetInfo('正在自动识别全局 Sheet...', 'small text-primary');
+    try {
+        const data = await Api.endpoints.googleSheet.worksheets({ spreadsheet_id: spreadsheetId });
+        if (requestId !== globalSheetRequestId) {
+            return;
+        }
+        globalSheetLastId = spreadsheetId;
+        globalSheetStatus = 'success';
+        const title = data.title || '';
+        const sheetName = Array.isArray(data.worksheets) && data.worksheets.length ? data.worksheets[0] : 'data';
+        applyGlobalPriceModeDefault(title);
+        if (globalParamSection) {
+            const nextVersion = inferModelVersion(title);
+            if (globalParamSection.dataset.modelVersion !== nextVersion) {
+                resetParameterTable(globalParamSection, nextVersion);
+            }
+            scheduleGlobalParamPropagation();
+        }
+        setGlobalSheetInfo(`${title || spreadsheetId} / ${sheetName}`, 'small text-success');
+    } catch (error) {
+        if (requestId !== globalSheetRequestId) {
+            return;
+        }
+        globalSheetLastId = '';
+        globalSheetStatus = 'idle';
+        setGlobalSheetInfo(error.message || '全局 Sheet 识别失败', 'small text-danger');
+    }
+}
+
+// 全局市场联动全局数据源：非 A股统一切 Yahoo；切回 A股时仅恢复联动自动切换的值。
 globalMarketTypeSelect?.addEventListener('change', () => {
-    if (globalKlineDataSourceSelect && globalMarketTypeSelect.value !== 'cn') {
-        globalKlineDataSourceSelect.value = 'yahoo';
+    if (globalKlineDataSourceSelect) {
+        if (globalMarketTypeSelect.value !== 'cn') {
+            globalKlineDataSourceSelect.value = 'yahoo';
+            globalKlineDataSourceSelect.dataset.autoSource = '1';
+        } else if (globalKlineDataSourceSelect.dataset.autoSource === '1') {
+            globalKlineDataSourceSelect.value = 'akshare';
+            delete globalKlineDataSourceSelect.dataset.autoSource;
+        }
     }
     applyGlobalSettingsToCards();
+    if (globalParamSection) {
+        // 全局市场决定全局参数表 C3 手续费默认值；下发时按各卡片市场换算。
+        syncEmptyCommissionRows(globalParamSection);
+        scheduleGlobalParamPropagation();
+    }
 });
 globalKlineAdjustmentSelect?.addEventListener('change', applyGlobalSettingsToCards);
-globalPriceModeSelect?.addEventListener('change', applyGlobalSettingsToCards);
-globalKlineDataSourceSelect?.addEventListener('change', applyGlobalSettingsToCards);
+globalPriceModeSelect?.addEventListener('change', () => {
+    // 手动修改后全局价格模式不再跟随 C7.0.3 自动切换（程序赋值不触发 change）。
+    globalPriceModeSelect.dataset.touched = '1';
+    applyGlobalSettingsToCards();
+});
+globalKlineDataSourceSelect?.addEventListener('change', () => {
+    // 手动选过数据源后，市场联动不再自动改写全局数据源（程序赋值不触发 change）。
+    delete globalKlineDataSourceSelect.dataset.autoSource;
+    globalKlineDataSourceSelect.dataset.touched = '1';
+    applyGlobalSettingsToCards();
+});
 globalSheetUrlInput?.addEventListener('input', () => {
     window.clearTimeout(globalSheetTimer);
-    globalSheetTimer = window.setTimeout(applyGlobalSettingsToCards, 500);
+    globalSheetTimer = window.setTimeout(() => {
+        applyGlobalSettingsToCards();
+        analyzeGlobalSheet();
+    }, 500);
 });
 
 productsContainer.addEventListener('paste', (event) => {
@@ -984,10 +1262,43 @@ document.addEventListener('click', (event) => {
 document.getElementById('addProductBtn').addEventListener('click', () => addProduct());
 document.getElementById('createBtn').addEventListener('click', createTask);
 
+// 全局参数区（伪卡片）自身的表格操作；编辑后防抖下发到未自定义的产品。
+globalParamSection?.addEventListener('click', (event) => {
+    if (event.target.closest('.add-param')) {
+        addParameterRow(globalParamSection);
+        scheduleGlobalParamPropagation();
+        return;
+    }
+    if (event.target.closest('.delete-param')) {
+        event.target.closest('tr')?.remove();
+        scheduleGlobalParamPropagation();
+        return;
+    }
+    const pasteButton = event.target.closest('.paste-param');
+    if (pasteButton) {
+        pasteParametersFromClipboard(globalParamSection, pasteButton)
+            .finally(scheduleGlobalParamPropagation);
+        return;
+    }
+    const copyButton = event.target.closest('.copy-param');
+    if (copyButton) {
+        copyParametersToClipboard(globalParamSection, copyButton);
+    }
+});
+
+globalParamSection?.addEventListener('input', (event) => {
+    if (event.target.closest('.param-input')) {
+        scheduleGlobalParamPropagation();
+    }
+});
+
 const defaultDateRange = TradingDate.defaultDateRange(3);
 document.getElementById('endDate').value = TradingDate.formatDate(defaultDateRange.end);
 document.getElementById('startDate').value = TradingDate.formatDate(defaultDateRange.start);
 loadStockMarkets().then(() => {
+    // 全局参数表先就位（含 C3 手续费默认值），产品卡片创建时才能继承。
+    resetParameterTable(globalParamSection, 'c3');
+    initParameterHelpPopover(globalParamSection);
     addProduct({ ratio: 50 });
     addProduct({ ratio: 50 });
 }).catch((error) => {

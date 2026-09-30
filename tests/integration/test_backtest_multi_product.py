@@ -158,6 +158,60 @@ def test_normalize_multi_product_config_keeps_per_product_price_mode():
     assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "vwap_price"]
 
 
+def test_normalize_multi_product_config_rejects_non_ohlc_price_mode_for_c7_0_3():
+    """C7.0.3 执行期强制 OHLC 取价，创建期显式传其他价格模式直接拒绝。"""
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [
+            _base_product(0),
+            _base_product(1) | {
+                "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+                "price_mode": "sp_price",
+            },
+        ],
+    }
+
+    with pytest.raises(ValidationError, match="C7.0.3 模板，价格模式必须为 OHLC"):
+        normalize_multi_product_config(config)
+
+
+def test_normalize_multi_product_config_defaults_c7_0_3_to_ohlc_price_mode():
+    """C7.0.3 产品未显式指定价格模式时归一为 OHLC，而非回退全局默认 vwap。"""
+    product = _base_product(1) | {
+        "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+    }
+    product.pop("price_mode")
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_base_product(0), product],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert normalized["products"][0]["price_mode"] == "sp_price"
+    assert normalized["products"][1]["price_mode"] == "ohlc_price"
+
+
+def test_normalize_multi_product_config_allows_mixed_c3_and_c7_0_3_products():
+    """多品按行号对齐、模板版本按产品独立执行：C3 与 C7.0.3 可以混排。"""
+    c7_product = _base_product(1) | {
+        "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+        "price_mode": "ohlc_price",
+        "parameters": [["1.2", "5"], ["1.5", "8"]],
+    }
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_base_product(0), c7_product],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "ohlc_price"]
+
+
 def test_normalize_multi_product_config_validates_parameter_alignment():
     product_1 = _base_product(0, "50")
     product_2 = _base_product(1, "50")
@@ -231,7 +285,7 @@ def test_multi_product_batch_export_global_preview_returns_zip(app_factory, monk
             fake_batch_export,
         )
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["multi-batch-1"]},
         )
 
@@ -258,7 +312,7 @@ def test_multi_product_batch_export_global_preview_rejects_empty_selection(app_f
     with app.app_context():
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": []},
         )
 
@@ -272,7 +326,7 @@ def test_multi_product_batch_export_global_preview_rejects_unfinished_task(app_f
         _add_multi_product_task("multi-running", status="running")
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["multi-running"]},
         )
 
@@ -285,7 +339,7 @@ def test_multi_product_batch_export_global_preview_rejects_too_many_tasks(app_fa
     with app.app_context():
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": [f"task-{index}" for index in range(11)]},
         )
 
@@ -453,7 +507,7 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         client = app.test_client()
-        resp = client.get(f"/backtest-multi-product/api/task-result/{task_result.id}")
+        resp = client.get(f"/api/backtest-multi-product/task-result/{task_result.id}")
 
         assert resp.status_code == 200
         payload = resp.get_json()
@@ -494,7 +548,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-multi-product/api/task-result/{task_result.id}"
+            f"/api/backtest-multi-product/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200
