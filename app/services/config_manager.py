@@ -1,6 +1,6 @@
 import json
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from app.repositories import system_config_repository
 from app.utils.logger import get_logger
 from app.utils.value_parser import coerce_bool as _coerce_bool_value

@@ -7,6 +7,22 @@
       </template>
     </PageToolbar>
 
+    <!-- 统计卡：点击卡片按状态筛选（再次点击取消） -->
+    <StatCardGrid :cards="statCards" :data="stats" class="page-section">
+      <template #card="{ card, value }">
+        <div
+          class="admin-tasks-page__stat-card"
+          :class="{ 'is-active': filters.status === card.status }"
+          :style="{ '--accent': card.color }"
+          @click="toggleStatusFilter(card.status)"
+        >
+          <div class="admin-tasks-page__stat-label">{{ card.label }}</div>
+          <div class="admin-tasks-page__stat-value">{{ value ?? 0 }}</div>
+          <div class="admin-tasks-page__stat-hint">{{ card.hint }}</div>
+        </div>
+      </template>
+    </StatCardGrid>
+
     <FilterToolbar
       :filters="filterConfig"
       v-model="filters"
@@ -24,24 +40,32 @@
       :pageSizes="[10, 20, 50, 100]"
       @page-change="loadTasks"
     >
-      <el-table-column label="任务" min-width="160">
+      <el-table-column label="任务" min-width="200">
         <template #default="{ row }">
-          <div style="font-weight:600">{{ row.name }}</div>
+          <div class="admin-tasks-page__name">{{ row.name }}</div>
           <div class="admin-tasks-page__sub-id">{{ row.id?.slice(0,8) }}...</div>
         </template>
       </el-table-column>
-      <el-table-column label="类型" width="130">
-        <template #default="{ row }"><el-tag size="small" type="info">{{ row.task_type }}</el-tag></template>
-      </el-table-column>
-      <el-table-column label="状态" width="90">
-        <template #default="{ row }"><StatusTag :status="row.status" /></template>
-      </el-table-column>
-      <el-table-column label="停止确认" width="100">
+      <el-table-column label="类型" width="110">
         <template #default="{ row }">
-          <el-tag size="small" :type="stopBadgeInfo(row.status).type">{{ stopBadgeInfo(row.status).text }}</el-tag>
+          <el-tag size="small" type="info" effect="plain">{{ taskTypeLabel(row.task_type) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="参数组" width="70">
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <!-- 失败任务 hover 展示错误摘要 -->
+          <el-tooltip
+            v-if="row.status === 'error' && row.error_message"
+            :content="row.error_message"
+            placement="top"
+            :show-after="200"
+          >
+            <span class="admin-tasks-page__status-wrap"><StatusTag :status="row.status" /></span>
+          </el-tooltip>
+          <StatusTag v-else :status="row.status" />
+        </template>
+      </el-table-column>
+      <el-table-column label="参数组" width="70" align="center">
         <template #default="{ row }">{{ row.config?.parameters?.length ?? 0 }}</template>
       </el-table-column>
       <el-table-column label="进度" min-width="140">
@@ -49,27 +73,21 @@
           <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
         </template>
       </el-table-column>
-      <el-table-column label="创建时间" width="160" show-overflow-tooltip>
+      <el-table-column label="开始 / 结束" width="170">
         <template #default="{ row }">
-          {{ formatDateTime(row.created_at) }}
+          <div class="admin-tasks-page__time">{{ formatDateTime(row.start_time) }}</div>
+          <div class="admin-tasks-page__time">{{ formatDateTime(row.end_time) }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="开始时间" width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatDateTime(row.start_time) }}
-        </template>
+      <el-table-column label="耗时" width="90" align="center">
+        <template #default="{ row }">{{ formatTaskDuration(row) }}</template>
       </el-table-column>
-      <el-table-column label="结束时间" width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatDateTime(row.end_time) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="goTaskDetail(row)">详情</el-button>
           <el-button link type="info" @click="showDetail(row.id)">摘要</el-button>
           <el-button link type="success" @click="openEditTask(row.id)">编辑</el-button>
-          <el-button v-if="row.status === 'running'" link type="warning" @click="handleCancel(row.id)">停止</el-button>
+          <el-button v-if="row.status === 'running'" link type="warning" :loading="stoppingTaskId === row.id" @click="handleCancel(row.id)">停止</el-button>
           <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
@@ -88,9 +106,12 @@
           <el-descriptions-item label="创建时间">{{ formatDateTime(detailTask.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(detailTask.start_time) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ formatDateTime(detailTask.end_time) }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailTask.error_message" label="错误信息">
+            <span class="admin-tasks-page__error-text">{{ detailTask.error_message }}</span>
+          </el-descriptions-item>
         </el-descriptions>
 
-        <el-row :gutter="12" style="margin-top:16px">
+        <el-row :gutter="12" class="admin-tasks-page__section">
           <el-col :span="12">
             <div class="admin-tasks-page__summary-card">
               <h4>参数摘要</h4>
@@ -114,12 +135,12 @@
           </el-col>
         </el-row>
 
-        <div style="margin-top:16px">
+        <div class="admin-tasks-page__section">
           <h4>任务配置</h4>
           <CodeBlock :content="detailTask.config || {}" />
         </div>
 
-        <div style="margin-top:16px">
+        <div class="admin-tasks-page__section">
           <h4>任务日志</h4>
           <div class="admin-tasks-page__logs">
             <template v-if="recentLogLines.length">
@@ -129,7 +150,7 @@
           </div>
         </div>
 
-        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <div class="admin-tasks-page__drawer-actions">
           <el-button type="primary" @click="goTaskDetail(detailTask)">执行详情页</el-button>
           <el-button v-if="detailTask.status !== 'running'" type="success" @click="openEditTask(detailTask.id)">编辑任务</el-button>
           <el-button v-if="detailTask.status === 'running'" type="warning" @click="handleCancel(detailTask.id)">停止任务</el-button>
@@ -159,7 +180,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="任务类型">
-              <el-select v-model="createForm.task_type" style="width:100%">
+              <el-select v-model="createForm.task_type" class="admin-tasks-page__full-width">
                 <el-option v-for="opt in taskTypeOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
               </el-select>
             </el-form-item>
@@ -192,7 +213,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="任务状态">
-              <el-select v-model="editForm.status" style="width:100%">
+              <el-select v-model="editForm.status" class="admin-tasks-page__full-width">
                 <el-option v-for="opt in taskStatusEditableOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
               </el-select>
             </el-form-item>
@@ -222,7 +243,7 @@
       <div class="admin-tasks-page__batch-summary">
         <div class="admin-tasks-page__batch-summary-head">
           <div class="admin-tasks-page__batch-summary-text">{{ batchSummaryText }}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="admin-tasks-page__batch-head-actions">
             <el-button size="small" :disabled="batchRestarting" @click="selectAllRestartable">全选当前页</el-button>
             <el-button size="small" :disabled="batchRestarting" @click="clearBatchSelection">清空</el-button>
           </div>
@@ -230,8 +251,8 @@
         <div class="admin-tasks-page__batch-progress">{{ batchProgressText }}</div>
       </div>
 
-      <div style="margin:12px 0">
-        <div style="font-weight:600;margin-bottom:8px">重启方式</div>
+      <div class="admin-tasks-page__restart-mode">
+        <div class="admin-tasks-page__restart-mode-label">重启方式</div>
         <el-radio-group v-model="batchRestartMode" :disabled="batchRestarting">
           <el-radio-button value="resume">从断点重启</el-radio-button>
           <el-radio-button value="fresh">从头重启</el-radio-button>
@@ -239,7 +260,7 @@
       </div>
 
       <div v-loading="batchLoading" class="admin-tasks-page__batch-list">
-        <div v-if="!batchTasks.length" class="admin-tasks-page__muted" style="text-align:center;padding:16px 0">当前页暂无任务</div>
+        <div v-if="!batchTasks.length" class="admin-tasks-page__muted admin-tasks-page__batch-empty">当前页暂无任务</div>
         <div
           v-for="task in batchTasks"
           :key="task.id"
@@ -277,9 +298,9 @@
       </div>
 
       <div class="admin-tasks-page__batch-footer-bar">
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="admin-tasks-page__batch-total">
           <span class="admin-tasks-page__muted">共 {{ batchTotal }} 条</span>
-          <el-select v-model="batchPageSize" size="small" style="width:100px" :disabled="batchRestarting" @change="handleBatchPageSizeChange">
+          <el-select v-model="batchPageSize" size="small" class="admin-tasks-page__batch-page-size" :disabled="batchRestarting" @change="handleBatchPageSizeChange">
             <el-option :value="10" label="10 / 页" />
             <el-option :value="20" label="20 / 页" />
             <el-option :value="50" label="50 / 页" />
@@ -297,8 +318,8 @@
       </div>
 
       <template #footer>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <span class="admin-tasks-page__muted" style="margin-right:auto">已选任务会逐个重启，单个失败不阻断后续任务。</span>
+        <div class="admin-tasks-page__batch-dialog-footer">
+          <span class="admin-tasks-page__muted admin-tasks-page__batch-footer-hint">已选任务会逐个重启，单个失败不阻断后续任务。</span>
           <el-button @click="batchDialogVisible = false">取消</el-button>
           <el-button type="success" :loading="batchRestarting" :disabled="batchSelectedIds.length < 1" @click="restartSelectedBatchTasks">批量重启</el-button>
         </div>
@@ -308,16 +329,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { getTasks, getTask, createTask, cancelTask, deleteTask, restartTask, createRestartTask, updateTaskConfig } from '@/api/task'
 import { getTaskRuntimeDetail, getTaskStopConfirmation } from '@/api/admin'
 import { getEnums } from '@/api/meta'
+import { getConfig } from '@/api/config'
 import { formatDateTime } from '@/utils/format'
+import { normalizeTaskType, getTaskVersionFromType, isGoogleSheetTask, taskDetailRoute, taskTypeLabel } from '@/utils/task_meta'
 import StatusTag from '@/components/StatusTag.vue'
 import PageToolbar from '@/components/PageToolbar.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
 import DataTableCard from '@/components/DataTableCard.vue'
 import TaskProgressCell from '@/components/TaskProgressCell.vue'
@@ -325,6 +349,7 @@ import CodeBlock from '@/components/CodeBlock.vue'
 import { useResponsive } from '@/composables/useResponsive'
 import { usePolling } from '@/composables/usePolling'
 
+const route = useRoute()
 const router = useRouter()
 const { isMobile, componentSize, drawerSize, dialogWidth, formLabelPosition, formLabelWidth } = useResponsive()
 const tasks = ref([])
@@ -332,6 +357,7 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const stats = ref({})
 const filters = ref({ status: '', task_type: '', keyword: '' })
 const detailDrawerVisible = ref(false)
 const detailTask = ref(null)
@@ -367,6 +393,43 @@ const taskStatusOptions = ref(DEFAULT_STATUS_OPTIONS)
 const taskTypeOptions = ref(DEFAULT_TYPE_OPTIONS)
 const taskStatusEditableOptions = ref(DEFAULT_EDITABLE_STATUS_OPTIONS)
 
+// 统计卡：主数来自 /tasks statistics，点击按状态筛选（再次点击取消）
+const statCards = computed(() => {
+  const s = stats.value
+  return [
+    { key: 'total_tasks', status: '', label: '总任务数', color: '#2563eb', hint: `今日新增 ${s.today_new_tasks ?? 0}` },
+    { key: 'completed_tasks', status: 'completed', label: '已完成', color: '#16a34a', hint: `成功率 ${s.success_rate ?? 0}%` },
+    { key: 'running_tasks', status: 'running', label: '运行中', color: '#f59e0b', hint: `平均时长 ${formatAvgDuration(s.avg_duration_minutes)}` },
+    { key: 'error_tasks', status: 'error', label: '错误', color: '#ef4444', hint: `错误率 ${s.error_rate ?? 0}%` },
+  ]
+})
+
+// 平均时长：>60 分钟进位为小时（对齐任务列表页口径）
+function formatAvgDuration(avg) {
+  const minutes = avg || 0
+  return minutes > 60 ? `${Math.round(minutes / 60)}小时${minutes % 60}分钟` : `${minutes}分钟`
+}
+
+function toggleStatusFilter(status) {
+  filters.value.status = filters.value.status === status ? '' : status
+  doFilter()
+}
+
+// 耗时：优先后端 duration_seconds，缺失时按开始/结束时间补算
+function formatTaskDuration(row) {
+  let seconds = row.duration_seconds
+  if ((seconds == null || seconds === '') && row.start_time && row.end_time) {
+    const diff = (new Date(row.end_time) - new Date(row.start_time)) / 1000
+    if (!Number.isNaN(diff) && diff >= 0) seconds = Math.round(diff)
+  }
+  if (seconds == null || seconds === '') return '-'
+  seconds = Number(seconds)
+  if (!Number.isFinite(seconds)) return '-'
+  if (seconds < 60) return `${Math.round(seconds)}秒`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分${Math.round(seconds % 60)}秒`
+  return `${Math.floor(seconds / 3600)}小时${Math.floor((seconds % 3600) / 60)}分`
+}
+
 const filterConfig = computed(() => [
   {
     key: 'status',
@@ -391,6 +454,8 @@ const filterConfig = computed(() => [
 ])
 
 onMounted(async () => {
+  loadStateFromUrl()
+  await loadTasks()
   try {
     const res = await getEnums()
     if (res?.task_statuses?.length) taskStatusOptions.value = res.task_statuses
@@ -399,6 +464,15 @@ onMounted(async () => {
   } catch {
     // 枚举加载失败时沿用内置选项，不阻断页面
   }
+  // 轮询间隔读配置（tasks_admin_refresh_interval，默认 30s），读不到沿用默认
+  try {
+    const res = await getConfig()
+    const interval = Number(res?.config?.tasks_admin_refresh_interval)
+    if (Number.isFinite(interval) && interval > 0 && interval !== DEFAULT_POLL_INTERVAL && !disposed) {
+      poller.stop()
+      customPollTimer = window.setInterval(() => poller.tick(), interval)
+    }
+  } catch {}
 })
 
 async function loadTasks() {
@@ -411,55 +485,73 @@ async function loadTasks() {
     const res = await getTasks(params)
     tasks.value = res.items || []
     total.value = res.total || 0
+    stats.value = res.statistics || {}
   } finally { loading.value = false }
 }
 
-function doFilter() { page.value = 1; loadTasks() }
-function clearFilters() { filters.value = { status: '', task_type: '', keyword: '' }; doFilter() }
-
-usePolling(loadTasks, { interval: 30000, immediate: true })
-
-// ===== 详情跳转分流（对齐静态版 buildTaskDetailUrl，Vue 路由路径） =====
-function normalizeTaskType(taskType) {
-  const normalized = String(taskType || '').trim().toLowerCase()
-  if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalized)) return 'google_sheet'
-  if (normalized === 'google_sheet_c4') return 'google_sheet_c4'
-  if (normalized === 'google_sheet_c5') return 'google_sheet_c5'
-  if (['backtest_training', 'backtest'].includes(normalized)) return 'backtest_training'
-  if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalized)) return 'backtest_multi_product'
-  return normalized
+function doFilter() { page.value = 1; loadTasks(); syncUrl() }
+function clearFilters() {
+  filters.value = { status: '', task_type: '', keyword: '' }
+  doFilter()
 }
 
-function getTaskVersionFromType(taskType) {
-  const normalized = normalizeTaskType(taskType)
-  if (normalized === 'google_sheet_c5') return 'c5'
-  if (normalized === 'google_sheet_c4') return 'c4'
-  if (normalized === 'google_sheet') return 'c3'
-  return ''
+// ── URL 状态同步：筛选/页码写 query，刷新与前进后退可恢复（同任务列表页模式）──
+
+function syncUrl() {
+  const query = {}
+  if (page.value > 1) query.page = String(page.value)
+  if (filters.value.status) query.status = filters.value.status
+  if (filters.value.task_type) query.task_type = filters.value.task_type
+  if (filters.value.keyword) query.keyword = filters.value.keyword
+  router.replace({ query })
 }
 
-function isGoogleSheetTask(taskType) {
-  return ['google_sheet', 'google_sheet_c4', 'google_sheet_c5'].includes(normalizeTaskType(taskType))
+function loadStateFromUrl() {
+  const p = parseInt(route.query.page, 10)
+  if (!Number.isNaN(p) && p > 0) page.value = p
+  const { status = '', task_type = '', keyword = '' } = route.query
+  filters.value = { status, task_type, keyword: String(keyword) }
 }
 
-function taskDetailRoute(task) {
-  const normalized = normalizeTaskType(task?.task_type)
-  if (normalized === 'backtest_training') return `/backtest/${task.id}`
-  if (normalized === 'backtest_multi_product') return `/backtest-multi/${task.id}`
-  return `/task/${task.id}`
-}
+watch(
+  () => route.query,
+  (q) => {
+    // 自身 replace 引起的 query 变化与本地状态一致时跳过，避免重复加载
+    const p = parseInt(q.page, 10)
+    const targetPage = !Number.isNaN(p) && p > 0 ? p : 1
+    if (
+      targetPage === page.value
+      && (q.status || '') === filters.value.status
+      && (q.task_type || '') === filters.value.task_type
+      && (q.keyword || '') === filters.value.keyword
+    ) return
+    page.value = targetPage
+    filters.value = { status: q.status || '', task_type: q.task_type || '', keyword: q.keyword || '' }
+    loadTasks()
+  }
+)
 
+// 轮询：usePolling 的间隔在启动时固定，读配置后若不同则停用内置定时器、按配置间隔自建
+const DEFAULT_POLL_INTERVAL = 30000
+const poller = usePolling(loadTasks, { interval: DEFAULT_POLL_INTERVAL, immediate: false })
+let customPollTimer = null
+// 卸载标志：读配置是异步的，若期间已切走页面，onUnmounted 先于定时器创建执行，
+// 事后创建的轮询将永不停止
+let disposed = false
+
+onUnmounted(() => {
+  disposed = true
+  if (customPollTimer) {
+    window.clearInterval(customPollTimer)
+    customPollTimer = null
+  }
+})
+
+// ===== 详情跳转分流（normalizeTaskType/taskDetailRoute 等已提取到 utils/task_meta.js 共享）=====
 function goTaskDetail(task) {
   if (!task?.id) return
   detailDrawerVisible.value = false
   router.push(taskDetailRoute(task))
-}
-
-// ===== 停止确认 badge =====
-function stopBadgeInfo(status) {
-  if (status === 'running') return { text: '运行中', type: 'warning' }
-  if (['cancelled', 'completed', 'error', 'pending'].includes(status)) return { text: '线程已结束', type: 'success' }
-  return { text: '未知', type: 'info' }
 }
 
 // ===== 详情抽屉 =====
@@ -501,9 +593,21 @@ function refreshDetailIfShowing(id) {
   if (detailDrawerVisible.value && detailTask.value?.id === id) showDetail(id)
 }
 
+const stoppingTaskId = ref(null)
+
 async function handleCancel(id) {
-  await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' })
-  await cancelTask(id)
+  // 取消确认框不视为错误，静默返回
+  const confirmed = await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
+  stoppingTaskId.value = id
+  try {
+    await cancelTask(id)
+  } catch (e) {
+    ElMessage.error(e.message || '停止任务失败')
+    return
+  } finally {
+    stoppingTaskId.value = null
+  }
   pollStopConfirmation(id)
 }
 
@@ -530,10 +634,15 @@ async function pollStopConfirmation(id, attempt = 0) {
 }
 
 async function handleRestart(id, resumeFromCheckpoint) {
-  await restartTask(id, { resume_from_checkpoint: resumeFromCheckpoint })
-  ElMessage.success('任务重启成功')
-  loadTasks()
-  refreshDetailIfShowing(id)
+  // 对齐静态版 restartTask：失败弹错误通知，不让 Promise 悬挂成 unhandled rejection
+  try {
+    await restartTask(id, { resume_from_checkpoint: resumeFromCheckpoint })
+    ElMessage.success('任务重启成功')
+    loadTasks()
+    refreshDetailIfShowing(id)
+  } catch (e) {
+    ElMessage.error(e.message || '任务重启失败')
+  }
 }
 
 function handleRestartCommand(cmd, task) {
@@ -566,7 +675,9 @@ async function handleCreateRestartTask(task) {
 }
 
 async function handleDelete(id) {
-  await ElMessageBox.confirm('确定要删除这个任务吗？删除后不可恢复。', '确认删除', { type: 'warning' })
+  // 取消确认框不视为错误，静默返回
+  const confirmed = await ElMessageBox.confirm('确定要删除这个任务吗？删除后不可恢复。', '确认删除', { type: 'warning' }).catch(() => false)
+  if (!confirmed) return
   await deleteTask(id)
   ElMessage.success('任务已删除')
   detailDrawerVisible.value = false
@@ -664,7 +775,6 @@ const batchResults = ref({})
 const batchRestarting = ref(false)
 const batchRestartMode = ref('resume')
 const batchProgressText = ref('尚未开始重启')
-const batchTaskCache = new Map()
 
 function isBatchRestartable(task) {
   return task && task.status !== 'running'
@@ -703,7 +813,6 @@ async function loadBatchTasks(pageNum = batchPage.value) {
   try {
     const res = await getTasks({ page: pageNum, per_page: batchPageSize.value })
     batchTasks.value = res.items || []
-    batchTasks.value.forEach((task) => batchTaskCache.set(String(task.id), task))
     batchPage.value = pageNum
     batchTotal.value = res.total || 0
   } catch (e) {
@@ -780,9 +889,82 @@ async function restartSelectedBatchTasks() {
 </script>
 
 <style scoped>
+.admin-tasks-page__stat-card {
+  position: relative;
+  padding: 14px 16px 14px 20px;
+  border-radius: var(--el-border-radius-base);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  cursor: pointer;
+}
+
+.admin-tasks-page__stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent);
+}
+
+.admin-tasks-page__stat-card:hover {
+  box-shadow: var(--app-shadow-soft);
+}
+
+/* 卡片对应的筛选生效中：高亮边框提示 */
+.admin-tasks-page__stat-card.is-active {
+  border-color: var(--accent);
+  box-shadow: var(--app-shadow-soft);
+}
+
+.admin-tasks-page__stat-label {
+  font-size: var(--app-font-xs);
+  color: var(--app-text-muted);
+  margin-bottom: 4px;
+}
+
+.admin-tasks-page__stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--app-text);
+  line-height: 1.2;
+}
+
+.admin-tasks-page__stat-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-top: 4px;
+}
+
+.admin-tasks-page__name {
+  font-weight: 600;
+}
+
 .admin-tasks-page__sub-id {
   font-size: var(--app-font-xs);
   color: var(--app-text-muted);
+}
+
+.admin-tasks-page__status-wrap {
+  display: inline-flex;
+  cursor: help;
+}
+
+.admin-tasks-page__time {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  font-family: 'Fira Code', monospace;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.admin-tasks-page__error-text {
+  color: #dc2626;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 .admin-tasks-page__summary-card {
@@ -834,6 +1016,62 @@ async function restartSelectedBatchTasks() {
   color: #93c5fd;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.admin-tasks-page__section {
+  margin-top: 16px;
+}
+
+.admin-tasks-page__drawer-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__full-width {
+  width: 100%;
+}
+
+.admin-tasks-page__batch-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__restart-mode {
+  margin: 12px 0;
+}
+
+.admin-tasks-page__restart-mode-label {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.admin-tasks-page__batch-empty {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.admin-tasks-page__batch-total {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-tasks-page__batch-page-size {
+  width: 100px;
+}
+
+.admin-tasks-page__batch-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-tasks-page__batch-footer-hint {
+  margin-right: auto;
 }
 
 .admin-tasks-page__batch-summary {

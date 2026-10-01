@@ -3,13 +3,15 @@ from flask import Blueprint
 from app.routes.pages import register_page_routes
 from app.utils.auth import page_login_required
 
-admin_bp = Blueprint('admin', __name__)
+admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 # (rule, template)；全部页面统一 page_login_required（ponytail 审计 D1 表驱动）
 # 仪表盘页面已停用（2026-09，db-to-http 迁移）：聚合统计依赖本地 SQL，
 # 远端数据访问模式下不再提供；恢复时取消注释。
 PAGES = [
-    # ('/', 'admin/dashboard.html'),
+    # 仪表盘页已停用（见上）；/admin/ 根路径重定向到首个可用页面 /admin/tasks。
+    # ('/dashboard', 'admin/dashboard.html'),
+    ('/', None, '.tasks'),
     ('/tasks', 'admin/tasks.html'),
     ('/config', 'admin/config.html'),
     # ('/navigation', 'admin/navigation.html'),  # 菜单管理已上收主 Web（网关对该前缀返回 404）

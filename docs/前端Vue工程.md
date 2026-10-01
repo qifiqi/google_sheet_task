@@ -61,11 +61,11 @@ useAuth、useChartJs、useDebounce、useNavigation、usePolling、useResponsive�
 
 - `createHttpClient(config)`：axios 实例 + 请求拦截器注入 `Authorization: Bearer <access_token>`（localStorage）。
 - 响应拦截器：直接返回 `res.data`；**401 时用 refresh_token 调 `POST /api/auth/refresh` 换新 token 并重放原请求**（isRefreshing + pendingRequests 队列防并发刷新）；刷新失败清 token 跳 `/login`。
-- 默认实例 `api`：baseURL `/api`，timeout 30s；`rawApi`：无 baseURL，用于 `/admin/api/*`、`/backtest-training/api/*` 等完整路径。
+- 默认实例 `api`：baseURL `/api`，timeout 30s；`rawApi`：无 baseURL，用于导出下载等返回文件流的完整路径（后端 JSON API 已全部并入 `/api/**`，管理端与回测子域均可走默认实例）。
 
 ## Vite 代理与构建集成
 
-- dev 代理（vite.config.js）：`/api`、`/admin/api`、`/backtest-training/api`、`/xpl/analyze`、`/xpl/v1/analyze` → `http://127.0.0.1:5000`。新增后端页面 API 若前缀不同需手动补代理。
+- dev 代理（vite.config.js）：`/api` → `http://127.0.0.1:5000`，后端 JSON API 已全部并入 `/api/**` 单前缀（历史 `/admin/api`、`/backtest-training/api`、`/xpl/*` 条目后端已不存在，可清理）。
 - **Flask 不托管 frontend/dist**：create_app 的 static_folder 仍是 `static/`，仓库中没有指向 dist 的 catch-all。生产形态是 Nginx 托管 dist + `/api/` 反代 Flask:5000（见 [部署运维.md](部署运维.md)）。
 
 ## 与 Jinja 旧前端的关系

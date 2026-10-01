@@ -59,18 +59,6 @@ class BacktestRepository(BaseRepository):
             if commit:
                 self._commit()
 
-    def list_summary_index_entities_by_result(self, task_result_id):
-        return TaskResultSummaryIndex.query.filter_by(task_result_id=task_result_id).all()
-
-    def get_task_result_pair(self, task_result_id):
-        """(Task, TaskResult) join 实体，供候选记录提取。"""
-        return (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .filter(TaskResult.id == task_result_id)
-            .first()
-        )
-
     def list_task_ids_by_visible_types(self, visible_types, task_id=None, stock_code=None):
         query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
         if task_id:
@@ -332,19 +320,6 @@ class BacktestRepository(BaseRepository):
         deleted = (
             TaskResultSummaryIndex.query
             .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted
-
-    def delete_summary_index_by_task_or_results(self, task_id, result_ids, commit=True):
-        deleted = (
-            TaskResultSummaryIndex.query
-            .filter(
-                (TaskResultSummaryIndex.task_id == task_id)
-                | TaskResultSummaryIndex.task_result_id.in_(result_ids)
-            )
             .delete(synchronize_session=False)
         )
         if commit:

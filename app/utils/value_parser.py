@@ -8,7 +8,6 @@ from typing import Any
 from dateutil import parser
 import numpy as np
 import pandas as pd
-import json
 
 def parse_int(value: Any, *, default: int | None = None) -> int | None:
     """解析整数；空值、布尔值和非法值返回 default。"""

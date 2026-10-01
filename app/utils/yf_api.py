@@ -29,14 +29,29 @@ class YFApi:
         return data
 
     def get_total_assets(self, ticker):
-        """Yahoo totalAssets（ETF 资产总数，基金计价货币原值）；非 ETF/取不到返回 None。"""
+        """Yahoo totalAssets（ETF 资产总数，基金计价货币原值）；未披露时回退 marketCap（总市值）。
+
+        非 ETF/两者都取不到返回 None。
+        """
+        return self.get_total_assets_with_source(ticker)[0]
+
+    def get_total_assets_with_source(self, ticker):
+        """返回 (资产值, 是否 ETF)：totalAssets 优先且视为 ETF；
+        未披露时回退 marketCap（总市值）并视为个股；两者都缺失返回 (None, None)。
+        """
         try:
             info = yf.Ticker(ticker).info or {}
             value = info.get('totalAssets')
-            return float(value) if value is not None else None
+            if value is not None:
+                return float(value), True
+            # 非 ETF 或未披露 totalAssets 时回退总市值，同为原币计价的规模量级。
+            market_cap = info.get('marketCap')
+            if market_cap is not None:
+                return float(market_cap), False
+            return None, None
         except Exception as exc:
             self.logger.warning(f"Yahoo totalAssets 获取失败 {ticker}: {str(exc)}")
-            return None
+            return None, None
 
     def _adjust_ticker_frame(self, ticker_data, adjust_type=None):
         normalized_adjust_type = normalize_kline_adjustment(adjust_type)

@@ -1,0 +1,196 @@
+/* V3 回测数据分析页样式（docs/design/performance-analysis-v3/01-设计方案.md）。
+ * 约定：红涨绿跌（.v3-up 红 / .v3-down 绿）；系列色与涨跌色严格分离——
+ * 系列色只标识"是谁"（基准蓝/策略绿/超额橙），涨跌色只标识"方向"。 */
+
+:root {
+    --v3-bench: #0d6efd;
+    --v3-strat: #198754;
+    --v3-excess: #fd7e14;
+    --v3-up: #dc3545;
+    --v3-down: #198754;
+}
+
+/* 涨跌着色：正/涨=红，负/跌=绿（国内习惯，全页统一） */
+.v3-up { color: var(--v3-up); }
+.v3-down { color: var(--v3-down); }
+
+/* 图例说明条：置顶声明颜色约定，避免阅读歧义 */
+.v3-color-legend {
+    font-size: .78rem;
+    color: var(--bs-secondary-color);
+}
+.v3-color-legend .v3-swatch {
+    display: inline-block;
+    width: .7rem;
+    height: .7rem;
+    border-radius: 2px;
+    margin-right: .2rem;
+    vertical-align: baseline;
+}
+
+/* ---- 分区锚点导航（sticky） ---- */
+.v3-section-nav {
+    position: sticky;
+    top: 1rem;
+    z-index: 100;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: .35rem .5rem;
+    margin-bottom: 1rem;
+}
+.v3-section-nav .nav-link {
+    padding: .15rem .6rem;
+    font-size: .84rem;
+    border-radius: .35rem;
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+}
+.v3-section-nav .nav-link.active {
+    color: #fff;
+    background: var(--bs-primary);
+}
+
+/* ---- 数据集栏（多数据对比接入口） ---- */
+.v3-dataset-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    align-items: center;
+    min-height: 1.5em;
+}
+.v3-dataset-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 2rem;
+    padding: .12rem .35rem .12rem .6rem;
+    font-size: .8rem;
+    background: var(--bs-tertiary-bg);
+    cursor: pointer;
+    user-select: none;
+}
+.v3-dataset-chip .v3-dot {
+    width: .6rem;
+    height: .6rem;
+    border-radius: 50%;
+    flex: none;
+}
+.v3-dataset-chip.active {
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 .15rem rgba(var(--bs-primary-rgb), .15);
+}
+.v3-dataset-chip .v3-remove {
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    line-height: 1;
+    padding: 0 .15rem;
+    font-size: .9rem;
+}
+.v3-dataset-chip .v3-remove:hover { color: var(--bs-danger); }
+
+/* ---- 口径 chips ---- */
+.v3-caliber-chip {
+    display: inline-block;
+    font-size: .74rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 2rem;
+    padding: .05rem .55rem;
+    color: var(--bs-secondary-color);
+    background: var(--bs-tertiary-bg);
+}
+
+/* ---- KPI 三列卡 ---- */
+.v3-kpi-table td, .v3-kpi-table th {
+    font-variant-numeric: tabular-nums;
+}
+.v3-kpi-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.v3-kpi-delta {
+    font-size: .74rem;
+    margin-left: .3rem;
+}
+
+/* ---- 月度热力图（自绘色块表，红涨绿跌） ---- */
+.v3-heatmap {
+    border-collapse: collapse;
+    font-size: .74rem;
+    width: 100%;
+    table-layout: fixed;
+}
+.v3-heatmap th, .v3-heatmap td {
+    border: 1px solid var(--bs-border-color);
+    text-align: center;
+    padding: .18rem .1rem;
+    font-variant-numeric: tabular-nums;
+}
+.v3-heatmap thead th {
+    background: var(--bs-tertiary-bg);
+    font-weight: 600;
+}
+.v3-heatmap tbody th {
+    background: var(--bs-tertiary-bg);
+    font-weight: 600;
+    width: 3.2rem;
+}
+.v3-heatmap td.v3-hm-cell {
+    cursor: default;
+    white-space: nowrap;
+}
+.v3-heatmap td.v3-hm-empty { color: var(--bs-secondary-color); }
+.v3-heatmap-year-col {
+    font-variant-numeric: tabular-nums;
+    background: var(--bs-tertiary-bg);
+}
+
+/* ---- 图表卡 ---- */
+.v3-chart-box { position: relative; height: 320px; }
+.v3-chart-box.tall { height: 360px; }
+
+/* ---- 明细区表格 ---- */
+.v3-detail-table th { white-space: nowrap; }
+/* 数值列表头与右对齐数值同列对齐，避免"表头在左、数值在右"的视觉错位 */
+.v3-detail-table th.num, .v3-kpi-table th.num {
+    text-align: right;
+}
+.v3-detail-table td.num, .v3-kpi-table td.num {
+    text-align: right;
+    font-family: var(--bs-font-monospace);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+/* 策略占优高亮（行内最优值描边） */
+.v3-detail-table td.num.v3-best {
+    outline: 1px solid var(--v3-strat);
+    outline-offset: -1px;
+    font-weight: 600;
+}
+
+/* ---- 分区标题 ---- */
+.v3-section-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    border-left: 4px solid var(--bs-primary);
+    padding-left: .5rem;
+    margin-bottom: .75rem;
+    scroll-margin-top: 4rem;
+}
+
+/* ---- 全量指标总表 ---- */
+.v3-metrics-table td { font-size: .8rem; }
+.v3-metrics-table td.num {
+    text-align: right;
+    font-family: var(--bs-font-monospace);
+    font-variant-numeric: tabular-nums;
+    max-width: 14rem;
+    overflow-wrap: anywhere;
+}
+.v3-metrics-group-row td {
+    background: var(--bs-tertiary-bg);
+    font-weight: 600;
+}

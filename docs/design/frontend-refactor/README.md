@@ -1,6 +1,6 @@
 # 前端静态化重构方案（总览）
 
-> 状态：方案已定稿，待执行。执行必须严格遵循本目录下各分册文档：
+> 状态：**已执行完毕**（F0～F6，2026-09-08 收官，终检记录见 `04-execution-checklist.md` 文末 F6 执行记录）。本目录转为静态版前端分层结构的标准查阅与代码分析文档：
 >
 > - `README.md` —— 背景、实测数据、目标/非目标、核心设计决策（本文件）
 > - `01-frontend-inventory.md` —— 前端资产全量清点（模板/路由/静态资源/CDN/存储键/重复度，全部带实测数据）
@@ -8,7 +8,6 @@
 > - `03-jinja-removal.md` —— 模板语法移除对照（注入点全量清单 + 逐条替换方案）
 > - `04-execution-checklist.md` —— 执行清单（批次 F0~F6、步骤、验证命令、回滚方式）
 > - `05-deployment.md` —— 双模式部署（nginx 独立部署 / Flask `send_from_directory`）
-> - `EXECUTION_PROMPT.md` —— 执行提示词（目标模式入口，可整段复制给执行代理）
 >
 > **2026-09-07 修订（B 方案）**：接口统一 `common/api.js`、跨页业务收敛 `common/business/`、组件化 `common/components/`（导航条）纳入本方案（D6、D9 修订）；原"不合并双胞胎、不建 api.js"两条非目标废止。静态版需长期存活，统一层形状对齐 `frontend/src/{api,composables,components}`（Vue 为后续方案，迁移时是翻译不是重设计）。
 
@@ -69,7 +68,7 @@
 | D5 | **query 参数版本路由**（`/google-sheet/create?version=c5` 等按参数返回不同文档）：nginx 用 `$arg_version` rewrite 映射；Flask 模式保留现有 python 分发（改为按版本 `send_from_directory`）；无 version 的 `/detail` 由 dispatcher 页 fetch 任务后重定向补参 | 详见 `05` §2.3 / §3.2 |
 | D6 | **导航条组件化（2026-09-07 B 修订）**：`common/components/navbar.js` 统一渲染三基座导航（内置三族菜单配置，按 pathname 选族），页面用 `<div data-navbar></div>` 占位替换导航标记；渲染产物与原基座逐字节一致；渲染在鉴权揭示前完成（body 仍带 `template-auth-pending`），无首屏闪动 | 原决策"布局基座内联展开、导航接受重复"废止；`template-auth-pending` 已把首屏揭示门控在 JS 之后，组件化不引入额外闪动（`02` §2 要点 3） |
 | D7 | **孤儿与冗余清理**：删 `templates/{base,index,index2,sjhp}.html`；删 Bootstrap rtl/esm/map 等未引用变体 | 4 孤儿模板全库无 `render_template` 引用（已 grep 验证；工作区已删、随 F0 提交） |
-| D8 | **`templates/` 目录名保留**：页面就地静态化，不做 `frontend/` 迁移；F0 先将原 Jinja 版 `templates/` 全量打包 `docs/design/frontend-refactor/archive/templates-jinja-source.zip` 留档（从 git HEAD 打包，含已删孤儿，共 49 文件） | 用户决策（2026-09-04）；避免 45 文件 `git mv` 噪音；Flask 与 nginx 均可直接指向该目录 |
+| D8 | **`templates/` 目录名保留**：页面就地静态化，不做 `frontend/` 迁移；F0 先将原 Jinja 版 `templates/` 全量打包 `docs/design/frontend-refactor/archive/templates-jinja-source.zip` 留档（从 git HEAD 打包，含已删孤儿，共 49 文件） | 用户决策（2026-09-04）；避免 45 文件 `git mv` 噪音；Flask 与 nginx 均可直接指向该目录。2026-10-01 注：重构已收官，zip 快照已随 docs 清理删除，Jinja 原版可经 git 历史 `git archive <F0 之前提交> templates` 随时重建 |
 | D9 | **统一三层（2026-09-07 B 修订）**：接口统一 `common/api.js`（端点集中 + 请求 helper + 信封解包，页面禁手写 fetch URL；`template-auth.js` 拦截器职责不变）；跨页业务收敛 `common/business/`（c4/c5/c7、backtest 双胞胎明示去重，**两步走**：先机械搬移后收敛，commit 分离各自可回滚）；组件 `common/components/`（≥2 处相同 DOM+JS 才提升，只做渲染函数） | 用户决策（2026-09-07）：静态版长期存活，接口/业务/组件必须统一；分层形状对齐 `frontend/src/{api,composables,components}`，Vue 迁移时翻译而非重设计 |
 
 ## 5. 批次索引（详见 `04-execution-checklist.md`）

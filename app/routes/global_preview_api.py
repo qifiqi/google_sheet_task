@@ -1,6 +1,6 @@
 """全局预览 API（自 global_preview.py 归位，URL 不变）。"""
 
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.exceptions import BadRequestError
 from app.schemas.backtest import PreviewGroupSchema
@@ -15,7 +15,7 @@ from app.utils.auth import login_required
 from app.utils.task_types import normalize_task_type
 
 
-gp_api_bp = Blueprint("global_preview_api", __name__, url_prefix="/global-preview")
+gp_api_bp = Blueprint("global_preview_api", __name__)
 
 
 def _preview_status(task):
@@ -33,7 +33,7 @@ def _preview_status(task):
     return {"supported": False, "message": "当前任务类型暂不支持全局预览"}
 
 
-@gp_api_bp.route("/api/tasks/<task_id>", methods=["GET"])
+@gp_api_bp.route("/tasks/<task_id>", methods=["GET"])
 @login_required
 def get_preview(task_id):
     task = task_manager.get_required_task(task_id)
@@ -56,7 +56,7 @@ def get_preview(task_id):
     return success(data=data)
 
 
-@gp_api_bp.route("/api/tasks/<task_id>/preview-group", methods=["POST"])
+@gp_api_bp.route("/tasks/<task_id>/preview-group", methods=["POST"])
 @login_required
 def get_preview_group(task_id):
     task = task_manager.get_required_task(task_id)

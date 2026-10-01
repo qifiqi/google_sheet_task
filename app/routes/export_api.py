@@ -11,11 +11,11 @@ import json
 from dataclasses import replace
 from urllib.parse import quote
 
-from flask import Blueprint, Response, request, send_file, stream_with_context
+from flask import Blueprint, Response, g, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import StrategyBacktestReportSchema
+from app.schemas.backtest import GlobalPreviewQuery, StrategyBacktestReportSchema
 from app.schemas.task import TaskIdsBatchSchema
 from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
@@ -23,7 +23,7 @@ from app.services.export_workbook_service import sanitize_export_filename
 from app.services.task import task_manager
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
-from app.utils.request_parsing import parse_body
+from app.utils.request_parsing import parse_body, parse_query
 
 
 logger = get_logger(__name__)
@@ -35,6 +35,13 @@ export_api_bp = Blueprint("export_api", __name__)
 # 06 §3：导出端点统一 rate_limit_export（10/min，user 键）。
 _export_limit = limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
+)
+
+# Word 报告端点被全局预览页按"股票×年份×参数方案"逐个循环调用，调用量远高于
+# 普通单文件导出，单独放宽（默认 60/min，可经系统配置 rate_limit_word_report 调整）。
+_word_report_limit = limiter.limit(
+    lambda: f"{rate_limit_config('rate_limit_word_report', 60) or 60}/minute",
     key_func=rate_limit_user_key,
 )
 
@@ -90,6 +97,16 @@ def _parse_ratios_query():
     return ratios
 
 
+def _parse_preview_runtime_params():
+    """预览导出的运行参数（当前仅无风险利率，年化小数形式）。
+
+    与预览 GET 读同一组查询参数（app/schemas/backtest.py::GlobalPreviewQuery），
+    保证导出的 Excel 与页面看到的指标同源；缺省表示沿用默认口径（rf=0）。
+    """
+    risk_free_rate = parse_query(GlobalPreviewQuery).risk_free_rate
+    return None if risk_free_rate is None else {"risk_free_rate": risk_free_rate}
+
+
 @export_api_bp.route("/tasks/<task_id>", methods=["GET"])
 @login_required
 @_export_limit
@@ -108,7 +125,7 @@ def export_task_results_by_stock(task_id):
     return _file_response(export_service.export_task_results_by_stock(task["id"]))
 
 
-@export_api_bp.route("/tasks/batch", methods=["POST"])
+@export_api_bp.route("/tasks/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_task_results_batch():
@@ -123,7 +140,11 @@ def export_global_preview(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview(task["id"], ratios_override=ratios)
+    generated = export_service.export_global_preview(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=_parse_preview_runtime_params(),
+    )
     export_name = request.args.get("export_name")
     if export_name:
         generated = replace(
@@ -140,7 +161,11 @@ def export_global_preview_by_stock(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
+    generated = export_service.export_global_preview_by_stock(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=_parse_preview_runtime_params(),
+    )
     export_name = request.args.get("export_name")
     if export_name:
         generated = replace(
@@ -150,7 +175,7 @@ def export_global_preview_by_stock(task_id):
     return _stream_response(generated)
 
 
-@export_api_bp.route("/global-previews/batch", methods=["POST"])
+@export_api_bp.route("/global-previews/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_global_preview_batch():
@@ -170,7 +195,7 @@ def export_backtest_result(result_id):
     return _file_response(export_service.export_backtest_result(result_id))
 
 
-@export_api_bp.route("/performance_analysis", methods=["POST"])
+@export_api_bp.route("/performance-analysis", methods=["POST"])
 @login_required
 @_export_limit
 def export_performance_analysis():
@@ -179,7 +204,7 @@ def export_performance_analysis():
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])
 @login_required
-@_export_limit
+@_word_report_limit
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
     report_request = parse_body(StrategyBacktestReportSchema)

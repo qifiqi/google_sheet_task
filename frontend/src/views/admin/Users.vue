@@ -25,14 +25,16 @@
         <template #default="{ row }">
           <el-switch
             :model-value="row.is_active"
+            :disabled="!canManageUsers"
             @change="(value) => handleToggleActive(row, value)"
           />
         </template>
       </el-table-column>
       <el-table-column label="告警值班" width="120">
         <template #default="{ row }">
+          <!-- 对齐静态版：canManageUsers() && isDeveloperUser(user) 双条件才可切换 -->
           <el-switch
-            v-if="isDeveloperUser(row)"
+            v-if="canManageUsers && isDeveloperUser(row)"
             :model-value="row.is_alert_oncall"
             @change="(value) => handleToggleOncall(row, value)"
           />
@@ -97,9 +99,12 @@ import { ref, reactive, computed } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 import { usePolling } from '@/composables/usePolling'
+import { useAuth } from '@/composables/useAuth'
 import { formatDateTime } from '@/utils/format'
 import PageToolbar from '@/components/PageToolbar.vue'
 import DataTableCard from '@/components/DataTableCard.vue'
+
+const { user: currentUser } = useAuth()
 
 const DEV_ROLE_CODES = ['developer']
 const users = ref([])
@@ -108,6 +113,12 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingUser = ref(null)
+
+// 对齐静态版 canManageUsers()（TemplateApp.isAdmin）：仅判断当前登录用户是否
+// 持有 admin 角色（与后端 admin_required 同语义，只读判断，不新增权限建设）
+const canManageUsers = computed(() =>
+  Array.isArray(currentUser.value?.roles) && currentUser.value.roles.some((role) => role?.code === 'admin')
+)
 const form = reactive({
   username: '',
   mobile: '',
@@ -175,7 +186,7 @@ async function handleSave() {
 }
 
 async function handleToggleOncall(row, value) {
-  if (!isDeveloperUser(row)) {
+  if (!canManageUsers.value || !isDeveloperUser(row)) {
     return
   }
   try {
@@ -188,6 +199,9 @@ async function handleToggleOncall(row, value) {
 }
 
 async function handleToggleActive(row, value) {
+  if (!canManageUsers.value) {
+    return
+  }
   try {
     await updateUser(row.id, { is_active: value })
     row.is_active = value

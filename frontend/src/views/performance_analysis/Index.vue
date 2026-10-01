@@ -1,5 +1,9 @@
 <template>
-  <div class="app-page performance-analyzer-index-page">
+  <div
+    v-loading="loading"
+    element-loading-text="计算中，请稍候..."
+    class="app-page performance-analyzer-index-page"
+  >
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
         <div class="page-toolbar__eyebrow">绩效分析</div>
@@ -28,7 +32,7 @@
             <el-input
               v-model="dataInput"
               type="textarea"
-              :rows="10"
+              :autosize="{ minRows: 6, maxRows: 12 }"
               placeholder="请将 Excel 中的时间列和收益率列数据粘贴到此处，格式为：时间 收益率&#10;例如：&#10;2025-01-01 0.0234&#10;2025-01-02 -0.0156&#10;2025-01-03 0.0089&#10;&#10;注意：时间列和收益率列之间可以用 Tab、空格或逗号分隔"
               class="performance-analyzer-input-panel__textarea"
             />
@@ -53,6 +57,8 @@
               两列数据按“日期 + 收益率”计算；三列数据按“日期 + 指数收益率 + 模型收益率”同时计算。
             </div>
             <el-button type="primary" class="full-width" :loading="analyzing" @click="analyze">开始分析</el-button>
+            <!-- 分析中可取消（原自绘遮罩上的取消按钮迁移至此，遮罩统一走 v-loading） -->
+            <el-button v-if="loading" class="full-width" @click="cancelLoading">取消</el-button>
           </el-card>
         </el-col>
 
@@ -255,13 +261,6 @@
         <el-button type="success" @click="downloadExportJson">下载JSON文件</el-button>
       </template>
     </el-dialog>
-
-    <!-- 加载提示 -->
-    <div v-if="loading" class="performance-analyzer-loading-overlay">
-      <span class="performance-analyzer-loading-overlay__spinner" aria-hidden="true"></span>
-      <div class="performance-analyzer-loading-overlay__text">计算中，请稍候...</div>
-      <el-button @click="cancelLoading">取消</el-button>
-    </div>
   </div>
 </template>
 
@@ -957,38 +956,6 @@ onBeforeUnmount(() => {
 
 .performance-analyzer-export-textarea :deep(textarea) {
   font-family: 'Courier New', monospace;
-}
-
-.performance-analyzer-loading-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.75);
-}
-
-.performance-analyzer-loading-overlay__spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid rgba(255, 255, 255, 0.25);
-  border-top-color: var(--el-color-primary);
-  border-radius: 50%;
-  animation: performance-analyzer-loading-spin 1s linear infinite;
-}
-
-.performance-analyzer-loading-overlay__text {
-  color: #fff;
-  font-size: var(--app-font-md, 16px);
-}
-
-@keyframes performance-analyzer-loading-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .text-success {

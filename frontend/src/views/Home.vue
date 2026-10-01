@@ -1,5 +1,5 @@
 <template>
-  <div style="padding: 40px; font-family: sans-serif;">
+  <div class="home-page">
     <h1>任务执行平台</h1>
     <p>前后端分离版本 — Vue 3 + Vite</p>
 
@@ -36,3 +36,10 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.home-page {
+  padding: 40px;
+  font-family: sans-serif;
+}
+</style>

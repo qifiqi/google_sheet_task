@@ -11,6 +11,7 @@
         manualDataSheetName: '',
         wordReportPayload: null,
         wordExportStock: null,
+        wordExportStockPreset: null,
         charts: {}
     };
 
@@ -54,6 +55,21 @@
             document.getElementById('v2-excel-file').click();
         });
         document.getElementById('v2-excel-file').addEventListener('change', handleV2ExcelImport);
+        document.getElementById('v2-result-id-input').addEventListener('change', () => {
+            updateV2ResultControls();
+            if (!isV2DirectResultId(getV2ResultInputValue())) {
+                fetchV2TaskResults();
+            }
+        });
+        document.getElementById('v2-result-id-input').addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            updateV2ResultControls();
+            if (!isV2DirectResultId(getV2ResultInputValue())) {
+                fetchV2TaskResults();
+            }
+        });
+        document.getElementById('v2-result-select').addEventListener('change', updateV2AnalyzeButton);
         document.getElementById('v2-paste-data').addEventListener('input', () => {
             state.manualDataTitle = '手动数据';
             state.manualDataSheetName = '粘贴数据';
@@ -79,6 +95,7 @@
         document.getElementById('config-upturn-threshold').addEventListener('input', saveV2RuntimeParams);
         document.getElementById('config-daily-extreme-threshold').addEventListener('input', saveV2RuntimeParams);
         document.getElementById('config-daily-drawdown-threshold').addEventListener('input', saveV2RuntimeParams);
+        document.getElementById('config-risk-free-rate').addEventListener('input', saveV2RuntimeParams);
         updateV2AnalyzeButton();
     });
 
@@ -403,10 +420,18 @@
     function showWordExportOptions() {
         const input = document.getElementById('word-export-stock');
         const results = document.getElementById('word-export-stock-results');
-        state.wordExportStock = null;
-        input.value = '';
+        // 结果分析 tab 会预填被分析结果自身的股票；其他来源每次打开清空重选。
+        const preset = state.wordExportStockPreset;
+        state.wordExportStock = preset ? { code: preset.code, name: preset.name } : null;
+        input.value = preset ? `${preset.code} · ${preset.name}` : '';
         results.innerHTML = '';
         results.classList.add('d-none');
+        // 弹窗里的无风险利率默认跟随「参数配置」页签：打开时同步当前值，
+        // 仍可按单次导出临时覆盖（覆盖不回写参数配置）。
+        const modalRiskFreeInput = document.getElementById('word-export-risk-free-rate');
+        if (modalRiskFreeInput) {
+            modalRiskFreeInput.value = String(parseV2ThresholdInput('config-risk-free-rate', 0));
+        }
         bootstrap.Modal.getOrCreateInstance(document.getElementById('word-export-options-modal')).show();
     }
 
@@ -456,9 +481,27 @@
         document.getElementById('word-export-stock-results').classList.add('d-none');
     }
 
+    // 弹窗内无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03）。
+    function readWordExportRiskFreeRate() {
+        const raw = document.getElementById('word-export-risk-free-rate')?.value?.trim();
+        if (raw === '' || raw === undefined) return { percent: 0, decimal: 0 };
+        const percent = Number(raw);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            throw new Error('无风险利率需为 0～100 之间的数字（百分比）');
+        }
+        return { percent, decimal: percent / 100 };
+    }
+
     async function confirmWordExport() {
         if (!state.wordExportStock) {
             showAlert('请从搜索结果中选择股票', 'warning');
+            return;
+        }
+        let riskFree;
+        try {
+            riskFree = readWordExportRiskFreeRate();
+        } catch (error) {
+            showAlert(error.message, 'warning');
             return;
         }
         const priceMode = document.getElementById('word-export-price-type').value;
@@ -475,7 +518,15 @@
             product_name: state.wordExportStock.name,
             ratio: '100.00%'
         }];
-        payload.metadata = { ...(payload.metadata || {}), price_type: priceType };
+        payload.metadata = {
+            ...(payload.metadata || {}),
+            price_type: priceType,
+            risk_free_rate: `${riskFree.percent.toFixed(2)}%`
+        };
+        payload.runtime_params = {
+            ...(payload.runtime_params || {}),
+            risk_free_rate: riskFree.decimal
+        };
         bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
         await downloadWordReport(payload);
     }
@@ -525,12 +576,17 @@
     }
 
     function collectV2RuntimeParams() {
-        // 页面输入按百分比填写，payload 统一转换为小数阈值。
+        // 页面输入按百分比填写，payload 统一转换为小数阈值；
+        // 无风险利率同样按百分比填（3 = 3%），转 0.03 供夏普/索提诺重算。
+        // 利率钳制到 [0, 100]：HTML min/max 不拦手输越界值，负数/超 100 会
+        // 直达夏普计算（弹窗导出侧同边界校验，两处口径一致）。
+        const riskFreePercent = Math.min(Math.max(parseV2ThresholdInput('config-risk-free-rate', 0), 0), 100);
         return {
             market_downturn_threshold: parseV2ThresholdInput('config-downturn-threshold', -2) / 100,
             market_upturn_threshold: parseV2ThresholdInput('config-upturn-threshold', 2) / 100,
             daily_extreme_threshold: parseV2ThresholdInput('config-daily-extreme-threshold', 2) / 100,
-            daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100
+            daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100,
+            risk_free_rate: riskFreePercent / 100
         };
     }
 
@@ -562,6 +618,11 @@
         if (Number.isFinite(saved.daily_drawdown_threshold)) {
             document.getElementById('config-daily-drawdown-threshold').value = Number((saved.daily_drawdown_threshold * 100).toFixed(6));
         }
+        // 无风险利率是后加字段：旧存档里没有它时保持页面默认值（0），
+        // 避免旧数据把用户刚填的值重置。
+        if (Number.isFinite(saved.risk_free_rate)) {
+            document.getElementById('config-risk-free-rate').value = Number((saved.risk_free_rate * 100).toFixed(6));
+        }
     }
 
     function updateV2AnalyzeButton() {
@@ -581,6 +642,13 @@
             }
             return;
         }
+        if (getActiveV2Source() === 'result-tab') {
+            // 直接输入结果 ID（纯数字）或已在下拉框选中结果时才允许分析。
+            const directResultId = isV2DirectResultId(getV2ResultInputValue());
+            const selectedResultId = document.getElementById('v2-result-select').value;
+            button.disabled = !(directResultId || selectedResultId);
+            return;
+        }
         button.disabled = true;
     }
 
@@ -591,6 +659,10 @@
         }
         if (getActiveV2Source() === 'paste-data-tab') {
             await runAnalyzeV2Paste();
+            return;
+        }
+        if (getActiveV2Source() === 'result-tab') {
+            await runAnalyzeV2Result();
         }
     }
 
@@ -608,7 +680,8 @@
         }
 
         const runtimeParams = collectV2RuntimeParams();
-        await requestV2Analysis('/performance_analysis/v1/analyze', {
+        state.wordExportStockPreset = null;
+        await requestV2Analysis({
             google_sheet_url: url,
             spreadsheet_id: spreadsheetId,
             google_sheet_name: sheetName,
@@ -635,7 +708,8 @@
         document.getElementById('v2-paste-data').value = prepared.text;
         updateV2PasteStatus();
         const runtimeParams = collectV2RuntimeParams();
-        await requestV2Analysis('/performance_analysis/analyze', {
+        state.wordExportStockPreset = null;
+        await requestV2Analysis({
             data: prepared.text,
             time_format: 'auto',
             runtime_params: runtimeParams
@@ -655,16 +729,170 @@
         });
     }
 
-    async function requestV2Analysis(endpoint, body, sheetName, title, wordReportPayload = null) {
+    // ---- 结果分析 tab：任务 ID 拉取结果列表，或直接输入结果 ID 分析 ----
+
+    // 下拉用的轻量字段集（fields 白名单投影）：避开 result 大 JSON；
+    // return_date_range 为服务端计算字段（收益序列首末日期）。
+    const RESULT_FIELDS_QUERY =
+        "fields=id,task_id,parameters,return_series_id,success,error_message,return_date_range";
+
+    // result_id → {task_id, return_series_id, stockCode, stockName}，供 Word 报告来源与股票预填。
+    const resultTabSeriesByResultId = new Map();
+
+    function buildV2ResultOptionLabel(item) {
+        const params = item.parameters || {};
+        const parts = [`结果 ${item.id}`];
+        if (params.stock_code) parts.push(String(params.stock_code).toUpperCase());
+        if (params.stock_name) parts.push(String(params.stock_name));
+        if (params.year !== undefined && params.year !== null && `${params.year}` !== '') parts.push(`${params.year}年`);
+        const parameterList = Array.isArray(params.parameter)
+            ? params.parameter.filter((v) => v !== null && v !== undefined && `${v}` !== '').map(String)
+            : [];
+        if (parameterList.length) parts.push(`参数 ${parameterList.join('/')}`);
+        const range = item.return_date_range;
+        if (range?.start && range?.end) parts.push(`${range.start} ~ ${range.end}`);
+        let label = parts.join(' · ');
+        if (item.success === false) {
+            const reason = String(item.error_message || '').trim().slice(0, 40);
+            label += `（失败${reason ? '：' + reason : ''}）`;
+        }
+        return label;
+    }
+
+    function getV2ResultInputValue() {
+        return document.getElementById('v2-result-id-input').value.trim();
+    }
+
+    function isV2DirectResultId(value) {
+        // 纯数字视为结果 ID，跳过下拉框直接分析；其余按任务 ID 处理。
+        return /^\d+$/.test(value);
+    }
+
+    function updateV2ResultControls() {
+        const value = getV2ResultInputValue();
+        const selectWrap = document.getElementById('v2-result-select-wrap');
+        const status = document.getElementById('v2-result-status');
+        if (isV2DirectResultId(value)) {
+            selectWrap.classList.add('d-none');
+            status.textContent = `直接分析结果 ID：${value}`;
+        } else {
+            selectWrap.classList.add('d-none');
+            status.textContent = value
+                ? '回车或失焦获取该任务的结果列表。'
+                : '输入任务 ID 后回车或失焦获取结果列表；直接输入结果 ID（纯数字）可直接分析。';
+        }
+        updateV2AnalyzeButton();
+    }
+
+    async function fetchV2TaskResults() {
+        const taskId = getV2ResultInputValue();
+        if (!taskId || isV2DirectResultId(taskId)) return;
+        const status = document.getElementById('v2-result-status');
+        const select = document.getElementById('v2-result-select');
+        status.textContent = '正在获取结果列表…';
+        try {
+            // task.results 失败直接 throw，成功返回信封 data（{items,...}）。
+            const data = await Api.endpoints.task.results(encodeURIComponent(taskId), RESULT_FIELDS_QUERY);
+            // 输入在等待期间可能已被改掉，此时丢弃过期响应。
+            if (getV2ResultInputValue() !== taskId) return;
+            const items = data?.items || [];
+            resultTabSeriesByResultId.clear();
+            select.innerHTML = '';
+            items.forEach((item) => {
+                const params = item.parameters || {};
+                resultTabSeriesByResultId.set(String(item.id), {
+                    task_id: item.task_id || '',
+                    return_series_id: item.return_series_id || null,
+                    stockCode: String(params.stock_code || '').toUpperCase(),
+                    stockName: String(params.stock_name || params.product_name || ''),
+                });
+                const option = document.createElement('option');
+                option.value = String(item.id);
+                option.textContent = buildV2ResultOptionLabel(item);
+                option.disabled = item.success === false;
+                select.appendChild(option);
+            });
+            if (!items.length) {
+                status.textContent = '该任务下没有结果，请确认任务 ID。';
+                updateV2AnalyzeButton();
+                return;
+            }
+            document.getElementById('v2-result-select-wrap').classList.remove('d-none');
+            status.textContent = `共 ${items.length} 个结果，选择后点击“分析”。`;
+        } catch (error) {
+            status.textContent = error.message || '获取结果列表失败';
+        }
+        updateV2AnalyzeButton();
+    }
+
+    async function runAnalyzeV2Result() {
+        const raw = getV2ResultInputValue();
+        if (!raw) {
+            showAlert('请输入任务 ID 或结果 ID', 'warning');
+            return;
+        }
+        let resultId;
+        if (isV2DirectResultId(raw)) {
+            resultId = Number(raw);
+        } else {
+            resultId = Number(document.getElementById('v2-result-select').value || 0);
+            if (!resultId) {
+                showAlert('请先获取并选择结果 ID', 'warning');
+                return;
+            }
+        }
+        const runtimeParams = collectV2RuntimeParams();
+
+        // Word 报告需要收益序列归属（task_id + return_series_id）：下拉路径在
+        // 结果列表里已带；直接输结果 ID 时经结果详情接口（/api/results/<id>）补齐。
+        let seriesInfo = resultTabSeriesByResultId.get(String(resultId));
+        if (!seriesInfo) {
+            try {
+                const detail = await Api.endpoints.adminResults.detail(resultId);
+                seriesInfo = {
+                    task_id: detail?.task_id || '',
+                    return_series_id: detail?.return_series_id || null,
+                    stockCode: String(detail?.parameters?.stock_code || '').toUpperCase(),
+                    stockName: String(detail?.parameters?.stock_name || detail?.parameters?.product_name || ''),
+                };
+                resultTabSeriesByResultId.set(String(resultId), seriesInfo);
+            } catch (error) {
+                showAlert(error.message || '读取结果详情失败', 'warning');
+                return;
+            }
+        }
+
+        let wordPayload = null;
+        if (seriesInfo.task_id && seriesInfo.return_series_id) {
+            wordPayload = {
+                report_type: 'RPT-S',
+                task_id: seriesInfo.task_id,
+                return_series_id: seriesInfo.return_series_id,
+                runtime_params: runtimeParams
+            };
+            // 导出弹窗的股票预填为被分析结果自身的股票（打开时可再改）。
+            if (seriesInfo.stockCode) {
+                state.wordExportStockPreset = {
+                    code: seriesInfo.stockCode,
+                    name: seriesInfo.stockName || seriesInfo.stockCode
+                };
+            }
+        }
+
+        await requestV2Analysis({
+            result_id: resultId,
+            runtime_params: runtimeParams
+        }, `结果 ${resultId}`, `结果 ${resultId}`, wordPayload);
+    }
+
+    async function requestV2Analysis(body, sheetName, title, wordReportPayload = null) {
         showLoading();
         abortController = new AbortController();
 
         try {
+            // 统一分析入口：服务端按 payload 来源（result_id / spreadsheet_id / data）分流。
             // envelope 模式返回完整信封，页面沿用 normalizeApiResponse/getAnalyzeResults 判定
-            const analyzeEndpoint = endpoint === '/performance_analysis/v1/analyze'
-                ? Api.endpoints.performanceAnalysis.analyzeV1
-                : Api.endpoints.performanceAnalysis.analyze;
-            const data = await analyzeEndpoint(body, {
+            const data = await Api.endpoints.performanceAnalysis.analyze(body, {
                 envelope: true,
                 signal: abortController.signal
             });

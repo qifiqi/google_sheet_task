@@ -11,6 +11,18 @@
         charts: {}
     };
 
+    // 导出 Word 弹窗价格类型取值 ↔ 报告展示文案（与后端 get_price_type 一致）。
+    const WORD_PRICE_TYPE_LABELS = {
+        kp_price: '开盘价',
+        sp_price: '收盘价',
+        vwap_price: '加权平均价',
+        ohlc_price: 'OHLC（开高低收）',
+        random_price: '随机价'
+    };
+    const WORD_PRICE_TYPE_VALUES_BY_LABEL = Object.fromEntries(
+        Object.entries(WORD_PRICE_TYPE_LABELS).map(([value, label]) => [label, value])
+    );
+
     document.addEventListener('DOMContentLoaded', () => {
         const backToDetailLink = document.getElementById('backToDetailLink');
         if (backToDetailLink) {
@@ -19,6 +31,7 @@
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
         document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
+        document.getElementById('btn-confirm-word-export')?.addEventListener('click', confirmWordExport);
         document.getElementById('btn-preview-export')?.addEventListener('click', openExportPreview);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
@@ -290,16 +303,63 @@
         }
     }
 
-    async function exportWordReport() {
+    function exportWordReport() {
         if (!state.wordReportPayload) {
             Biz.showAlert('当前结果没有可导出的收益序列', 'warning');
             return;
         }
+        // 价格类型预选任务自身配置；识别不了时保持"跟随任务（默认）"。
+        const priceSelect = document.getElementById('word-export-price-type');
+        if (priceSelect) {
+            priceSelect.value = WORD_PRICE_TYPE_VALUES_BY_LABEL[state.wordReportPayload.metadata?.price_type] || '';
+        }
+        const rateInput = document.getElementById('word-export-risk-free-rate');
+        if (rateInput) rateInput.value = '0';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('word-export-options-modal')).show();
+    }
 
+    // 弹窗内无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03）。
+    function readWordExportRiskFreeRate() {
+        const raw = document.getElementById('word-export-risk-free-rate')?.value?.trim();
+        if (raw === '' || raw === undefined) return 0;
+        const percent = Number(raw);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            throw new Error('无风险利率需为 0～100 之间的数字（百分比）');
+        }
+        return percent;
+    }
+
+    function confirmWordExport() {
+        let riskFreePercent;
+        try {
+            riskFreePercent = readWordExportRiskFreeRate();
+        } catch (error) {
+            Biz.showAlert(error.message, 'warning');
+            return;
+        }
+        const payload = JSON.parse(JSON.stringify(state.wordReportPayload));
+        payload.metadata = {
+            ...(payload.metadata || {}),
+            risk_free_rate: `${riskFreePercent.toFixed(2)}%`
+        };
+        // 价格类型仅覆盖报告展示行；"跟随任务（默认）"保留 payload 原值。
+        const priceValue = document.getElementById('word-export-price-type')?.value || '';
+        if (priceValue) {
+            payload.metadata.price_type = WORD_PRICE_TYPE_LABELS[priceValue];
+        }
+        payload.runtime_params = {
+            ...(payload.runtime_params || {}),
+            risk_free_rate: riskFreePercent / 100
+        };
+        bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
+        downloadWordReport(payload);
+    }
+
+    async function downloadWordReport(payload) {
         const button = document.getElementById('btn-export-word');
         button.disabled = true;
         try {
-            const response = await Api.endpoints.export.wordReport(state.wordReportPayload);
+            const response = await Api.endpoints.export.wordReport(payload);
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
                 throw new Error(data.message || `HTTP error! status: ${response.status}`);

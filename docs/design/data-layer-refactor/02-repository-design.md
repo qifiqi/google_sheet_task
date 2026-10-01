@@ -51,7 +51,6 @@ class BaseRepository:
 | `get_required(task_id)` | `dict` | 否 | 不存在抛 `NotFoundError` |
 | `get_entity(task_id)` | `Task\|None` | 否 | 任务执行域实体访问（B3 runtime/线程目标，正式契约长期保留）；admin.py `db.session.get` 视消费方式选 `get`（dict） |
 | `list_all(task_type=None, task_types=None)` | `list[dict]` | 否 | 按 `created_at desc` |
-| `list_paginated(page, per_page, task_type=None, status=None, keyword=None)` | `{items,total,pages,current_page,per_page}` | 否 | |
 | `count()` / `count_by_status(status)` | `int` | 否 | admin 仪表盘 |
 | `summary_counts()` | `{total,completed,running,error}` | 否 | admin.py:23-26 四连 count 合并 |
 | `recent(limit=10)` | `list[dict]` | 否 | admin.py:29 |
@@ -83,10 +82,8 @@ class BaseRepository:
 | 方法 | 返回 | commit | 说明 |
 |---|---|---|---|
 | `add(task_id, level, message, **fields)` | `dict` | 是 | **热路径**（执行链每步写日志） |
-| `get_last(task_id)` | `dict\|None` | 否 | 看门狗活性检查 |
 | `list_by_task_paginated(task_id, page, per_page, level=None)` | 分页结构 | 否 | |
-| `count_by_task(task_id)` | `int` | 否 | |
-| `delete_by_task(task_id)` / `delete_older_than(cutoff)` | `int` | 是 | data_cleanup |
+| `delete_by_task(task_id)` | `int` | 是 | data_cleanup（批量清理走 `list_ids_older_than` + `delete_by_ids`） |
 
 ### 2.4 `task_template_repository.py` — TaskTemplate
 
@@ -146,7 +143,7 @@ class BaseRepository:
 
 | 方法 | 说明 |
 |---|---|
-| `get_summary_index(task_id)` / `upsert_summary_index(task_id, **fields)` / `delete_summary_index(task_id)` | model_summary / restart / cleanup |
+| `delete_summary_index_by_task_ids(task_ids)` / `delete_summary_index_by_scope(task_type, task_id)` / `delete_summary_index_by_result_ids(result_ids)` | model_summary 重建/rebuild reset/data_cleanup；按任务+结果的 OR 清理由 data_cleanup 两次条件删除组合 |
 | `get_product_cache(...)` / `upsert_product_cache(...)` / `delete_product_cache_by_task(task_id)` | backtest_multi_product_service |
 | `get_lock(sheet_id)` / `acquire_lock(sheet_id, task_id)` / `release_lock(sheet_id, task_id)` | **acquire/release 原子性红线**（B3 按 runtime.py/occupancy.py 现有语义定形） |
 

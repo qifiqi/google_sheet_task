@@ -63,9 +63,9 @@
               <h3 class="section-title section-title--muted">时间信息</h3>
             </div>
             <el-descriptions :column="1" size="small">
-              <el-descriptions-item label="创建时间">{{ task.created_at || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="开始时间">{{ task.start_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="结束时间">{{ task.end_time || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="创建时间">{{ formatDateTime(task.created_at) }}</el-descriptions-item>
+              <el-descriptions-item label="开始时间">{{ formatDateTime(task.start_time) }}</el-descriptions-item>
+              <el-descriptions-item label="结束时间">{{ formatDateTime(task.end_time) }}</el-descriptions-item>
               <el-descriptions-item label="执行时长">
                 {{ task.duration_seconds != null ? `${task.duration_seconds}s` : '-' }}
               </el-descriptions-item>
@@ -155,7 +155,7 @@
                   <tbody>
                     <tr v-if="!c3SummaryRows.length">
                       <td :colspan="c3SummaryColspan" class="panel-note panel-note--center backtest-detail-page__empty-cell">
-                        暂无参数汇总数据
+                        {{ c3SummaryLoadFailed ? '参数汇总加载失败' : '暂无参数汇总数据' }}
                       </td>
                     </tr>
                     <template v-for="(group, groupIndex) in c3SummaryGroups" :key="group.key">
@@ -323,7 +323,7 @@
     </div>
 
     <el-dialog v-model="c3MetricDialogVisible" title="选择数据项" width="680px" top="6vh">
-      <div class="panel-note" style="margin-bottom: 10px;">
+      <div class="panel-note backtest-detail-page__dialog-note">
         勾选后立即生效并记忆；共 {{ C3_SUMMARY_METRIC_DEFS.length }} 个数据项。
       </div>
       <div class="backtest-detail-page__metric-selector">
@@ -396,6 +396,7 @@ function pagingLink() {
 const resultTotal = ref(0)
 const c3SummaryRows = ref([])
 const c3SummaryMeta = ref({})
+const c3SummaryLoadFailed = ref(false)
 let pollTimer = null
 
 // ---------- 模型推断（翻译自静态 detail.js inferModelVersion，含 C7 分支） ----------
@@ -651,6 +652,12 @@ const PRICE_MODE_LABELS = {
   sp_price: '收盘价',
   ohlc_price: 'OHLC（开高低收）',
 }
+// 与后端 app/utils/market.py MARKET_LABELS 保持同步（照抄静态 detail.js）。
+const MARKET_LABELS = {
+  cn: 'A股', en: '美股', ca: '加拿大', kr: '韩国', jp: '日本',
+  hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
+  au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
+}
 
 function formatConfigDisplayValue(value) {
   if (value === null || value === undefined || value === '') {
@@ -675,10 +682,11 @@ function isComplexValue(value) {
 const configDisplayItems = computed(() => {
   const config = { ...currentModelConfig.value, task_name: task.value?.name }
   const sheet = config.sheet && typeof config.sheet === 'object' ? config.sheet : {}
+  const marketType = String(config.market_type || '').trim().toLowerCase()
   return [
     { label: '股票代码', value: config.stock_code },
     { label: '股票名称', value: config.stock_name },
-    { label: '市场类型', value: config.market_type },
+    { label: '市场类型', value: MARKET_LABELS[marketType] || config.market_type },
     { label: 'K线复权', value: KLINE_ADJUSTMENT_LABELS[config.kline_adjustment] || config.kline_adjustment },
     { label: '价格模式', value: PRICE_MODE_LABELS[config.price_mode] || config.price_mode },
     { label: 'K线数据源', value: config.kline_data_source },
@@ -909,9 +917,13 @@ async function loadC3Summary() {
     const res = await getTaskSummary(taskId)
     c3SummaryRows.value = res.rows || []
     c3SummaryMeta.value = res.summary || {}
-  } catch {
+    c3SummaryLoadFailed.value = false
+  } catch (error) {
+    // 失败语义照静态 loadC3Summary catch：表内提示 + toast，不清成"暂无数据"误导用户
     c3SummaryRows.value = []
     c3SummaryMeta.value = {}
+    c3SummaryLoadFailed.value = true
+    ElMessage.error(`加载参数汇总失败：${error?.message || '未知错误'}`)
   }
 }
 
@@ -979,18 +991,23 @@ onMounted(() => {
     loading.value = false
   })
 
+  // 自动刷新 1 分钟一次（对齐静态版详情页 AUTO_REFRESH_INTERVAL）
   pollTimer = setInterval(() => {
     if (task.value?.status === 'running' || task.value?.status === 'pending') {
       loadTask()
       loadLogs()
     }
-  }, 5000)
+  }, 60 * 1000)
 })
 
 onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
+.backtest-detail-page__dialog-note {
+  margin-bottom: 10px;
+}
+
 .backtest-detail-page__metrics {
   margin-bottom: 16px;
 }

@@ -382,6 +382,7 @@ const form = reactive({
   description: '',
   token_type: 'file',
   token_id: RANDOM_TOKEN,
+  token_file: '',
   token_json: '',
   proxy_url: '',
   count_mode: 'total',
@@ -457,11 +458,13 @@ async function loadWorksheetsForSheet(idx) {
   if (!spreadsheetId) return
 
   try {
-    const res = await getWorksheets({
-      spreadsheet_id: spreadsheetId,
-      token_id: form.token_id,
-      proxy_url: form.proxy_url || undefined
-    })
+    // 对齐静态版 loadWorksheetsForItem 的 requestData：仅 file 认证传 token_id/token_file，随机哨兵不传
+    const requestData = { spreadsheet_id: spreadsheetId, proxy_url: form.proxy_url || undefined }
+    if (form.token_type === 'file' && form.token_id && form.token_id !== RANDOM_TOKEN) {
+      requestData.token_id = form.token_id
+      requestData.token_file = form.token_file || undefined
+    }
+    const res = await getWorksheets(requestData)
     sheet.worksheets = res.worksheets || []
     if (res.title && idx === 0) sheet.title = res.title
     if (sheet.worksheets.length) sheet.sheet_name = sheet.worksheets[0]
@@ -477,6 +480,18 @@ async function loadTokens() {
     tokens.value = res.tokens || []
   } catch {}
 }
+
+// 对齐静态版 syncSelectedTokenMeta：选中 token 后解析 token_file 路径（worksheets 请求使用）
+function syncTokenFile() {
+  if (form.token_type !== 'file') {
+    form.token_file = ''
+    return
+  }
+  const selected = tokens.value.find((t) => String(t.id) === String(form.token_id))
+  form.token_file = selected ? selected.token_file || '' : ''
+}
+
+watch(() => [form.token_type, form.token_id], syncTokenFile)
 
 async function loadTemplates() {
   try {
@@ -648,6 +663,7 @@ function loadSavedFormData() {
       description: data.description || '',
       token_type: data.token_type || 'file',
       token_id: data.token_id || RANDOM_TOKEN,
+      token_file: data.token_file || '',
       token_json: data.token_json || '',
       proxy_url: data.proxy_url || '',
       count_mode: data.count_mode || 'total',
@@ -680,6 +696,7 @@ function clearSaved() {
     description: '',
     token_type: 'file',
     token_id: RANDOM_TOKEN,
+    token_file: '',
     token_json: '',
     proxy_url: '',
     count_mode: 'total',

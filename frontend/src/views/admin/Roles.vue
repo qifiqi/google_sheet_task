@@ -166,12 +166,27 @@ function openDialog(role) {
 }
 
 async function handleSave() {
+  // 前端必填校验（对齐静态版：name 必填，新增时 code 必填）
+  if (!form.name.trim()) {
+    ElMessage.error('请输入角色名称')
+    return
+  }
+  if (!editingRole.value && !form.code.trim()) {
+    ElMessage.error('新增角色时必须填写角色编码')
+    return
+  }
+  // 对齐静态版 payload：编辑时不提交 code（编码创建后不变），字段统一 trim
+  const payload = {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    permission_ids: form.permission_ids,
+  }
   saving.value = true
   try {
     if (editingRole.value) {
-      await updateRole(editingRole.value.id, form)
+      await updateRole(editingRole.value.id, payload)
     } else {
-      await createRole(form)
+      await createRole({ ...payload, code: form.code.trim() })
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false

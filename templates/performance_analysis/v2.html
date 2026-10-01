@@ -30,7 +30,7 @@
     <h1 class="h2">V2：回测数据分析</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
-            <a class="btn btn-sm btn-outline-secondary" href="/performance_analysis/">
+            <a class="btn btn-sm btn-outline-secondary" href="/performance-analysis/">
                 <i class="bi bi-arrow-left"></i> 返回
             </a>
         </div>
@@ -58,6 +58,10 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="import-excel-tab" data-bs-toggle="tab" data-bs-target="#import-excel-pane"
                             type="button" role="tab" aria-controls="import-excel-pane" aria-selected="false">导入 Excel</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="result-tab" data-bs-toggle="tab" data-bs-target="#result-pane"
+                            type="button" role="tab" aria-controls="result-pane" aria-selected="false">结果分析</button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane"
@@ -132,6 +136,21 @@
                     </div>
                 </div>
             </div>
+            <div class="tab-pane fade" id="result-pane" role="tabpanel" aria-labelledby="result-tab" tabindex="0">
+                <div class="row g-2 align-items-start">
+                    <div class="col-lg-5">
+                        <input type="text" class="form-control" id="v2-result-id-input" autocomplete="off"
+                               aria-label="任务 ID 或结果 ID"
+                               placeholder="任务 ID 或 结果 ID（纯数字直接分析）"/>
+                        <div class="small text-body-secondary mt-1" id="v2-result-status" style="min-height: 1.2em;">
+                            输入任务 ID 后回车或失焦获取结果列表；直接输入结果 ID（纯数字）可直接分析。
+                        </div>
+                    </div>
+                    <div class="col-lg-5 d-none" id="v2-result-select-wrap">
+                        <select id="v2-result-select" class="form-select" aria-label="选择结果 ID"></select>
+                    </div>
+                </div>
+            </div>
             <div class="tab-pane fade" id="config-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
                 <div class="row g-3">
                     <div class="col-lg-6">
@@ -166,8 +185,16 @@
                         </div>
                         <div class="form-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
                     </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-risk-free-rate">无风险利率（年化）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-risk-free-rate" value="0" min="0" max="100" step="0.01">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">夏普比率与索提诺比率的无风险利率，默认 0%（与历史口径一致）。</div>
+                    </div>
                     <div class="col-12 small text-body-secondary">
-                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值。
+                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值与无风险利率（弹窗内可按单次导出临时覆盖）。
                     </div>
                 </div>
             </div>
@@ -176,7 +203,7 @@
 </div>
 
 <div class="row g-3 mb-4" id="summary-cards">
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-primary h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">跑赢年份</h6>
@@ -185,7 +212,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-success h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">月超额波动率</h6>
@@ -194,7 +221,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-warning h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">超额回撤胜率</h6>
@@ -203,7 +230,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-danger h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">年超额收益(整体)</h6>
@@ -213,7 +240,7 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">指数盈利年%</h6>
@@ -222,7 +249,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">模型盈利年%</h6>
@@ -231,7 +258,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">指数月波动率</h6>
@@ -240,7 +267,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
                 <h6 class="card-subtitle mb-2 text-body-secondary">模型月波动率</h6>
@@ -731,31 +758,42 @@
 </div>
 
 <div class="modal fade" id="word-export-options-modal" tabindex="-1" aria-labelledby="word-export-options-title" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="word-export-options-title">补充 Word 报告信息</h5>
+                <h5 class="modal-title" id="word-export-options-title">导出 Word 报告</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3 position-relative">
+                <div class="mb-1 position-relative">
                     <label for="word-export-stock" class="form-label">股票</label>
                     <input id="word-export-stock" class="form-control" autocomplete="off" placeholder="输入股票代码或名称搜索">
                     <div id="word-export-stock-results" class="list-group position-absolute top-100 start-0 w-100 d-none"
                          style="z-index: 2; max-height: 15rem; overflow-y: auto;"></div>
                     <div class="form-text">请从内部股票查询结果中选择。</div>
                 </div>
-                <div class="mb-3">
-                    <label for="word-export-price-type" class="form-label">价格类型</label>
-                    <select id="word-export-price-type" class="form-select">
-                        <option value="sp_price" selected>收盘价</option>
-                        <option value="kp_price">开盘价</option>
-                        <option value="vwap_price">加权平均价</option>
-                        <option value="ohlc_price">OHLC（开高低收）</option>
-                        <option value="random_price">随机价</option>
-                    </select>
+                <div class="row g-3 mt-1">
+                    <div class="col-12 col-sm-7">
+                        <label for="word-export-price-type" class="form-label">价格类型</label>
+                        <select id="word-export-price-type" class="form-select">
+                            <option value="sp_price" selected>收盘价</option>
+                            <option value="kp_price">开盘价</option>
+                            <option value="vwap_price">加权平均价</option>
+                            <option value="ohlc_price">OHLC（开高低收）</option>
+                            <option value="random_price">随机价</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-5">
+                        <label for="word-export-risk-free-rate" class="form-label">无风险利率（年化）</label>
+                        <div class="input-group">
+                            <input id="word-export-risk-free-rate" type="number" class="form-control"
+                                   min="0" max="100" step="0.01" value="0" aria-describedby="word-export-risk-free-rate-help">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div id="word-export-risk-free-rate-help" class="form-text">用于夏普比率计算，默认 0。</div>
+                    </div>
                 </div>
-                <div class="small text-body-secondary">V2 单产品报告的权重固定为 100.00%。</div>
+                <div class="small text-body-secondary mt-3">报告权重固定为 100.00%；无风险利率同时展示在报告信息中。</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>

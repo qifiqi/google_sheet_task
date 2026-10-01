@@ -35,6 +35,12 @@ if (versionParam && versionParam !== 'c4') {
     document.addEventListener('DOMContentLoaded', function() {
         console.log('页面加载完成');
         currentTaskId = Biz.taskPolling.getTaskIdFromUrl();
+
+        // 详情页 → 单品全局预览中心入口：带上任务 ID，预览页自动查询。
+        const globalPreviewLink = document.getElementById('global-preview-link');
+        if (globalPreviewLink && currentTaskId) {
+            globalPreviewLink.href = '/global-preview/single-product?task_id=' + encodeURIComponent(currentTaskId);
+        }
         console.log('获取到的任务ID:', currentTaskId);
         
         // 初始化编辑配置模态框

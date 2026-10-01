@@ -25,22 +25,20 @@ from app.services.task.error_handling import (
     summarize_task_exception,
 )
 from app.services.performance_analysis.analyzer import performance_analyzer
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
     infer_market_type,
     normalize_market_type as normalize_supported_market_type,
     normalize_stock_code,
 )
 from app.services.performance_analysis.portfolio_combiner import (
-    cumulative_to_daily as _canonical_cumulative_to_daily,
-    daily_to_cumulative as _canonical_daily_to_cumulative,
     combine_product_returns as _canonical_combine_product_returns,
     normalize_weight,
     normalize_weighting_mode,
 )
-from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
+from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS  # noqa: F401  （预览模块从本模块转引）
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,
@@ -97,11 +95,22 @@ def _is_fixed_product(product: dict[str, Any]) -> bool:
     return bool(product.get("is_fixed"))
 
 
+def _preview_runtime_signature(runtime_params: Any) -> tuple[Any, ...]:
+    """预览运行参数签名（当前仅无风险利率），用于隔离预览缓存。
+
+    新增参与预览计算的运行参数时，必须同步加进这个元组，否则不同口径会
+    命中同一份缓存。
+    """
+    params = MetricsRuntimeParamsDTO.from_raw(runtime_params)
+    return (params.risk_free_rate,)
+
+
 def _global_preview_cache_key(
     task_id: str,
     products: list[dict[str, Any]],
     results: list[TaskResult],
     weighting_mode: str,
+    runtime_params: Any = None,
 ) -> tuple[Any, ...]:
     ratio_signature = (
         *(normalize_ratio_display(product.get("ratio")) for product in products),
@@ -119,7 +128,7 @@ def _global_preview_cache_key(
         )
         for result in results
     )
-    return (task_id, ratio_signature, result_signature)
+    return (task_id, ratio_signature, result_signature, _preview_runtime_signature(runtime_params))
 
 
 def _get_global_preview_cache(cache_key: tuple[Any, ...]) -> dict[str, Any] | None:
@@ -213,18 +222,33 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         elif len(parameters) != expected_parameter_count:
             raise ValidationError("所有产品的参数行数必须一致，才能按行号对齐")
 
+        sheet = _normalize_sheet(product)
+        price_mode = normalize_price_mode(product.get("price_mode") or config.get("price_mode"))
+        # C7.0.3 模板执行期无条件按 OHLC 取价（_build_product_kline）。创建期按产品校验：
+        # 显式指定非 OHLC 直接拒绝（界面显示必须与实际生效一致），未指定时归一为 OHLC；
+        # 混排的非 C7.0.3 产品不受影响。存量任务重启不走本校验（restart 不重跑 normalize），
+        # 执行期强制继续兜底。
+        if BacktestTrainingService._is_c7_0_3({"sheet": sheet}):
+            explicit_price_mode = str(product.get("price_mode") or config.get("price_mode") or "").strip().lower()
+            if explicit_price_mode and explicit_price_mode != "ohlc_price":
+                product_name = str(product.get("product_name") or product.get("name") or stock_code).strip()
+                raise ValidationError(
+                    f"产品 {index}（{product_name}）使用 C7.0.3 模板，价格模式必须为 OHLC（开高低收）"
+                )
+            price_mode = "ohlc_price"
+
         normalized_products.append({
             **product,
             "product_index": index - 1,
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
             "market_type": market_type,
-            "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
+            "price_mode": price_mode,
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
-            "sheet": _normalize_sheet(product),
+            "sheet": sheet,
             "parameters": parameters,
         })
 
@@ -473,6 +497,7 @@ def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
     weighting_mode: str = "daily_compound",
+    runtime_params: Any = None,
 ) -> dict[str, Any]:
     return_date = _build_portfolio_return_date(
         product_results,
@@ -481,7 +506,10 @@ def _build_portfolio_metrics(
     )
     if not return_date:
         return {}
-    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(return_date)
+    # runtime_params 走 DTO 归一：无风险利率由此进入夏普/索提诺重算。
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
+        return_date, runtime_params=runtime_params
+    )
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
@@ -489,6 +517,7 @@ def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
     weighting_mode: str = "daily_compound",
+    runtime_params: Any = None,
 ) -> dict[str, Any]:
     weighted_return_date = _weight_return_date(
         return_date,
@@ -497,7 +526,9 @@ def _build_weighted_product_metrics(
     )
     if not weighted_return_date:
         return {}
-    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(weighted_return_date)
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
+        weighted_return_date, runtime_params=runtime_params
+    )
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 

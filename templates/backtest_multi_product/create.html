@@ -81,12 +81,13 @@
                   </div>
                   <div class="col-md-3">
                     <label class="form-label" for="tokenId">回测 Token</label>
-                    <select class="form-select" id="tokenId">
+                    <select
+                      class="form-select"
+                      id="tokenId"
+                      title="仅展示回测可用的 Token（启用且未达占用上限）"
+                    >
                       <option value="">加载中...</option>
                     </select>
-                    <div class="form-text">
-                      仅展示回测可用的 Token（启用且未达占用上限）。
-                    </div>
                   </div>
                   <div class="col-md-2">
                     <div class="ratio-pill w-100 justify-content-center">
@@ -127,7 +128,11 @@
                     <label class="form-label" for="globalPriceMode"
                       >价格模式</label
                     >
-                    <select class="form-select" id="globalPriceMode">
+                    <select
+                      class="form-select"
+                      id="globalPriceMode"
+                      title="识别到 C7.0.3 Sheet 时自动切换为 OHLC；手动修改后不再自动切换"
+                    >
                       <option value="vwap_price">加权平均价</option>
                       <option value="kp_price">开盘价</option>
                       <option value="sp_price" selected>收盘价</option>
@@ -147,6 +152,9 @@
                     </select>
                   </div>
                   <div class="col-12">
+                    <div class="small text-body-secondary" id="globalSheetInfo">
+                      尚未识别全局 Sheet（下方产品可留空继承）
+                    </div>
                     <div class="form-text">
                       以上全局设置会自动应用到全部产品；产品卡片内单独修改后，该字段不再跟随全局变化。
                     </div>
@@ -159,6 +167,78 @@
                         <div class="form-text">默认按当天收益率加权后复利计算；勾选后使用累计收益率直接乘比例的旧算法。</div>
                     </div>
                     -->
+                  </div>
+                </div>
+
+                <div
+                  class="global-param-section"
+                  id="globalParamSection"
+                  data-is-global-param="1"
+                  data-model-version="c3"
+                >
+                  <div
+                    class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-top pt-3 mt-3"
+                  >
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      <span
+                        class="badge rounded-pill model-badge"
+                        title="跟随全局 Sheet 标题自动识别，与产品卡片参数表同列对齐"
+                        >C3</span
+                      >
+                      <strong>全局参数</strong>
+                      <span class="small text-body-secondary"
+                        >编辑后自动下发到未自定义参数的产品，保持行号对齐；产品参数改动后脱钩</span
+                      >
+                    </div>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#globalParamCollapse"
+                      aria-expanded="true"
+                      aria-controls="globalParamCollapse"
+                      title="展开或收起全局参数表"
+                    >
+                      <i class="bi bi-chevron-up"></i> 展开/收起
+                    </button>
+                  </div>
+                  <div class="collapse show mt-3" id="globalParamCollapse">
+                    <div class="d-flex flex-wrap gap-2 param-toolbar">
+                      <button
+                        class="btn btn-outline-secondary btn-sm add-param"
+                        type="button"
+                      >
+                        <i class="bi bi-plus-lg me-1"></i>添加参数行
+                      </button>
+                      <button
+                        class="btn btn-outline-secondary btn-sm paste-param"
+                        type="button"
+                      >
+                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴追加
+                      </button>
+                      <button
+                        class="btn btn-outline-secondary btn-sm copy-param"
+                        type="button"
+                      >
+                        <i class="bi bi-copy me-1"></i>复制参数
+                      </button>
+                      <button
+                        class="btn btn-outline-secondary btn-sm param-help-button"
+                        type="button"
+                        aria-label="查看粘贴与复制说明"
+                      >
+                        <i class="bi bi-exclamation-circle"></i>
+                      </button>
+                      <span
+                        class="small text-body-secondary align-self-center param-action-status"
+                      ></span>
+                    </div>
+                    <div class="table-responsive">
+                      <table class="table table-bordered align-middle param-table mb-0">
+                        <thead class="table-light param-head"></thead>
+                        <tbody class="param-body"></tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>

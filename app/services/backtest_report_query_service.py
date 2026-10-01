@@ -26,6 +26,7 @@ from app.services.performance_analysis.historical_metrics import (
 )
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
 from app.services.performance_analysis.analyzer import performance_analyzer
+from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
@@ -741,7 +742,6 @@ def _extract_summary_rows(calculate_metrics, model_name):
         index_profit_monthly_all = entries["index_profit_monthly_all"]
         start_profit_monthly_all = entries["start_profit_monthly_all"]
         index_kama_all = entries["index_kama_all"]
-        start_kama_all = entries["start_kama_all"]
         index_sortino_all = entries["index_sortino_all"]
         start_sortino_all = entries["start_sortino_all"]
         monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
@@ -834,6 +834,31 @@ def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate
     return normalized
 
 
+def build_single_product_word_report_payload(task_id, task_config, return_series_id, return_series):
+    """按任务配置与结果收益序列构造 RPT-S Word 报告请求载荷。
+
+    任务结果详情接口与全局预览导出弹窗共用同一结构，避免两处字段漂移；
+    return_series 缺失时 products 留空（报告文件名/权重表回落单品默认展示）。
+    """
+    sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
+    return {
+        "report_type": "RPT-S",
+        "task_id": task_id,
+        "return_series_id": return_series_id,
+        "products": [
+            {"stock_code": return_series.stock_code, "product_name": return_series.stock_name}
+        ] if return_series else [],
+        "metadata": {
+            "model_version": get_backtest_model_version(
+                sheet.get("title")
+                or task_config.get("title")
+                or task_config.get("spreadsheet_title")
+            ),
+            "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
+        },
+    }
+
+
 def _query_global_preview_results(task_id, result_ids=None):
     """按主键精确读取结果，避免切换分组时扫描整个任务的大 JSON。"""
     return task_result_repository.list_preview_entities(task_id, result_ids=result_ids)
@@ -883,6 +908,18 @@ def _build_global_preview_payload_from_results(task, task_results):
             "column_key": column_key,
             "result_id": task_result.id,
             "step_index": task_result.step_index,
+            # 导出 Word 弹窗按 return_series_id 精确指定某个参数的收益序列；
+            # 成功且持有收益序列的列才附带 RPT-S 请求载荷，其余列置 None 不可导出。
+            "return_series_id": task_result.return_series_id,
+            "word_report_payload": (
+                build_single_product_word_report_payload(
+                    task.id,
+                    task_config,
+                    task_result.return_series_id,
+                    return_series_by_id.get(task_result.return_series_id),
+                )
+                if task_result.success and task_result.return_series_id else None
+            ),
             "header": _build_parameter_header(parameters),
             "model_name": model_name,
             "c7_model_version": (

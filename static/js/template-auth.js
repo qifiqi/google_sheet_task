@@ -21,7 +21,10 @@
         ["/task/create", "/google-sheet/create"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
-        ["/performance_analysis", "/performance_analysis/"],
+        ["/performance_analysis", "/performance-analysis/"],
+        ["/performance_analysis/", "/performance-analysis/"],
+        ["/performance_analysis/v2", "/performance-analysis/v2"],
+        ["/performance_analysis/weight_combination", "/performance-analysis/weight-combination"],
     ]);
 
     function parseJsonSafely(text) {
@@ -162,7 +165,9 @@
                     : "alert-info";
         alert.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
         alert.style.minWidth = "260px";
-        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+        // message 多为 error.message/data.message 等服务端回显文本（可能含任务名、
+        // Sheet 标题等外部输入），调用方均为纯文本，进 innerHTML 前统一转义
+        alert.innerHTML = `${escapeHtml(message)}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
         container.appendChild(alert);
         window.setTimeout(() => {
             alert.remove();
@@ -382,12 +387,18 @@
         return legacyPathMap.get(path) || path;
     }
 
+    function isSafeNavPath(path) {
+        // 菜单 path 契约为站内前端路由路径：仅允许以单个 "/" 开头的相对路径，
+        // 拒绝 javascript:/data: 等协议与 "//" 开头的协议相对地址（同 sanitizeNextUrl）
+        return typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
+    }
+
     function filterTemplateNav(items) {
         return (Array.isArray(items) ? items : []).reduce((result, item) => {
             const cloned = { ...item };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath) {
+                if (!legacyPath || !isSafeNavPath(legacyPath)) {
                     return result;
                 }
                 cloned.path = legacyPath;
@@ -431,8 +442,8 @@
             if (item.path) {
                 return `
                     <div>
-                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">
-                            <span>${item.label}</span>
+                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">
+                            <span>${escapeHtml(item.label)}</span>
                         </a>
                     </div>
                 `;
@@ -441,8 +452,8 @@
             const collapseId = `templateSidebarGroup${index}`;
             const childMarkup = (item.children || []).map((child) => `
                 <li>
-                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${child.path}">
-                        <span>${child.label}</span>
+                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${escapeHtml(child.path)}">
+                        <span>${escapeHtml(child.label)}</span>
                     </a>
                 </li>
             `).join("");
@@ -450,7 +461,7 @@
             return `
                 <div class="mt-3">
                     <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
-                        <span>${item.label}</span>
+                        <span>${escapeHtml(item.label)}</span>
                         <i class="bi bi-chevron-right btn-toggle-icon"></i>
                     </button>
                     <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}">
@@ -493,7 +504,7 @@
         if (isListContainer) {
             container.innerHTML = leaves.map((item) => `
                 <li class="nav-item">
-                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
                 </li>
             `).join("");
             return;
@@ -501,7 +512,7 @@
 
         container.classList.add("template-auth-horizontal-nav");
         container.innerHTML = leaves.map((item) => `
-            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
         `).join("");
     }
 
@@ -594,7 +605,7 @@
                 <h2 class="h4 mb-3">当前账号没有此页面访问权限</h2>
                 <p class="text-muted mb-2">${escapeHtml(requirementText)}</p>
                 <p class="text-muted mb-4">当前缺少: ${escapeHtml(missingText)}</p>
-                <a class="btn btn-primary" href="/admin/">返回首页</a>
+                <a class="btn btn-primary" href="/admin/dashboard">返回首页</a>
             </div>
         `;
     }
@@ -629,12 +640,18 @@
         });
     }
 
+    let themeToggleBound = false;
     function bindThemeToggles() {
-        document.querySelectorAll("[data-template-theme-trigger]").forEach((button) => {
-            button.addEventListener("click", function () {
-                const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
-                applyTheme(current === "dark" ? "light" : "dark");
-            });
+        // 事件委托：脚本顺序 template-auth → navbar，而 bootstrapProtectedPage 在首个
+        // await 之前同步执行本函数，navbar.js 渲染的侧栏/移动端顶栏按钮此时尚不存在，
+        // 逐节点绑定会漏掉；document 级委托一次绑定即覆盖任意时机注入的触发器
+        if (themeToggleBound) return;
+        themeToggleBound = true;
+        document.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-template-theme-trigger]");
+            if (!button) return;
+            const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
+            applyTheme(current === "dark" ? "light" : "dark");
         });
     }
 
@@ -651,8 +668,8 @@
         const nextFromInput = document.getElementById("loginNextUrl");
         const rawNext = nextFromInput?.value
             || new URLSearchParams(window.location.search).get("next")
-            || "/admin/";
-        return sanitizeNextUrl(rawNext) || "/admin/";
+            || "/admin/dashboard";
+        return sanitizeNextUrl(rawNext) || "/admin/dashboard";
     }
 
     // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数）。
@@ -730,14 +747,6 @@
                     errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
                     errorBox.classList.remove("d-none");
                 });
-        } else if (getToken()) {
-            fetchCurrentUser()
-                .then(() => {
-                    window.location.replace(getLoginNextUrl());
-                })
-                .catch(() => {
-                    clearAuthState();
-                });
         }
 
         form.addEventListener("submit", async function (event) {
@@ -788,6 +797,9 @@
             await fetchCurrentUser();
             await loadNav();
             bindLogoutButtons();
+            // navbar.js 渲染的按钮晚于开头的 applyTheme 注入，重跑一次同步其图标/文案
+            // 初始态（bindThemeToggles 已是事件委托，点击无需重绑）
+            applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
             const permissions = getPagePermissions();
             if (!hasAnyPermission(permissions)) {

@@ -91,6 +91,40 @@ def _canonical_metrics(
     }
 
 
+def build_series_payload(result: "MetricsV1Result | None") -> dict[str, Any] | None:
+    """从 V1 计算结果导出净值序列（analyze 请求带 include_series=true 时下发）。
+
+    index/start/excess 三帧由同一 base_df 派生，日期轴天然一致，只导出一份 dates；
+    单列模式（无基准）没有这些帧，返回 None。净值保留 6 位小数、非有限值置 None，
+    与 metrics 出口的 _convert_pandas_to_native 口径一致。
+    """
+    if result is None:
+        return None
+    frames = (result.index_df, result.start_df, result.excess_df)
+    if not all(isinstance(frame, pd.DataFrame) and not frame.empty for frame in frames):
+        return None
+    index_df, start_df, excess_df = frames
+
+    dates = [value.strftime("%Y-%m-%d") for value in pd.to_datetime(index_df["date"])]
+
+    def _nav(frame: pd.DataFrame) -> list[float | None]:
+        values: list[float | None] = []
+        for value in frame["net_value"]:
+            number = float(value) if pd.notna(value) else None
+            if number is not None and math.isfinite(number):
+                values.append(round(number, 6))
+            else:
+                values.append(None)
+        return values
+
+    return {
+        "dates": dates,
+        "index_nav": _nav(index_df),
+        "start_nav": _nav(start_df),
+        "excess_nav": _nav(excess_df),
+    }
+
+
 def calculate_v1_metrics(
     returns: Iterable[dict[str, Any]],
     *,

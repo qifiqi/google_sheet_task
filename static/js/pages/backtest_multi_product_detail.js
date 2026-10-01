@@ -275,10 +275,23 @@
             daily_compound: '日收益加权复利',
             legacy_cumulative: '旧版累计收益加权（已停用）'
         };
+        // 与后端 app/utils/market.py MARKET_LABELS 保持同步。
+        const marketLabels = {
+            cn: 'A股', en: '美股', ca: '加拿大', kr: '韩国', jp: '日本',
+            hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
+            au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
+        };
+        const markets = [...new Set(products
+            .map((product) => String(product.market_type || '').trim().toLowerCase())
+            .filter(Boolean))].sort();
+        const marketText = markets.length
+            ? markets.map((market) => marketLabels[market] || market).join('、')
+            : null;
         const items = [
             { label: 'K线开始日期', value: config.start_date },
             { label: 'K线结束日期', value: config.end_date },
             { label: '产品数量', value: products.length },
+            { label: '市场', value: marketText },
             { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
             { label: 'K线数据源', value: config.kline_data_source },
             { label: '固定产品批次', value: config.fixed_product_batch_id },
@@ -295,6 +308,55 @@
                 <div class="task-config-value">${formatConfigDisplayValue(item.value)}</div>
             </div>
         `).join('');
+    }
+
+    // 产品 Sheet 卡片：拼接标准谷歌 Sheet 地址，点击新窗口跳转（与 Vue 版 Detail.vue sheetCards 同步）。
+    function buildGoogleSheetUrl(spreadsheetId) {
+        return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+    }
+
+    function renderSheetCards(config) {
+        const section = document.getElementById('taskSheetSection');
+        const grid = document.getElementById('taskSheetGrid');
+        if (!section || !grid) {
+            return;
+        }
+
+        const products = Array.isArray(config.products) ? config.products : [];
+        if (!products.length) {
+            section.classList.add('d-none');
+            grid.innerHTML = '';
+            return;
+        }
+
+        section.classList.remove('d-none');
+        grid.innerHTML = products.map((product, index) => {
+            const sheet = product.sheet || {};
+            const spreadsheetId = sheet.spreadsheet_id || '';
+            const name = escapeHtml(product.product_name || product.name || `产品 ${index + 1}`);
+            const modelLabel = escapeHtml(inferProductModelVersion(product).toUpperCase());
+            const stockMarket = `${escapeHtml(product.stock_code || '-')} / ${escapeHtml(product.market_type || '-')}`;
+            const hasRatio = !(product.ratio === undefined || product.ratio === null || product.ratio === '');
+            const ratio = hasRatio ? `${escapeHtml(product.ratio)}%` : '-';
+            const sheetTitle = escapeHtml(sheet.title || sheet.sheet_name || spreadsheetId || '-');
+            const sheetName = escapeHtml(sheet.sheet_name || '-');
+            const inner = `
+                <div class="task-sheet-card__head">
+                    <span class="task-sheet-card__name" title="${name}">${name}</span>
+                    <span class="badge text-bg-info">${modelLabel}</span>
+                </div>
+                <div class="task-sheet-card__meta">${stockMarket} · ${ratio}</div>
+                <div class="task-sheet-card__sheet" title="${sheetTitle}">${sheetTitle}</div>
+                <div class="task-sheet-card__sub">工作表：${sheetName}</div>
+                <div class="task-sheet-card__cta ${spreadsheetId ? '' : 'task-sheet-card__cta--empty'}">
+                    ${spreadsheetId ? '打开 Google Sheet <i class="bi bi-box-arrow-up-right"></i>' : '缺少 spreadsheet_id，无法跳转'}
+                </div>
+            `;
+            if (spreadsheetId) {
+                return `<a class="task-sheet-card" href="${escapeHtml(buildGoogleSheetUrl(spreadsheetId))}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+            }
+            return `<div class="task-sheet-card">${inner}</div>`;
+        }).join('');
     }
 
     function renderParameterTable(config) {
@@ -1098,6 +1160,7 @@
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
             renderTaskConfig(currentTaskConfig);
+            renderSheetCards(currentTaskConfig);
             renderParameterTable(currentTaskConfig);
             updateTaskResultSectionMode(currentTaskConfig);
             loadTaskResults({ silent });

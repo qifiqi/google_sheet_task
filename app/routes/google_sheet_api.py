@@ -23,7 +23,7 @@ from app.utils.request_parsing import parse_body
 google_sheet_api_bp = Blueprint('google_sheet_api', __name__)
 
 
-@google_sheet_api_bp.route('/google-sheet/worksheets', methods=['POST'])
+@google_sheet_api_bp.route('/google-sheets/worksheets', methods=['POST'])
 @login_required
 def get_worksheets():
     """获取Google Sheet中的所有工作表名称"""

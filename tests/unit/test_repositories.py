@@ -3,6 +3,8 @@
 覆盖 docs/design/data-layer-refactor/02 各 repository 契约的基础读写与异常路径；
 测试代码不受"业务层禁 ORM"约束（02 §4）。
 """
+import json
+
 import pytest
 
 from app.exceptions import NotFoundError
@@ -68,14 +70,39 @@ class TestTaskRepository:
         assert [t["id"] for t in task_repository.list_by_ids(["t-1", "missing"])] == ["t-1"]
         assert task_repository.list_by_ids([]) == []
 
-    def test_list_paginated_filters(self, app_factory, task_row):
+    def test_list_paginated_with_statistics_filters(self, app_factory, task_row):
         task_repository.create({"id": "t-2", "name": "other", "status": "error", "task_type": "google_sheet_C4"})
-        page = task_repository.list_paginated(1, 10, task_type="google_sheet")
-        assert page["total"] == 1 and page["items"][0]["id"] == "t-1"
-        page = task_repository.list_paginated(1, 10, status="error")
+        page = task_repository.list_paginated_with_statistics(1, 10, task_type="google_sheet")
+        assert page["pagination"]["total"] == 1 and page["items"][0]["id"] == "t-1"
+        page = task_repository.list_paginated_with_statistics(1, 10, status="error")
         assert page["items"][0]["id"] == "t-2"
-        page = task_repository.list_paginated(1, 10, keyword="示例")
+        page = task_repository.list_paginated_with_statistics(1, 10, keyword="示例")
         assert page["items"][0]["id"] == "t-1"
+
+    def test_list_paginated_with_statistics_stock_code(self, app_factory, task_row):
+        """stock_code 过滤锚定 config JSON 的 "stock_code" 键，product_name 等字段不误中。"""
+        task_repository.create({
+            "id": "t-stock",
+            "name": "多品任务",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [
+                {"product_name": "苹果", "stock_code": "AAPL.US", "market_type": "en"},
+                {"product_name": "特斯拉", "stock_code": "TSLA.US", "market_type": "en"},
+            ]}),
+        })
+        task_repository.create({
+            "id": "t-name-only",
+            "name": "名字含代码",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [{"product_name": "AAPL 联名", "stock_code": "GOOG.US"}]}),
+        })
+        page = task_repository.list_paginated_with_statistics(
+            1, 10, task_type="backtest_multi_product", stock_code="aapl"
+        )
+        assert [t["id"] for t in page["items"]] == ["t-stock"]
+        assert page["aggregates"]["total"] == 1
 
     def test_clear_created_by(self, app_factory, task_row):
         Task.query.filter_by(id="t-1").update({"created_by_user_id": 7})
@@ -122,12 +149,39 @@ class TestTaskResultRepository:
         self._make_result()
         page = task_result_repository.list_paginated(1, 20, task_id="t-1")
         assert page["total"] == 1
+        assert page["total_success"] == 1
+        assert page["total_failed"] == 0
         item = page["items"][0]
-        assert set(item.keys()) == {"id", "task_id", "step_index", "success", "timestamp"}
+        # 原有精简键不变，结果查询页扩展任务名/类型/预览投影
+        assert {
+            "id", "task_id", "step_index", "success", "timestamp",
+        } <= set(item.keys())
+        assert item["task_name"] == "示例任务"
+        assert item["task_type"] == "google_sheet"
+        assert "parameters_preview" in item
+        assert "error_preview" in item
 
     def test_list_paginated_missing_task_empty(self, app_factory, task_row):
         page = task_result_repository.list_paginated(1, 20, task_id="missing")
-        assert page == {"items": [], "total": 0, "current_page": 1, "per_page": page["per_page"]}
+        assert page == {
+            "items": [], "total": 0, "current_page": 1,
+            "per_page": page["per_page"], "total_success": 0, "total_failed": 0,
+        }
+
+    def test_list_paginated_success_and_keyword_filters(self, app_factory, task_row):
+        self._make_result(success=True)
+        self._make_result(success=False)
+        # success 过滤 + 同过滤条件计数
+        page_success = task_result_repository.list_paginated(1, 20, task_id="t-1", success=True)
+        assert page_success["total"] == 1
+        assert page_success["total_success"] == 1
+        page_failed = task_result_repository.list_paginated(1, 20, task_id="t-1", success=False)
+        assert page_failed["total"] == 1
+        assert page_failed["total_failed"] == 1
+        # keyword 匹配任务名称（跨任务，不走 task_id 精确分支）
+        assert task_result_repository.list_paginated(1, 20, keyword="示例")["total"] == 2
+        # keyword 落空
+        assert task_result_repository.list_paginated(1, 20, keyword="不存在")["total"] == 0
 
 
 # ==================== task_log_repository ====================
@@ -139,18 +193,17 @@ class TestTaskLogRepository:
         assert len(log["message"]) == 4000
         assert log["message"].endswith("...（日志已截断）")
 
-    def test_get_last_and_list_by_task_order(self, app_factory, task_row):
+    def test_last_write_time_and_list_by_task_order(self, app_factory, task_row):
         task_log_repository.create_log("t-1", "info", "first")
         task_log_repository.create_log("t-1", "error", "second")
-        assert task_log_repository.get_last("t-1")["message"] == "second"
         rows = task_log_repository.list_by_task("t-1")
         assert [r["message"] for r in rows] == ["first", "second"]
-        assert task_log_repository.count_by_task("t-1") == 2
+        assert task_log_repository.last_write_time("t-1") is not None
 
     def test_delete_by_task(self, app_factory, task_row):
         task_log_repository.create_log("t-1", "info", "log")
         assert task_log_repository.delete_by_task("t-1") == 1
-        assert task_log_repository.count_by_task("t-1") == 0
+        assert task_log_repository.list_by_task("t-1") == []
 
 
 # ==================== task_template_repository ====================

@@ -49,7 +49,7 @@ const props = defineProps({
   total: { type: Number, default: 0 },
   page: { type: Number, default: 1 },
   pageSize: { type: Number, default: 20 },
-  pageSizes: { type: Array, default: () => [10, 20, 50] },
+  pageSizes: { type: Array, default: () => [10, 20, 50, 100] },
   stripe: { type: Boolean, default: true },
   showPagination: { type: Boolean, default: true },
 })

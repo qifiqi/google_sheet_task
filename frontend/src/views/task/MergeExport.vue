@@ -97,10 +97,10 @@
           <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
         </template>
       </el-table-column>
-      <el-table-column label="开始时间" width="160">
+      <el-table-column label="开始时间" width="160" sortable prop="start_time">
         <template #default="{ row }">{{ formatDateTime(row.start_time) }}</template>
       </el-table-column>
-      <el-table-column label="结束时间" width="160">
+      <el-table-column label="结束时间" width="160" sortable prop="end_time">
         <template #default="{ row }">{{ formatDateTime(row.end_time) }}</template>
       </el-table-column>
     </DataTableCard>

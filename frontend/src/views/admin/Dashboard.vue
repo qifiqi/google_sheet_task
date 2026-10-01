@@ -12,7 +12,7 @@
     />
 
     <el-row :gutter="16" class="dashboard-section">
-      <el-col :xs="24" :md="16" style="margin-bottom: 12px">
+      <el-col :xs="24" :md="16" class="dashboard-col">
         <el-card shadow="never">
           <template #header>
             <div class="card-header-row">
@@ -25,7 +25,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :md="8" style="margin-bottom: 12px">
+      <el-col :xs="24" :md="8" class="dashboard-col">
         <el-card shadow="never">
           <template #header>状态分布</template>
           <div v-if="!hasStatusData" class="empty-block">暂无状态数据</div>
@@ -37,7 +37,7 @@
     </el-row>
 
     <el-row :gutter="16" class="dashboard-section">
-      <el-col :xs="24" :md="10" style="margin-bottom: 12px">
+      <el-col :xs="24" :md="10" class="dashboard-col">
         <el-card shadow="never">
           <template #header>任务类型分布</template>
           <div v-if="!hasTypeData" class="empty-block">暂无任务数据</div>
@@ -46,7 +46,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :md="14" style="margin-bottom: 12px">
+      <el-col :xs="24" :md="14" class="dashboard-col">
         <el-card shadow="never">
           <template #header>正在运行任务</template>
           <div v-if="!activeTasks.length" class="empty-block">当前没有运行中的任务</div>
@@ -56,7 +56,7 @@
               :key="task.id"
               :xs="24"
               :sm="12"
-              style="margin-bottom: 12px"
+              class="dashboard-col"
             >
               <div class="active-task-card">
                 <div class="active-task-card__header">
@@ -148,6 +148,7 @@
 import { nextTick, onMounted, onUnmounted, ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboardOverview } from '@/api/admin'
+import { getConfig } from '@/api/config'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
 import TaskProgressCell from '@/components/TaskProgressCell.vue'
@@ -296,13 +297,33 @@ async function renderCharts(data) {
   })
 }
 
-usePolling(() => loadDashboard(), { interval: 30000 })
+// 轮询：usePolling 的间隔在启动时固定，读配置（dashboard_refresh_interval，默认 30s）
+// 后若不同则停用内置定时器、按配置间隔自建（对齐静态版 admin_dashboard.js）
+const DEFAULT_POLL_INTERVAL = 30000
+const poller = usePolling(() => loadDashboard(), { interval: DEFAULT_POLL_INTERVAL })
+let customPollTimer = null
+// 卸载标志：读配置是异步的，若期间已切走页面，onUnmounted 先于定时器创建执行，
+// 事后创建的轮询将永不停止
+let disposed = false
 
-onMounted(() => {
+onMounted(async () => {
   void loadDashboard()
+  try {
+    const res = await getConfig()
+    const interval = Number(res?.config?.dashboard_refresh_interval)
+    if (Number.isFinite(interval) && interval > 0 && interval !== DEFAULT_POLL_INTERVAL && !disposed) {
+      poller.stop()
+      customPollTimer = window.setInterval(() => poller.tick(), interval)
+    }
+  } catch {}
 })
 
 onUnmounted(() => {
+  disposed = true
+  if (customPollTimer) {
+    window.clearInterval(customPollTimer)
+    customPollTimer = null
+  }
   Object.values(charts).forEach((chart) => chart.destroy())
 })
 </script>
@@ -310,39 +331,6 @@ onUnmounted(() => {
 <style scoped>
 .dashboard-page :deep(.el-card__body) {
   height: 100%;
-}
-
-.dashboard-hero {
-  margin-bottom: 18px;
-}
-
-.dashboard-hero__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
-
-.dashboard-hero__meta-item {
-  min-width: 150px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.dashboard-hero__meta-label {
-  display: block;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 12px;
-}
-
-.dashboard-hero__meta-value {
-  display: block;
-  margin-top: 6px;
-  color: #fff;
-  font-family: 'Fira Code', monospace;
-  font-size: 14px;
 }
 
 .dashboard-page__toolbar {
@@ -371,6 +359,10 @@ onUnmounted(() => {
 
 .dashboard-section {
   margin-bottom: 2px;
+}
+
+.dashboard-col {
+  margin-bottom: 12px;
 }
 
 .card-header-row {

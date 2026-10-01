@@ -26,13 +26,13 @@ def test_rate_limit_exceeded_returns_429_chinese_envelope(app_factory, monkeypat
     # 键用本次运行唯一值：limiter 的 memory 存储进程内共享，防止套件内键污染。
     probe_key = f"probe-{uuid.uuid4().hex}"
     limited = limiter.limit("2/minute", key_func=lambda: probe_key)(_probe)
-    app.add_url_rule("/performance_analysis/_limit_probe", view_func=limited)
+    app.add_url_rule("/api/performance-analysis/_limit_probe", view_func=limited)
 
     client = app.test_client()
-    assert client.get("/performance_analysis/_limit_probe").status_code == 200
-    assert client.get("/performance_analysis/_limit_probe").status_code == 200
+    assert client.get("/api/performance-analysis/_limit_probe").status_code == 200
+    assert client.get("/api/performance-analysis/_limit_probe").status_code == 200
 
-    resp = client.get("/performance_analysis/_limit_probe")
+    resp = client.get("/api/performance-analysis/_limit_probe")
     assert resp.status_code == 429
     body = resp.get_json()
     assert body == {
@@ -86,3 +86,31 @@ def test_export_endpoint_rate_limited_by_user(app_factory, monkeypatch):
     assert body["status"] == "error" and body["code"] == 429
     assert body["message"] == "请求过于频繁，请稍后重试"
 
+
+
+def test_word_report_endpoint_rate_limit_raised(app_factory, monkeypatch):
+    """Word 报告端点独立限流：rate_limit_word_report（默认 60/min，user 键）。
+
+    全局预览页按“股票×年份×参数方案”逐个循环调用该端点，10/min 会误伤；
+    前几十次请求按业务校验返回 400（RPT-M 缺 task_id），第 61 次起 429。
+    """
+    # 单 Token 模式：本地登录退役；AUTH_ENABLED=false 下以 mock 用户
+    # （限流键回落 anon）验证 429 契约，与上方 export 用例同口径。
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    app = app_factory
+    app.config.update(RATELIMIT_ENABLED=True)
+    limiter.enabled = True
+
+    client = app.test_client()
+    headers = {}
+
+    codes = [
+        client.post(
+            "/api/exports/backtest-reports/word",
+            headers=headers,
+            json={"report_type": "RPT-M"},
+        ).status_code
+        for _ in range(61)
+    ]
+    assert codes[:60] == [400] * 60
+    assert codes[60] == 429

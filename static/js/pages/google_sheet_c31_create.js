@@ -1548,7 +1548,17 @@
             executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
 
             currentTaskId = data.task_id;
-            showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+            // 部分子任务启动失败时后端仍返回成功（只要有 ≥1 个启动成功），
+            // 之前无条件提示"创建成功"会把失败吞掉，这里按计数区分提示
+            const failedCount = Array.isArray(data.failed_to_start) ? data.failed_to_start.length : 0;
+            if (failedCount > 0) {
+                const startedText = typeof data.total_started === 'number' && typeof data.total_created === 'number'
+                    ? `${data.total_started}/${data.total_created}`
+                    : '部分';
+                showNotification(`任务已创建，但 ${failedCount} 个子任务启动失败（成功启动 ${startedText}），请到任务列表查看`, 'warning');
+            } else {
+                showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+            }
 
             // 清空表单
             document.getElementById('parameter-form').reset();

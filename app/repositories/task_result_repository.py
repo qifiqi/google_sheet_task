@@ -1,4 +1,8 @@
 """TaskResult / TaskResultReturn 仓储（契约见 docs/design/data-layer-refactor/02 §2.2）。"""
+import json
+from typing import Any
+
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
@@ -13,6 +17,34 @@ _RESULT_SUMMARY_FIELDS = (
     TaskResult.success,
     TaskResult.timestamp,
 )
+
+# 列表页 parameters/error_message 的预览截断长度（SQL 层 substr，字符数）。
+_RESULT_PREVIEW_LENGTH = 200
+
+# tasks/<id>/results 字段投影（fields 查询参数）允许的存储列；return_date_range
+# 为计算字段（收益序列首末日期），不在列映射里。
+_RESULT_FIELD_COLUMNS = {
+    "id": TaskResult.id,
+    "task_id": TaskResult.task_id,
+    "step_index": TaskResult.step_index,
+    "parameters": TaskResult.parameters,
+    "result": TaskResult.result,
+    "return_series_id": TaskResult.return_series_id,
+    "success": TaskResult.success,
+    "error_message": TaskResult.error_message,
+    "timestamp": TaskResult.timestamp,
+}
+
+
+def _json_dict(value):
+    """parameters/result 的 JSON 对象解析（坏 JSON 静默降级空 dict，对齐 to_dict）。"""
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class TaskResultRepository(BaseRepository):
@@ -47,6 +79,85 @@ class TaskResultRepository(BaseRepository):
             .all()
         ]
 
+    def list_by_task_fields(self, task_id: str, fields: list[str]) -> list[dict[str, Any]]:
+        """按白名单字段投影任务结果列表（fields 查询参数，下拉/索引类消费方）。
+
+        load_only 让 result 大 JSON 不进内存；return_date_range 批量取收益序列
+        首末日期。返回键与请求 fields 一一对应，顺序同 list_by_task。
+        """
+        columns = [_RESULT_FIELD_COLUMNS[name] for name in fields if name in _RESULT_FIELD_COLUMNS]
+        # return_date_range 是计算字段，逐行读 return_series_id；投影不含该列时
+        # 补进 load_only，同时避免空列触发 load_only() 的 IndexError。
+        if "return_date_range" in fields and TaskResult.return_series_id not in columns:
+            columns.append(TaskResult.return_series_id)
+        query = TaskResult.query.filter_by(task_id=task_id)
+        if columns:
+            query = query.options(load_only(*columns))
+        rows = (
+            query
+            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+            .all()
+        )
+        ranges = (
+            self._return_date_ranges([row.return_series_id for row in rows if row.return_series_id])
+            if "return_date_range" in fields else {}
+        )
+        items = []
+        for row in rows:
+            item: dict[str, Any] = {}
+            for name in fields:
+                if name == "return_date_range":
+                    item[name] = ranges.get(row.return_series_id)
+                elif name == "parameters":
+                    item[name] = _json_dict(row.parameters)
+                elif name == "result":
+                    item[name] = _json_dict(row.result)
+                elif name == "timestamp":
+                    item[name] = row.timestamp.isoformat() if row.timestamp else None
+                else:
+                    item[name] = getattr(row, name)
+            items.append(item)
+        return items
+
+    def _return_date_ranges(self, series_ids: list[int]) -> dict[int, dict[str, str | None]]:
+        """批量取收益序列首末日期：{series_id: {"start": .., "end": ..}}，空序列为 None。
+
+        优先读 start/end_return_date 落库列（写入时按 min/max 落库）；
+        历史行可能为 NULL，回退解析 stock_date JSON。
+        """
+        if not series_ids:
+            return {}
+        ranges: dict[int, dict[str, str | None]] = {}
+        series_rows = (
+            TaskResultReturn.query
+            .with_entities(
+                TaskResultReturn.id,
+                TaskResultReturn.start_return_date,
+                TaskResultReturn.end_return_date,
+                TaskResultReturn.stock_date,
+            )
+            .filter(TaskResultReturn.id.in_(series_ids))
+            .all()
+        )
+        for series_id, start_date, end_date, stock_date in series_rows:
+            start = start_date.isoformat() if start_date else None
+            end = end_date.isoformat() if end_date else None
+            if start is None or end is None:
+                dates = self._parse_stock_dates(stock_date)
+                start = start or (dates[0] if dates else None)
+                end = end or (dates[-1] if dates else None)
+            ranges[series_id] = {"start": start, "end": end}
+        return ranges
+
+    @staticmethod
+    def _parse_stock_dates(stock_date) -> list[str]:
+        """stock_date JSON 数组解析（坏 JSON 静默降级空列表）。"""
+        try:
+            dates = json.loads(stock_date) if stock_date else []
+        except (TypeError, ValueError):
+            return []
+        return [date for date in dates if date]
+
     def list_by_task_paginated(self, task_id, page, per_page):
         """任务详情结果分页 + 成功/失败计数（task_api results 分页语义）。"""
         pagination = (
@@ -64,24 +175,41 @@ class TaskResultRepository(BaseRepository):
         data.update(self.count_by_task_success(task_id))
         return data
 
-    def list_paginated(self, page, per_page, task_id=None):
-        """/api/results 列表：保持现有 load_only 精简键与 join Task 语义。
+    def list_paginated(self, page, per_page, task_id=None, success=None, keyword=None):
+        """/api/results 列表：保持现有精简键与 join Task 语义，结果查询页扩展投影。
 
-        指定 task_id 且任务不存在时返回空页（与现状一致）；
-        未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
+        - 原有键（id/task_id/step_index/success/timestamp）不变，静态版消费方不受影响；
+        - 新增 task_name/task_type（join Task 已存在）、parameters_preview/error_preview
+          （SQL 层 substr 截断，避免把 TEXT/LONGTEXT 整值拉进列表）；
+        - success 过滤按布尔；keyword 模糊匹配任务名称或结果 task_id；
+        - counts 为同过滤条件的成功/失败计数；
+        - 指定 task_id 且任务不存在时返回空页（与现状一致）；
+        - 未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
+
+        preview_fields = (
+            func.substr(TaskResult.parameters, 1, _RESULT_PREVIEW_LENGTH).label("parameters_preview"),
+            func.substr(TaskResult.error_message, 1, _RESULT_PREVIEW_LENGTH).label("error_preview"),
+        )
 
         if task_id:
             task_exists = (
                 db.session.query(Task.id).filter(Task.id == task_id).first()
             )
             if not task_exists:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
+                return {
+                    "items": [],
+                    "total": 0,
+                    "current_page": current_page,
+                    "per_page": size,
+                    "total_success": 0,
+                    "total_failed": 0,
+                }
 
         query = (
-            db.session.query(*_RESULT_SUMMARY_FIELDS)
+            db.session.query(*_RESULT_SUMMARY_FIELDS, Task.name.label("task_name"), Task.task_type, *preview_fields)
             .join(Task, Task.id == TaskResult.task_id)
         )
         if task_id:
@@ -89,18 +217,40 @@ class TaskResultRepository(BaseRepository):
         else:
             distinct_types = [row[0] for row in db.session.query(Task.task_type).distinct().all()]
             if not distinct_types:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
+                return {
+                    "items": [],
+                    "total": 0,
+                    "current_page": current_page,
+                    "per_page": size,
+                    "total_success": 0,
+                    "total_failed": 0,
+                }
             query = query.filter(Task.task_type.in_(distinct_types))
+
+        if success is not None:
+            query = query.filter(TaskResult.success.is_(success))
+
+        if keyword and keyword.strip():
+            pattern = f"%{keyword.strip()}%"
+            query = query.filter(or_(Task.name.ilike(pattern), TaskResult.task_id.ilike(pattern)))
 
         pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
             page=current_page, per_page=size, error_out=False
         )
+        counts_row = query.with_entities(
+            func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+            func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+        ).first()
         results = [
             {
                 "id": row.id,
                 "task_id": row.task_id,
+                "task_name": row.task_name,
+                "task_type": row.task_type,
                 "step_index": row.step_index,
                 "success": row.success,
+                "parameters_preview": row.parameters_preview,
+                "error_preview": row.error_preview,
                 "timestamp": row.timestamp.isoformat() if row.timestamp else None,
             }
             for row in pagination.items
@@ -110,6 +260,8 @@ class TaskResultRepository(BaseRepository):
             "total": pagination.total,
             "current_page": current_page,
             "per_page": size,
+            "total_success": counts_row.success,
+            "total_failed": counts_row.failed,
         }
 
     def count_by_task_success(self, task_id):

@@ -1,5 +1,3 @@
-from flask import Blueprint
-
 def register_blueprints(app):
     """注册所有蓝图。页面（HTML）路由统一在 app/routes/pages/ 包，API 留在本级。"""
     # ---- 页面路由（HTML，app/routes/pages/）----
@@ -37,18 +35,18 @@ def register_blueprints(app):
 
     # 页面蓝图（前缀在各蓝图内定义，与历史 URL 保持一致）
     app.register_blueprint(auth_pages_bp)
-    app.register_blueprint(admin_bp, url_prefix='/admin')
+    app.register_blueprint(admin_bp)
     app.register_blueprint(eastmoney_kline_bp)
     app.register_blueprint(global_preview_bp)
     app.register_blueprint(backtest_training_bp)
     app.register_blueprint(backtest_training_legacy_bp)
     app.register_blueprint(backtest_multi_product_bp)
     app.register_blueprint(backtest_multi_product_legacy_bp)
-    app.register_blueprint(google_sheet_bp, url_prefix='/google-sheet')
-    app.register_blueprint(performance_analysis_pages_bp, url_prefix='/performance_analysis')
+    app.register_blueprint(google_sheet_bp)
+    app.register_blueprint(performance_analysis_pages_bp)
 
-    # API 蓝图
-    app.register_blueprint(admin_api_bp, url_prefix='/admin')
+    # API 蓝图（前缀统一在注册处传入：管理端一律 /api/admin/*，业务域 /api、子域 /<域>/api）
+    app.register_blueprint(admin_api_bp, url_prefix='/api/admin')
     app.register_blueprint(task_api_bp, url_prefix='/api')
     app.register_blueprint(config_api_bp, url_prefix='/api')
     app.register_blueprint(logs_api_bp, url_prefix='/api')
@@ -58,10 +56,10 @@ def register_blueprints(app):
     app.register_blueprint(google_sheet_api_bp, url_prefix='/api')
     app.register_blueprint(stock_api_bp, url_prefix='/api')
     app.register_blueprint(scheduler_api_bp, url_prefix='/api')
-    app.register_blueprint(performance_analysis_bp)
-    app.register_blueprint(bt_api_bp)
-    app.register_blueprint(bmp_api_bp)
-    app.register_blueprint(gp_api_bp)
+    app.register_blueprint(performance_analysis_bp, url_prefix='/api/performance-analysis')
+    app.register_blueprint(bt_api_bp, url_prefix='/api/backtest-training')
+    app.register_blueprint(bmp_api_bp, url_prefix='/api/backtest-multi-product')
+    app.register_blueprint(gp_api_bp, url_prefix='/api/global-preview')
     app.register_blueprint(meta_api_bp, url_prefix='/api')
     app.register_blueprint(auth_api_bp, url_prefix='/api')
     # 旧本地 RBAC 接口蓝图（无路由时仅是空蓝图），保持注册便于恢复。

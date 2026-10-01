@@ -6,7 +6,6 @@
 
 import json
 import math
-from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -150,7 +149,7 @@ class PerformanceMetricsMixin:
         return annual_returns
 
     @staticmethod
-    def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12):
+    def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12, risk_free_rate=0.0):
         """
         # 定义计算指定时间段夏普比率的内部函数
         # Define inner function to calculate Sharpe ratio for a specific period
@@ -164,6 +163,8 @@ class PerformanceMetricsMixin:
                         Period name identifier
             annualization_factor: int，年化因子（默认12，用于月度数据）
                                 Annualization factor (default 12 for monthly data)
+            risk_free_rate: float，年化无风险利率（小数形式：3% 传 0.03），按月折算后计入分子
+                          Annualized risk-free rate (decimal: 3% -> 0.03), converted to monthly
 
         返回/Returns:
             float or None: 夏普比率值，如果数据不足则返回None
@@ -180,19 +181,20 @@ class PerformanceMetricsMixin:
         # Calculate average monthly return
         avg_monthly_return = monthly_returns.mean()
 
-        # TODO
         # 计算月度收益率标准差（使用样本标准差）（月收益率标准差）
-        # Calculate monthly return standard deviation (population standard deviation)
         monthly_std = monthly_returns.std(ddof=1)
 
         # 计算年化标准差(年化波动率)
         # Calculate annualized standard deviation
         annual_std = monthly_std * math.sqrt(annualization_factor)
 
-        # 计算夏普比率（假设无风险利率为0）
-        # Calculate Sharpe ratio (assuming risk-free rate is 0)
+        # 计算夏普比率：（年化收益 − 年化无风险利率）/ 年化波动率，rf 按月折算（rf/年化因子）；
+        # risk_free_rate=0 时与历史口径（平均月收益年化 / 年化波动率）完全一致。
+        # Calculate Sharpe ratio: (annualized return - risk-free rate) / annualized volatility
         if annual_std != 0:
-            sharpe_ratio = avg_monthly_return * annualization_factor / annual_std
+            sharpe_ratio = (
+                avg_monthly_return - risk_free_rate / annualization_factor
+            ) * annualization_factor / annual_std
         else:
             sharpe_ratio = 0
 
@@ -229,8 +231,6 @@ class PerformanceMetricsMixin:
                 if previous_month_data is None:
                     # 如果是第一个月，使用当月第一个数据点作为基准
                     # If it's the first month, use the first data point of the month as base
-                    # comparison_point = month_df.iloc[0]
-                    # comparison_point = comparison_point['net_value']
                     # TODO: 首月基准被硬编码为 1（而非当月第一个数据点的净值），
                     #  首月月度收益因此包含数据起点前的累计涨跌；有单测覆盖此问题（已 skip）。
                     comparison_point = 1
@@ -301,7 +301,7 @@ class PerformanceMetricsMixin:
 
         return weekly_data
 
-    def calculate_sharpe_ratios_by_periods(self, df):
+    def calculate_sharpe_ratios_by_periods(self, df, risk_free_rate=0.0):
         """
         计算不同时间段的夏普比率
         Calculate Sharpe ratios for different time periods
@@ -309,6 +309,8 @@ class PerformanceMetricsMixin:
         参数/Args:
             df: DataFrame，包含'date'、'net_value'、'year'、'year_month'列的数据框
                 DataFrame containing 'date', 'net_value', 'year', 'year_month' columns
+            risk_free_rate: float，年化无风险利率（小数形式），透传给各时间段夏普计算
+                          Annualized risk-free rate (decimal), forwarded to each period
 
         返回/Returns:
             dict: 包含不同时间段夏普比率的字典
@@ -337,7 +339,7 @@ class PerformanceMetricsMixin:
         logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
         # 计算全部数据的夏普比率
         # Calculate Sharpe ratio for all data
-        res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
+        res = self.calculate_sharpe_for_period(monthly_df, "all", 12, risk_free_rate)
         # 保存结果
         # Save results
         results = {}
@@ -354,7 +356,7 @@ class PerformanceMetricsMixin:
             if len(year_data) >= 3:  # 至少需要3个月的数据 Need at least 3 months of data
                 year_name = f"year_{i + 1}_{year}"  # 例如: year_1_2023
                 logger.debug(f"计算年份/Calculating year {year_name}, 总月数/Total months: {len(year_data)}")
-                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12, risk_free_rate)
                 results[year_name] = res
 
         # 计算滚动年份的夏普比率（前1年、前2年等）
@@ -366,7 +368,7 @@ class PerformanceMetricsMixin:
                 year_name = f"past_{i + 1}_years_since_{year}"  # 例如: past_1_years_since_2023
                 logger.debug(
                     f"计算滚动年份/Calculating rolling year {year_name}, 总月数/Total months: {len(year_data)}")
-                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12, risk_free_rate)
                 results[year_name] = res
 
         return results
@@ -469,13 +471,14 @@ class PerformanceMetricsMixin:
 
         return kama_ratios
 
-    def calculate_sortino_ratio(self, data, frequency='monthly'):
+    def calculate_sortino_ratio(self, data, frequency='monthly', risk_free_rate=0.0):
         """
         计算索提诺比率（Sortino Ratio）
 
         参数:
             data: DataFrame，需包含 'year' 列和收益率列
             frequency: 'monthly' 或 'weekly'，决定计算周期
+            risk_free_rate: float，年化无风险利率（小数形式：3% 传 0.03），按周期折算后计入分子
 
         返回:
             list: 每年及整体的索提诺比率计算结果
@@ -485,7 +488,7 @@ class PerformanceMetricsMixin:
                             周均年化收益率	周均收益率*52（所有周）
 
         索提诺比例
-        月均年化收益率/下行标准差（
+        (月均年化收益率-无风险利率)/下行标准差（
             # 下行边准差	所有月低于0的收益率的标准差*√12
             下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
            月均年化收益率	月均收益率*12（所有月）
@@ -524,8 +527,12 @@ class PerformanceMetricsMixin:
                 monthly_downside_std = np.sqrt(sum_sq / count)
                 downside_std = monthly_downside_std * np.sqrt(periods_per_year)
 
-                # 3.4 计算索提诺比率
-                sortino_ratio = annualized_return / downside_std if downside_std != 0 else 0
+                # 3.4 计算索提诺比率：分子扣减年化无风险利率，与夏普同口径
+                # （(月均收益 − rf/周期数) × 周期数）；rf=0 时与历史口径逐位一致。
+                rf_adjusted_annualized_return = (
+                    avg_return - risk_free_rate / periods_per_year
+                ) * periods_per_year
+                sortino_ratio = rf_adjusted_annualized_return / downside_std if downside_std != 0 else 0
             else:
                 downside_std = 0
                 sortino_ratio = 0
@@ -557,7 +564,11 @@ class PerformanceMetricsMixin:
             overall_monthly_downside_std = np.sqrt(overall_sum_sq / overall_count)
             overall_downside_std = overall_monthly_downside_std * np.sqrt(periods_per_year)
 
-            overall_sortino_ratio = overall_annualized_return / overall_downside_std if overall_downside_std != 0 else 0
+            # 分子扣减年化无风险利率，与夏普同口径；rf=0 时与历史口径逐位一致。
+            overall_rf_adjusted_return = (
+                overall_avg_return - risk_free_rate / periods_per_year
+            ) * periods_per_year
+            overall_sortino_ratio = overall_rf_adjusted_return / overall_downside_std if overall_downside_std != 0 else 0
         else:
             overall_downside_std = 0
             overall_sortino_ratio = 0
@@ -950,11 +961,13 @@ class PerformanceMetricsMixin:
             # Calculate various metrics
             index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df)
             index_returns_rate = self.calculate_year_returns(index_df)
-            index_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(index_df)
+            index_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(
+                index_df, risk_free_rate=runtime_params.risk_free_rate)
 
             start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
             start_returns_rate = self.calculate_year_returns(start_df)
-            start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(start_df)
+            start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(
+                start_df, risk_free_rate=runtime_params.risk_free_rate)
 
             # 年化收益率
             index_annualized_rates = self.annualized_rate_return(index_df)
@@ -991,12 +1004,16 @@ class PerformanceMetricsMixin:
             monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
             # 索提诺比例-月
-            index_monthly_sortino_ratio = self.calculate_sortino_ratio(index_monthly_returns_rate)
-            start_monthly_sortino_ratio = self.calculate_sortino_ratio(start_monthly_returns_rate)
+            index_monthly_sortino_ratio = self.calculate_sortino_ratio(
+                index_monthly_returns_rate, risk_free_rate=runtime_params.risk_free_rate)
+            start_monthly_sortino_ratio = self.calculate_sortino_ratio(
+                start_monthly_returns_rate, risk_free_rate=runtime_params.risk_free_rate)
 
             # 索提诺比例-周
-            index_weekly_sortino_ratio = self.calculate_sortino_ratio(index_weekly_returns_rate,"weekly")
-            start_weekly_sortino_ratio = self.calculate_sortino_ratio(start_weekly_returns_rate,"weekly")
+            index_weekly_sortino_ratio = self.calculate_sortino_ratio(
+                index_weekly_returns_rate, "weekly", risk_free_rate=runtime_params.risk_free_rate)
+            start_weekly_sortino_ratio = self.calculate_sortino_ratio(
+                start_weekly_returns_rate, "weekly", risk_free_rate=runtime_params.risk_free_rate)
 
             # 盈利年百分比（不需要每年）
             index_profit_annual = self.calculate_profit_annual_percentage(index_returns_rate)

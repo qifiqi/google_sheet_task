@@ -60,9 +60,9 @@
               <h3 class="section-title section-title--muted">时间信息</h3>
             </div>
             <el-descriptions :column="1" size="small">
-              <el-descriptions-item label="创建时间">{{ task.created_at || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="开始执行时间">{{ task.start_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="结束时间">{{ task.end_time || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="创建时间">{{ formatDateTime(task.created_at) }}</el-descriptions-item>
+              <el-descriptions-item label="开始执行时间">{{ formatDateTime(task.start_time) }}</el-descriptions-item>
+              <el-descriptions-item label="结束时间">{{ formatDateTime(task.end_time) }}</el-descriptions-item>
               <el-descriptions-item label="执行时长">
                 {{ task.duration_seconds != null ? `${task.duration_seconds}s` : '-' }}
               </el-descriptions-item>
@@ -204,6 +204,38 @@
                 <div class="backtest-multi-detail-page__config-value">{{ item.value }}</div>
               </div>
             </div>
+            <div v-if="sheetCards.length" class="backtest-multi-detail-page__sheet-section">
+              <div class="backtest-multi-detail-page__sheet-section-head">
+                <span class="backtest-multi-detail-page__sheet-section-title">产品 Google Sheet</span>
+                <span class="panel-note">点击卡片打开对应的谷歌 Sheet</span>
+              </div>
+              <div class="backtest-multi-detail-page__sheet-grid">
+                <component
+                  :is="card.url ? 'a' : 'div'"
+                  v-for="card in sheetCards"
+                  :key="card.index"
+                  :href="card.url || undefined"
+                  :target="card.url ? '_blank' : undefined"
+                  :rel="card.url ? 'noopener noreferrer' : undefined"
+                  class="backtest-multi-detail-page__sheet-card"
+                  :class="{ 'backtest-multi-detail-page__sheet-card--active': !!card.url }"
+                >
+                  <div class="backtest-multi-detail-page__sheet-card-head">
+                    <span class="backtest-multi-detail-page__sheet-card-name" :title="card.name">{{ card.name }}</span>
+                    <el-tag size="small" type="info" effect="plain">{{ card.modelLabel }}</el-tag>
+                  </div>
+                  <div class="backtest-multi-detail-page__sheet-card-meta">{{ card.stockMarket }} · {{ card.ratio }}</div>
+                  <div class="backtest-multi-detail-page__sheet-card-sheet" :title="card.sheetTitle">{{ card.sheetTitle }}</div>
+                  <div class="backtest-multi-detail-page__sheet-card-sub">工作表：{{ card.sheetName }}</div>
+                  <div
+                    class="backtest-multi-detail-page__sheet-card-cta"
+                    :class="{ 'backtest-multi-detail-page__sheet-card-cta--empty': !card.url }"
+                  >
+                    {{ card.url ? '打开 Google Sheet ↗' : '缺少 spreadsheet_id，无法跳转' }}
+                  </div>
+                </component>
+              </div>
+            </div>
           </el-tab-pane>
         </el-tabs>
       </el-card>
@@ -292,10 +324,23 @@ const taskConfigItems = computed(() => {
     daily_compound: '日收益加权复利',
     legacy_cumulative: '旧版累计收益加权（已停用）'
   }
+  // 与后端 app/utils/market.py MARKET_LABELS 保持同步。
+  const marketLabels = {
+    cn: 'A股', en: '美股', ca: '加拿大', kr: '韩国', jp: '日本',
+    hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
+    au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
+  }
+  const markets = [...new Set(products
+    .map((product) => String(product.market_type || '').trim().toLowerCase())
+    .filter(Boolean))].sort()
+  const marketText = markets.length
+    ? markets.map((market) => marketLabels[market] || market).join('、')
+    : null
   const items = [
     { label: 'K线开始日期', value: config.start_date },
     { label: 'K线结束日期', value: config.end_date },
     { label: '产品数量', value: products.length },
+    { label: '市场', value: marketText },
     { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
     { label: 'K线数据源', value: config.kline_data_source },
     { label: '固定产品批次', value: config.fixed_product_batch_id },
@@ -381,6 +426,26 @@ const productRows = computed(() => configProducts.value.map((product, index) => 
     ratio: `${product.ratio || '-'}%`,
     sheet: sheet.title || sheet.sheet_name || sheet.spreadsheet_id || '-',
     paramCount: parameters.length,
+  }
+}))
+
+// ===== 产品 Sheet 卡片（拼接标准谷歌 Sheet 地址，点击新窗口跳转；与静态版 renderSheetCards 同步） =====
+function buildGoogleSheetUrl(spreadsheetId) {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+}
+
+const sheetCards = computed(() => configProducts.value.map((product, index) => {
+  const sheet = product.sheet || {}
+  const spreadsheetId = sheet.spreadsheet_id || ''
+  return {
+    index,
+    name: product.product_name || product.name || `产品 ${index + 1}`,
+    modelLabel: inferProductModelVersion(product).toUpperCase(),
+    stockMarket: `${product.stock_code || '-'} / ${product.market_type || '-'}`,
+    ratio: product.ratio !== undefined && product.ratio !== null && product.ratio !== '' ? `${product.ratio}%` : '-',
+    sheetTitle: sheet.title || sheet.sheet_name || spreadsheetId || '-',
+    sheetName: sheet.sheet_name || '-',
+    url: spreadsheetId ? buildGoogleSheetUrl(spreadsheetId) : '',
   }
 }))
 
@@ -804,6 +869,95 @@ usePolling(() => refreshPageData({ silent: true }), { interval: 60000, immediate
   font-size: 13px;
   font-weight: 600;
   word-break: break-all;
+}
+
+.backtest-multi-detail-page__sheet-section {
+  margin-top: 18px;
+}
+
+.backtest-multi-detail-page__sheet-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.backtest-multi-detail-page__sheet-section-title {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.backtest-multi-detail-page__sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.backtest-multi-detail-page__sheet-card {
+  display: block;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  text-decoration: none;
+}
+
+.backtest-multi-detail-page__sheet-card--active {
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.backtest-multi-detail-page__sheet-card--active:hover {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.backtest-multi-detail-page__sheet-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.backtest-multi-detail-page__sheet-card-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backtest-multi-detail-page__sheet-card-meta {
+  margin-top: 2px;
+  color: var(--app-text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.backtest-multi-detail-page__sheet-card-sheet {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.backtest-multi-detail-page__sheet-card-sub {
+  color: var(--app-text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.backtest-multi-detail-page__sheet-card-cta {
+  margin-top: 8px;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.backtest-multi-detail-page__sheet-card-cta--empty {
+  color: var(--app-text-muted, #94a3b8);
+  font-weight: 400;
 }
 
 .backtest-multi-detail-page__modal-subtitle {

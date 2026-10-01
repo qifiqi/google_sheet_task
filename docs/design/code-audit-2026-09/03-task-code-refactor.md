@@ -156,5 +156,3 @@ class KlinePrepPolicy:
 3. 每批一次合入：`python -m pytest tests/unit tests/integration` 全绿 + `git grep` 断言（各批验收列）；
 4. 执行链行为（取消、断点、watchdog、通知）在本方案内**只搬不改**；行为变更（如 limit 250/300 统一）必须单独立项列出漂移值与选择理由，不得夹带；
 5. 前端零感知：任务类型标识、API 路径、信封字段不变。
-
-> 执行提示词见 `EXECUTION_PROMPT.md` 第 2 节。

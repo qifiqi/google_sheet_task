@@ -7,7 +7,7 @@
       </template>
     </PageToolbar>
 
-    <StatCardGrid :cards="tokenSummaryCards" :data="tokenSummary" />
+    <StatCardGrid :cards="tokenSummaryCards" :data="tokenSummaryDisplay" />
 
     <div class="page-stack">
       <el-card shadow="never">
@@ -36,7 +36,7 @@
           </div>
         </template>
 
-        <el-form :model="importForm" :label-width="formLabelWidth" style="margin-bottom: 16px">
+        <el-form :model="importForm" :label-width="formLabelWidth" class="token-import-form">
           <el-row :gutter="12">
             <el-col :xs="24" :sm="8" :md="6">
               <el-form-item label="名称">
@@ -49,13 +49,13 @@
                   v-model="importForm.max_usage_count"
                   :min="0"
                   placeholder="0 = 不限制"
-                  style="width: 100%"
+                  class="full-width-input"
                 />
               </el-form-item>
             </el-col>
             <el-col :xs="12" :sm="6" :md="4">
               <el-form-item label="Task Type">
-                <el-select v-model="importForm.task_type" style="width: 100%">
+                <el-select v-model="importForm.task_type" class="full-width-input">
                   <el-option value="google_sheet" label="google_sheet" />
                   <el-option value="backtest_training" label="backtest_training" />
                 </el-select>
@@ -97,15 +97,21 @@
           </el-table-column>
           <el-table-column label="状态" width="140">
             <template #default="{ row }">
-              <el-tag :type="row.is_active ? 'success' : 'info'" size="small" style="margin-right: 4px">
-                {{ row.is_active ? '启用' : '停用' }}
-              </el-tag>
-              <el-tag :type="row.is_available ? 'primary' : 'warning'" size="small">
-                {{ row.is_available ? '可用' : '已达上限' }}
-              </el-tag>
+              <el-space size="small">
+                <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
+                  {{ row.is_active ? '启用' : '停用' }}
+                </el-tag>
+                <el-tag :type="row.is_available ? 'primary' : 'warning'" size="small">
+                  {{ row.is_available ? '可用' : '已达上限' }}
+                </el-tag>
+              </el-space>
             </template>
           </el-table-column>
-          <el-table-column prop="last_used_at" label="最后使用" width="170" show-overflow-tooltip />
+          <el-table-column label="最后使用" width="170" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ formatTime(row.last_used_at) }}
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="90">
             <template #default="{ row }">
               <el-button link type="primary" @click="openEditToken(row.id)">编辑</el-button>
@@ -145,7 +151,7 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="Task Type">
-              <el-select v-model="tokenForm.task_type" style="width: 100%">
+              <el-select v-model="tokenForm.task_type" class="full-width-input">
                 <el-option value="google_sheet" label="google_sheet" />
                 <el-option value="backtest_training" label="backtest_training" />
               </el-select>
@@ -153,12 +159,12 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="占用上限">
-              <el-input-number v-model="tokenForm.max_usage_count" :min="0" style="width: 100%" />
+              <el-input-number v-model="tokenForm.max_usage_count" :min="0" class="full-width-input" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="状态">
-              <el-select v-model="tokenForm.is_active" style="width: 100%">
+              <el-select v-model="tokenForm.is_active" class="full-width-input">
                 <el-option :value="true" label="启用" />
                 <el-option :value="false" label="停用" />
               </el-select>
@@ -187,7 +193,7 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageToolbar from '@/components/PageToolbar.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
@@ -215,6 +221,28 @@ const tokenSummaryCards = [
   { key: 'global_max_usage', label: '全局占用上限' },
   { key: 'available_token_count', label: '可用 Token 数' },
 ]
+
+// 全局占用上限 0/空 显示「无限」（对齐静态版 admin_config.js formatLimit；
+// StatCardGrid 不支持格式化，预转换数据）
+const tokenSummaryDisplay = computed(() => ({
+  ...tokenSummary.value,
+  global_max_usage: formatLimit(tokenSummary.value.global_max_usage),
+}))
+
+function formatLimit(value) {
+  const num = Number(value || 0)
+  return num > 0 ? String(num) : '无限'
+}
+
+// 最后使用时间本地化展示（对齐静态版 formatTime 的 toLocaleString 行为）
+function formatTime(value) {
+  if (!value) return '-'
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return value
+  }
+}
 
 const configForm = reactive({
   key: '',
@@ -391,6 +419,14 @@ usePolling(loadAll, { interval: 60000 })
 .config-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.token-import-form {
+  margin-bottom: 16px;
+}
+
+.full-width-input {
+  width: 100%;
 }
 
 .dialog-footer__actions {

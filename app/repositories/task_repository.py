@@ -40,44 +40,6 @@ class TaskRepository(BaseRepository):
         task = query.order_by(Task.created_at.desc(), Task.id.desc()).first()
         return task.id if task else None
 
-    def list_paginated(
-        self,
-        page,
-        per_page,
-        task_type=None,
-        task_types=None,
-        status=None,
-        keyword=None,
-    ):
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-        if status and status != "all":
-            query = query.filter(Task.status == status)
-        if keyword:
-            pattern = f"%{keyword.strip()}%"
-            query = query.filter(
-                or_(
-                    Task.name.ilike(pattern),
-                    Task.description.ilike(pattern),
-                    Task.id.ilike(pattern),
-                )
-            )
-        pagination = query.order_by(Task.created_at.desc()).paginate(
-            page=max(page or 1, 1),
-            per_page=max(min(per_page or 10, 100), 1),
-            error_out=False,
-        )
-        return {
-            "items": [t.to_dict() for t in pagination.items],
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "current_page": pagination.page,
-            "per_page": pagination.per_page,
-        }
-
     def list_paginated_with_statistics(
         self,
         page,
@@ -86,11 +48,15 @@ class TaskRepository(BaseRepository):
         task_types=None,
         status=None,
         keyword=None,
+        stock_code=None,
     ):
         """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
 
         - status="pending" 特例：仅统计已开跑的待执行任务
           （status == pending AND current_step > 0），分页与统计一致；
+        - stock_code：按 config JSON 文本里的 "stock_code" 键值前缀匹配，
+          锚定键名避免误中 product_name/sheet 等其他字段；
+          兼容 json.dumps（": "）与 JSON.stringify（":"）两种分隔符；
         - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
         """
         query = Task.query
@@ -114,6 +80,14 @@ class TaskRepository(BaseRepository):
                     Task.id.ilike(pattern),
                 )
             )
+
+        if stock_code:
+            needle = str(stock_code).strip().strip('"').replace("%", "")
+            if needle:
+                query = query.filter(or_(
+                    Task.config.like(f'%"stock_code": "{needle}%'),
+                    Task.config.like(f'%"stock_code":"{needle}%'),
+                ))
 
         ordered_query = query.order_by(Task.created_at.desc())
         pagination = ordered_query.paginate(

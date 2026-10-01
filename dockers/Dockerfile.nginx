@@ -1,0 +1,8 @@
+# 前端入口镜像（部署模式 A）：模板与静态资源随镜像分发，与 google_task 应用镜像同版本号发布。
+# 构建上下文必须是仓库根目录：
+#   docker build -f dockers/Dockerfile.nginx -t google_nginx:1.0.5 .
+FROM nginx:1.27-alpine
+
+COPY dockers/nginx.conf /etc/nginx/nginx.conf
+COPY templates /opt/app/templates
+COPY static /opt/app/static

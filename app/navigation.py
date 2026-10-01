@@ -13,7 +13,7 @@ DEFAULT_NAVIGATION_MENU = [
     {"key": "data", "label": "数据模块", "children": [
         {"key": "model_summary", "label": "单模型汇总", "path": "/admin/model-summary", "permission": "page:admin:model_summary"},
         {"key": "eastmoney_kline", "label": "东方财富 K 线", "path": "/admin/eastmoney-kline"},
-        {"key": "single_product", "label": "单品全局预览", "path": "/global-preview/single_product", "permission": "page:global_preview:single_product"},
+        {"key": "single_product", "label": "单品全局预览", "path": "/global-preview/single-product", "permission": "page:global_preview:single_product"},
     ]},
     {"key": "scheduler_group", "label": "调度模块", "children": [
         {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "page:admin:scheduler"},
@@ -33,10 +33,10 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "c7", "label": "Google Sheet C7", "path": "/google-sheet/?version=c7", "permission": "page:google_sheet:c7"},
         {"key": "backtest", "label": "单品数据回测", "path": "/backtest-training/list", "permission": "page:backtest:list"},
         {"key": "backtest_multi_product", "label": "多品数据回测", "path": "/backtest-multi-product/list", "permission": "page:backtest_multi_product:list"},
-        {"key": "xpl", "label": "夏普率计算", "path": "/performance_analysis"},
+        {"key": "xpl", "label": "夏普率计算", "path": "/performance-analysis"},
         # key 保留历史值 xpl_v1：startup 导航同步只增改不删，改 key 会在存量库残留死链；
         # v2 已是唯一分析页（v1 页面链已删除）。
-        {"key": "xpl_v1", "label": "回测数据分析", "path": "/performance_analysis/v2"},
+        {"key": "xpl_v1", "label": "回测数据分析", "path": "/performance-analysis/v2"},
     ]},
 ]
 

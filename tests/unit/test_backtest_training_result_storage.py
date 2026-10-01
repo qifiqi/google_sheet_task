@@ -74,7 +74,7 @@ def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}"
+            f"/api/backtest-training/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200
@@ -109,7 +109,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}"
+            f"/api/backtest-training/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200

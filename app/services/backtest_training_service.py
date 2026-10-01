@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
@@ -189,7 +188,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 name = task.name
                 self.task_name = name
-                sheet_name = config_data.get('sheet_name', "")
 
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
@@ -343,7 +341,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
 
             # 行情数据和参数组合在执行前一次性预计算，避免每个组合重复请求行情接口。
-            combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
+            combinations, column_A_length,kline_data_map = self._get_all_parameters(
                 full_years,
                 recent_years,
                 parameters,
@@ -357,7 +355,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 include_ohlc=is_c7_0_3,
                 data_source=config_data.get("kline_data_source", "akshare"),
             )
-            precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
+            precomputed_params.append((combinations, column_A_length,kline_data_map))
             total_combinations += len(combinations)
             # 更新任务总步数
             task.total_steps = total_combinations
@@ -397,7 +395,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
-            for outer_idx, (combinations, column_A_length,KLINE_DATA_MAP) in enumerate(precomputed_params):
+            for outer_idx, (combinations, column_A_length,kline_data_map) in enumerate(precomputed_params):
                 for combination in combinations:
                     if self._is_cancel_requested():
                         return success_count, failed_count, 'cancelled'
@@ -418,7 +416,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     current_step = processed_index + 1
 
-                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
+                    self._log_step(current_step, total_combinations, "开始执行参数组合")
 
                     # 推送执行进度
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
@@ -435,7 +433,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             combination,
                             cache_parameters,
                             config_data,
-                            KLINE_DATA_MAP,
+                            kline_data_map,
                         )
 
                         if success:
@@ -450,7 +448,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['Kline_key'], None)
                         # 结果与参数使用同一个 step_index 保存，保证重启时能准确识别已完成组合。
                         self._save_task_result(current_step - 1, {
                             **combination,
@@ -517,7 +515,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         reraise=True,  # 重试耗尽后重新抛出原始异常
         retry=retry_if_result(lambda result: result[0] is False)
     )
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> \
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],kline_data_map) -> \
             tuple[bool, dict[Any, Any], list[Any]]:
         """执行单个参数组合"""
         try:
@@ -535,7 +533,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             kline = self._require_kline_data(
                 combination.get('stock_code', ''),
                 Kline_key,
-                KLINE_DATA_MAP.get(Kline_key),
+                kline_data_map.get(Kline_key),
             )
             if is_c7_0_3:
                 self._validate_c7_0_3_kline(kline)
@@ -851,7 +849,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         )
         data = []
 
-        KLINE_DATA_MAP = {}
+        kline_data_map = {}
 
         if recent_years:
             for year in recent_years:
@@ -867,8 +865,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self._require_kline_data(stock_code, Kline_key, kline)
                 for item in parameters:
                     d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                    if Kline_key not in KLINE_DATA_MAP:
-                        KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in kline_data_map:
+                        kline_data_map[Kline_key] = kline
                     data.append(d)
 
         if include_full_year_range:
@@ -890,8 +888,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._require_kline_data(stock_code, Kline_key, kline)
             for item in parameters:
                 d = {"parameter": item,  'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                if Kline_key not in KLINE_DATA_MAP:
-                    KLINE_DATA_MAP[Kline_key] = kline
+                if Kline_key not in kline_data_map:
+                    kline_data_map[Kline_key] = kline
                 data.append(d)
         elif full_years:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
@@ -902,12 +900,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 for item in parameters:
                     d = {"parameter": item,  'stock_code': stock_code, 'year': year,'Kline_key':Kline_key}
-                    if Kline_key not in KLINE_DATA_MAP:
-                        KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in kline_data_map:
+                        kline_data_map[Kline_key] = kline
 
                     data.append(d)
 
-        return data, len(all_kline) + 20,KLINE_DATA_MAP
+        return data, len(all_kline) + 20,kline_data_map
 
 
 # soxx,qqq,spy

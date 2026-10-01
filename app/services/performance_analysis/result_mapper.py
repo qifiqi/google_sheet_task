@@ -3,7 +3,6 @@
 负责调用指标计算并将原始结果整理为页面、报告等消费者需要的扁平字段、
 指标字典和 DataFrame 组合；不承担具体指标公式计算。
 """
-import json
 import math
 from typing import Any, Dict, List, Tuple
 

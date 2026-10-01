@@ -101,6 +101,7 @@ function bindMarketTypeSelect() {
             if (marketTypeSelect.value !== selectedStockSuggestion.market_type) selectedStockSuggestion = null;
         }
         syncCommissionWithMarketType(marketTypeSelect.value);
+        syncKlineDataSourceWithMarket(marketTypeSelect.value);
         updateStockMeta();
     });
 }
@@ -198,6 +199,15 @@ function setMarketTypeSelection(value) {
     const normalized = normalizeMarketTypeValue(value);
     marketTypeSelect.value = normalized;
     syncCommissionWithMarketType(normalized);
+    syncKlineDataSourceWithMarket(normalized);
+}
+
+// 市场联动数据源：A股保持当前数据源不变；改成除 A股以外的市场一律切 Yahoo。
+function syncKlineDataSourceWithMarket(value = getSelectedMarketType()) {
+    const sourceSelect = document.getElementById('klineDataSourceInput');
+    if (sourceSelect && normalizeMarketTypeValue(value) !== 'cn') {
+        sourceSelect.value = 'yahoo';
+    }
 }
 
 function syncCommissionWithMarketType(value = getSelectedMarketType()) {

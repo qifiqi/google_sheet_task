@@ -3,7 +3,6 @@
 可用性筛选、状态流转方法按 google_sheet_token_service 调用点定形后补入（B2）。
 """
 from app.extensions import db
-from app.exceptions import NotFoundError
 from app.models import GoogleSheetToken
 from app.repositories.base import BaseRepository
 
@@ -45,11 +44,15 @@ class GoogleSheetTokenRepository(BaseRepository):
         ).all()
 
     def list_active_entities(self, task_type=None):
-        """启用中的 token 实体（随机选取/可用统计用）。"""
+        """启用中的 token 实体（占用升序，随机选取/可用统计用）。"""
         query = GoogleSheetToken.query.filter_by(is_active=True)
         if task_type:
             query = query.filter_by(task_type=task_type)
-        return query
+        return query.order_by(
+            GoogleSheetToken.current_in_use_count.asc(),
+            GoogleSheetToken.task_usage_count.asc(),
+            GoogleSheetToken.id.asc(),
+        ).all()
 
     def add_entity(self, entity, flush=True):
         """挂起新建实体（导入流程需先 flush 取 id 再补 token_file）。"""

@@ -9,7 +9,7 @@ from typing import Any
 from app.exceptions import NotFoundError
 from app.repositories import task_log_repository, task_repository, task_result_repository
 
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import Task
 from app.utils.return_series import parse_return_series_fields
 
 from app.services.task.dashboard_query import TaskDashboardQueryService

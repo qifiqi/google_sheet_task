@@ -84,7 +84,7 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
                 }
             ]
 
-        def get_stock_kline_data(self, stock_code, market, limit, adjust_type=None):
+        def get_stock_kline_data(self, stock_code, market, limit=100, kline_type="101", adjust_type=None):
             start = date(2024, 1, 1)
             return [
                 {

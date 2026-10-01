@@ -36,7 +36,8 @@
           </el-select>
           <div class="control-row--stretch">
             <el-input v-model="exportName" placeholder="导出文件名" />
-            <el-button :loading="exporting" @click="exportPreview">导出</el-button>
+            <!-- 查询成功前禁用（对齐静态版 exportBtn 初始 disabled） -->
+            <el-button :disabled="!previewPayload" :loading="exporting" @click="exportPreview">导出</el-button>
           </div>
         </div>
         <div v-if="groupMeta" class="helper-text">{{ groupMeta }}</div>
@@ -78,7 +79,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getPreviewTask, previewGroup } from '@/api/globalPreview'
+import { getPreviewTask, previewGroup, exportGlobalPreviewStocks } from '@/api/globalPreview'
 
 const taskIdInput = ref('')
 const currentTaskId = ref('')
@@ -207,28 +208,15 @@ async function exportPreview() {
   if (!currentTaskId.value) return
   exporting.value = true
   try {
-    // 与静态版 global_preview_index.js exportPreview 一致：走原始 Response，
-    // 解析 Content-Disposition（filename*=UTF-8'' 优先，filename 回退）取下载文件名
+    // 对齐静态版 global_preview_index.js exportPreview：端点是按股票拆 Excel
+    // 合并 ZIP 的 /stocks 入口（历史契约始终是 ZIP），文件名从
+    // Content-Disposition 解析，回退「导出文件」。
     const query = exportName.value.trim() ? `?export_name=${encodeURIComponent(exportName.value.trim())}` : ''
-    const token = localStorage.getItem('access_token')
-    const response = await fetch(`/api/exports/global-previews/${encodeURIComponent(currentTaskId.value)}${query}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}))
-      throw new Error(errData.message || `导出失败: ${response.status}`)
-    }
-    const contentDisposition = response.headers.get('Content-Disposition') || ''
-    const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
-    const fallbackFilename = contentDisposition.match(/filename="?([^";]+)"?/i)
-    const downloadName = utf8Filename
-      ? decodeURIComponent(utf8Filename[1])
-      : (fallbackFilename?.[1] || `${exportName.value.trim() || 'global_preview'}.xlsx`)
-    const blob = await response.blob()
+    const { blob, filename } = await exportGlobalPreviewStocks(encodeURIComponent(currentTaskId.value), query)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = downloadName
+    link.download = filename
     document.body.appendChild(link)
     link.click()
     link.remove()

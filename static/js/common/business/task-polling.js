@@ -50,7 +50,8 @@
                       : level === "info"
                         ? "text-info"
                         : "text-light";
-                return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${log.message}</div>`;
+                // log.message 含任务参数/Sheet 标题等外部输入，进 innerHTML 前必须转义
+                return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${escapeHtml(log.message)}</div>`;
               })
               .join("");
 

@@ -75,7 +75,7 @@ def test_calculate_ratios_with_bad_ratio_returns_400(app_factory, monkeypatch):
     client = app.test_client()
 
     resp = client.post(
-        "/backtest-multi-product/api/global-preview/bmp-ratio-task/calculate-ratios",
+        "/api/backtest-multi-product/global-preview/bmp-ratio-task/calculate-ratios",
         json={"ratios": [{"ratio": "not-a-number"}]},
     )
     assert resp.status_code == 400

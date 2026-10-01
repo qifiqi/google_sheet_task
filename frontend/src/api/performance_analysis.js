@@ -31,6 +31,12 @@ export async function exportPerformanceAnalysisWordReportResponse(data) {
 // （端点与 api/backtest.js 的 searchStocks 相同，该文件签名不支持 signal）。
 export const searchStocksWithSignal = (params, { signal } = {}) => rawApi.get('/api/search-stocks', { params, signal })
 
+// 权重组合分析：任务下可参与组合的产品与已配置比例（单股范围面板数据源）。
+// 端点与静态版 api.js weightCombinationProducts 相同；信封 data 为
+// { task_id, task_type, products }。透传 signal 支持切换任务时中止上次请求。
+export const getWeightCombinationProducts = (taskId, { signal } = {}) =>
+  rawApi.get('/performance_analysis/v1/weight_combination/products', { params: { task_id: taskId }, signal })
+
 // 权重组合分析：POST NDJSON 流（每行一个组合 JSON），onRow 逐行回调，返回解析总行数。
 // 服务端逐组合流式输出，行数可达数千，必须边收边解析；错误行形如 {"error":true,"message":...}。
 export async function analyzeWeightCombinationStream(payload, { onRow, signal } = {}) {

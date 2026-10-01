@@ -21,6 +21,8 @@ class MetricsRuntimeParamsDTO:
     daily_extreme_threshold: float = 0.02
     # 回撤发生次数/频率统计：单日跌幅阈值。
     daily_drawdown_threshold: float = 0.05
+    # 夏普比率的无风险利率（年化，小数形式：3% 传 0.03）；默认 0 保持历史口径。
+    risk_free_rate: float = 0.0
 
     @classmethod
     def from_raw(cls, raw: Any) -> "MetricsRuntimeParamsDTO":
@@ -43,11 +45,18 @@ class MetricsRuntimeParamsDTO:
             daily_drawdown = float(raw.get("daily_drawdown_threshold", 0.05))
         except (TypeError, ValueError) as exc:
             raise ValueError("市场阶段阈值必须是数字") from exc
+        try:
+            risk_free_rate = float(raw.get("risk_free_rate", 0.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("无风险利率必须是数字") from exc
         if not all(math.isfinite(value) for value in (downturn, upturn, daily_extreme, daily_drawdown)):
             raise ValueError("市场阶段阈值必须是有限数字")
+        if not math.isfinite(risk_free_rate):
+            raise ValueError("无风险利率必须是有限数字")
         return cls(
             market_downturn_threshold=downturn,
             market_upturn_threshold=upturn,
             daily_extreme_threshold=daily_extreme,
             daily_drawdown_threshold=daily_drawdown,
+            risk_free_rate=risk_free_rate,
         )

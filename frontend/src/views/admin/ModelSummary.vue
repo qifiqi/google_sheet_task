@@ -60,7 +60,7 @@
     <el-card shadow="never" class="page-section">
       <el-form :inline="true" class="summary-filter-form" @submit.prevent="onSearch">
         <el-form-item label="任务类型">
-          <el-select v-model="filters.taskType" style="width: 120px" clearable>
+          <el-select v-model="filters.taskType" class="filter-w-120" clearable>
             <el-option label="C3" value="google_sheet" />
             <el-option label="C4" value="google_sheet_C4" />
             <el-option label="C5" value="google_sheet_C5" />
@@ -68,10 +68,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="股票代码">
-          <el-input v-model="filters.stockCode" placeholder="代码/股票名/任务名" style="width: 180px" clearable />
+          <el-input v-model="filters.stockCode" placeholder="代码/股票名/任务名" class="filter-w-180" clearable />
         </el-form-item>
         <el-form-item label="市场">
-          <el-select v-model="filters.marketType" style="width: 100px" clearable>
+          <el-select v-model="filters.marketType" class="filter-w-100" clearable>
             <el-option label="A股" value="cn" />
             <el-option label="美股" value="us" />
           </el-select>
@@ -84,34 +84,34 @@
             range-separator="至"
             start-placeholder="开始日期"
             end-placeholder="结束日期"
-            style="width: 240px"
+            class="filter-w-240"
           />
         </el-form-item>
         <el-form-item label="年份/区间">
-          <el-select v-model="filters.periodFilter" style="width: 110px" clearable>
+          <el-select v-model="filters.periodFilter" class="filter-w-110" clearable>
             <el-option v-for="option in periodOptions" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="任务 ID">
-          <el-input v-model="filters.taskId" placeholder="精确任务 ID" style="width: 170px" clearable />
+          <el-input v-model="filters.taskId" placeholder="精确任务 ID" class="filter-w-170" clearable />
         </el-form-item>
         <el-form-item label="结果 ID">
-          <el-input v-model.number="filters.resultId" placeholder="结果 ID" style="width: 120px" clearable />
+          <el-input v-model.number="filters.resultId" placeholder="结果 ID" class="filter-w-120" clearable />
         </el-form-item>
         <el-form-item label="汇总方式">
-          <el-select v-model="filters.summaryType" style="width: 120px">
+          <el-select v-model="filters.summaryType" class="filter-w-120">
             <el-option label="任务汇总" value="task" />
             <el-option label="股票汇总" value="stock" />
           </el-select>
         </el-form-item>
         <el-form-item label="数据范围">
-          <el-select v-model="filters.bestOnly" style="width: 120px">
+          <el-select v-model="filters.bestOnly" class="filter-w-120">
             <el-option label="仅最优" value="true" />
             <el-option label="全部结果" value="false" />
           </el-select>
         </el-form-item>
         <el-form-item label="超额收益">
-          <el-select v-model="filters.excessReturnMin" style="width: 120px" clearable>
+          <el-select v-model="filters.excessReturnMin" class="filter-w-120" clearable>
             <el-option label="大于 0%" value="0" />
             <el-option label="大于 10%" value="10" />
             <el-option label="大于 20%" value="20" />
@@ -213,7 +213,7 @@
       <div class="summary-pagination">
         <div class="summary-pagination__meta">
           <span>显示 {{ rangeStart }}-{{ rangeEnd }} 条，共 {{ total }} 条任务</span>
-          <el-select v-model="perPage" style="width: 100px" @change="onPageSizeChange">
+          <el-select v-model="perPage" class="filter-w-100" @change="onPageSizeChange">
             <el-option label="25 / 页" :value="25" />
             <el-option label="50 / 页" :value="50" />
             <el-option label="100 / 页" :value="100" />
@@ -600,6 +600,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 筛选/分页控件的定宽 class（替代内联 style，宽度与静态版一致） */
+.filter-w-100 { width: 100px; }
+.filter-w-110 { width: 110px; }
+.filter-w-120 { width: 120px; }
+.filter-w-170 { width: 170px; }
+.filter-w-180 { width: 180px; }
+.filter-w-240 { width: 240px; }
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

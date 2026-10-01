@@ -101,6 +101,74 @@ html[data-bs-theme="dark"] .form-select:focus {
     color: #f8fafc !important;
 }
 
+/* Modal Styles */
+html[data-bs-theme="dark"] .modal-content {
+    background-color: #182132;
+    border-color: #2a3648;
+    color: #e5e7eb;
+}
+
+html[data-bs-theme="dark"] .modal-header,
+html[data-bs-theme="dark"] .modal-footer {
+    border-color: #2a3648;
+}
+
+html[data-bs-theme="dark"] .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+html[data-bs-theme="dark"] .form-check-input {
+    background-color: #0f172a;
+    border-color: #334155;
+}
+
+html[data-bs-theme="dark"] .form-check-input:checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+html[data-bs-theme="dark"] .form-check-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18);
+}
+
+/* Pagination Styles */
+html[data-bs-theme="dark"] .page-link {
+    background-color: #182132;
+    border-color: #334155;
+    color: #e5e7eb;
+}
+
+html[data-bs-theme="dark"] .page-link:hover,
+html[data-bs-theme="dark"] .page-link:focus {
+    background-color: #1f2937;
+    border-color: #3b82f6;
+    color: #f8fafc;
+}
+
+html[data-bs-theme="dark"] .page-link:focus {
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18);
+}
+
+html[data-bs-theme="dark"] .page-item.active .page-link {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+    color: #fff;
+}
+
+html[data-bs-theme="dark"] .page-item.disabled .page-link {
+    background-color: #111827;
+    border-color: #334155;
+    color: #64748b;
+}
+
+/* Alert Styles（Bootstrap 5.2 警告框为定值浅色，暗色下按语义色系降饱和） */
+html[data-bs-theme="dark"] .alert-warning {
+    --bs-alert-color: #fcd34d;
+    --bs-alert-bg: rgba(245, 158, 11, 0.12);
+    --bs-alert-border-color: rgba(253, 230, 138, 0.24);
+}
+
 /* Dropdown Styles */
 html[data-bs-theme="dark"] .dropdown-menu {
     background-color: #182132;
@@ -192,17 +260,3 @@ html[data-bs-theme="dark"] textarea.form-control:focus {
     box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
 }
 
-/* Log Container - Terminal-style output */
-.log-container {
-    height: 400px;
-    overflow-y: auto;
-    overflow-x: auto;
-    background-color: #1e1e1e;
-    color: #00ff00;
-    padding: 15px;
-    font-family: 'Courier New', monospace;
-    border-radius: 0.375rem;
-    font-size: 14px;
-    white-space: pre;
-    word-break: normal;
-}

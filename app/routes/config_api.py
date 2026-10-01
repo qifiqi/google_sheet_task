@@ -2,7 +2,7 @@
 
 配置读取/更新经 config_manager（缓存与负缓存刷新语义留在该层）。
 """
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.exceptions import BadRequestError, NotFoundError, ServiceError
 from app.services.config_manager import get_config_manager, mask_config_value

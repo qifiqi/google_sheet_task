@@ -1,24 +1,15 @@
 import json
 from typing import Dict, Any
 
-from flask import current_app
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
-
-from app.repositories import task_repository, task_result_repository
-from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
-from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.check_policy import C5_INVALID, normalize_check_values
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.result_validator import is_valid_result_value
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_stock_param_metric_fields
@@ -79,7 +70,7 @@ class C5Service(BaseGoogleSheetService):
         return payload
 
 
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],kline_data_map) -> tuple[
         bool, Dict[str, Any]]:
         """执行单个参数组合"""
         try:
@@ -107,7 +98,7 @@ class C5Service(BaseGoogleSheetService):
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
-                KLINE_DATA_MAP.get(Kline_key),
+                kline_data_map.get(Kline_key),
                 context=f"K线区间 {Kline_key}",
             )
 
@@ -223,10 +214,7 @@ class C5Service(BaseGoogleSheetService):
                             self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                             break
 
-                        _index_return_date = []
-                        _start_return_date = []
                         _return_data = []
-                        _index_start_return_date = []
                         for i in range(len(kline)):
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
@@ -236,7 +224,7 @@ class C5Service(BaseGoogleSheetService):
 
                         flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
-                        _result[f"flat_result"] = flat_result
+                        _result["flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
@@ -247,7 +235,7 @@ class C5Service(BaseGoogleSheetService):
                         break
 
                 if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
+                    self._log_info("所有任务已完成")
                     return True, results
                 return False, None
 

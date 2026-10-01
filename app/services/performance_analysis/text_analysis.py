@@ -66,7 +66,8 @@ class TextReturnAnalysisMixin:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
-    def analyze(self, data, time_format: str = 'auto', runtime_params=None) -> Dict[str, Any]:
+    def analyze(self, data, time_format: str = 'auto', runtime_params=None,
+                include_series: bool = False) -> Dict[str, Any]:
         """
         分析输入的Excel数据并返回结果和指标
 
@@ -74,6 +75,7 @@ class TextReturnAnalysisMixin:
             data: 输入的文本数据
             time_format: 时间格式，默认为'auto'自动检测
             runtime_params: 市场阶段指标运行参数（``MetricsRuntimeParamsDTO`` 或原始字典）
+            include_series: 是否随响应导出净值序列（dual 模式才有；single 模式 series 为 null）
 
         Returns:
             Dict[str, Any]: 包含分析结果和指标的字典
@@ -89,12 +91,14 @@ class TextReturnAnalysisMixin:
                 raise ValueError("无法解析输入数据")
 
             # 计算指标
+            v1_result = None
             if self._has_dual_return_columns(parsed_data):
                 from app.services.performance_analysis.facade import calculate_v1_metrics
 
-                metrics = calculate_v1_metrics(
+                v1_result = calculate_v1_metrics(
                     parsed_data, runtime_params=runtime_params, analyzer=self
-                ).metrics
+                )
+                metrics = v1_result.metrics
                 metrics["analysis_mode"] = "dual"
             else:
                 metrics = self._calculate_metrics(parsed_data)
@@ -102,11 +106,16 @@ class TextReturnAnalysisMixin:
             metrics = self._sanitize_for_json(_convert_pandas_to_native(metrics))
 
             # 准备返回结果
-            return {
+            payload = {
                 'status': 'success',
                 'results': metrics,
                 # 'metrics': metrics
             }
+            if include_series:
+                from app.services.performance_analysis.facade import build_series_payload
+
+                payload['series'] = build_series_payload(v1_result)
+            return payload
 
         except Exception as e:
             logger.error(f"分析数据时出错: {str(e)}", exc_info=True)
@@ -161,7 +170,7 @@ class TextReturnAnalysisMixin:
                     "start_return": start_return,  # 模型收益率 Start return
                 })
 
-            except (ValueError, IndexError) as e:
+            except (ValueError, IndexError):
                 logger.warning(f"解析行 {i + 1} 时出错: {line}")
                 continue
 

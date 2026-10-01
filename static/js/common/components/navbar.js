@@ -4,6 +4,8 @@
 // 渲染产物与原基座导航逐字节等价（结构/class/属性一致，active 与徽标按 URL 计算）；
 // 渲染在鉴权揭示前完成（body 仍带 template-auth-pending），无首屏闪动。
 // 引入顺序：template-auth.js → navbar.js → api.js → utils.js → 页面 JS。
+// D7 修订（docs/design/mobile-adaptation-audit-2026-09）：admin 族侧栏改 Offcanvas +
+// 移动端顶栏（<768px 原先无导航入口）；google-sheet 族顶栏加 sticky-top。
 'use strict';
 
 (function () {
@@ -57,7 +59,7 @@
         const right =
             '<ul class="navbar-nav align-items-lg-center">' +
             '<li class="nav-item">' +
-            '<a class="nav-link" data-permission="page:admin:dashboard" href="/admin/">' +
+            '<a class="nav-link" data-permission="page:admin:dashboard" href="/admin/dashboard">' +
             '<i class="bi bi-gear"></i> 管理面板' +
             '</a></li>' +
             '<li class="nav-item dropdown">' +
@@ -88,8 +90,13 @@
     // 菜单项仍由 template-auth.js 经 /api/meta/nav 渲染进 #templateSidebarMenu，
     // active 类由其按 pathname+search 计算（admin-shell.js 只负责折叠态记忆，均在
     // navbar.js 之后加载，渲染时序不受影响）。
+    // D7 修订（docs/design/mobile-adaptation-audit-2026-09）：外壳原 `collapse` 类
+    // 使 <768px 时侧栏 display:none 且全站无打开入口；现改为 Bootstrap Offcanvas
+    // 抽屉（<768px 由移动顶栏汉堡按钮开合，≥768px 经 sidebar.css 媒体查询退化回
+    // 原固定侧栏，桌面观感不变），并新增移动端顶栏（品牌 + 汉堡 + 用户菜单）。
     function adminSidebar() {
-        return '<div class="position-sticky d-flex flex-column min-vh-100 px-3 pt-4 pb-3">' +
+        return '<button type="button" class="btn-close d-md-none admin-mobile-topbar__close" data-bs-dismiss="offcanvas" aria-label="关闭导航菜单"></button>' +
+            '<div class="position-sticky d-flex flex-column min-vh-100 px-3 pt-4 pb-3">' +
             '<div class="d-flex align-items-center gap-3 px-2 pb-3 mb-3 border-bottom">' +
             '<div class="sidebar-brand-icon">' +
             '<i class="bi bi-grid-1x2-fill"></i>' +
@@ -124,13 +131,45 @@
             '</div>';
     }
 
+    // 移动端顶栏（<768px 显示）：汉堡按钮开合侧栏 Offcanvas + 品牌区 + 用户下拉。
+    // auth 绑定属性允许与侧栏重复：template-auth.js 用 querySelectorAll 批量填充。
+    function adminMobileTopbar(sidebarId) {
+        return '<header class="admin-mobile-topbar d-md-none sticky-top">' +
+            '<button class="admin-mobile-topbar__burger" type="button" data-bs-toggle="offcanvas" data-bs-target="#' + sidebarId + '" aria-controls="' + sidebarId + '" aria-label="打开导航菜单">' +
+            '<i class="bi bi-list"></i>' +
+            '</button>' +
+            '<div class="admin-mobile-topbar__brand">' +
+            '<div class="sidebar-brand-icon"><i class="bi bi-grid-1x2-fill"></i></div>' +
+            '<div class="admin-mobile-topbar__title">Jaspil 任务平台</div>' +
+            '</div>' +
+            '<div class="dropdown ms-auto">' +
+            '<button class="btn btn-link nav-link dropdown-toggle d-flex align-items-center p-1 text-decoration-none shadow-none" type="button" data-bs-toggle="dropdown" aria-expanded="false">' +
+            '<span class="badge rounded-pill bg-light text-dark" data-template-auth-avatar>AI</span>' +
+            '</button>' +
+            '<ul class="dropdown-menu dropdown-menu-end">' +
+            '<li><span class="dropdown-item-text text-muted small" data-template-auth-username>占位用户</span></li>' +
+            '<li><hr class="dropdown-divider"></li>' +
+            '<li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-template-theme-trigger>' +
+            '<i class="bi bi-circle-half" data-template-theme-icon></i>' +
+            '<span data-template-theme-toggle>切换主题</span>' +
+            '</button></li>' +
+            '<li><button type="button" class="dropdown-item text-danger" data-template-auth-logout>退出登录</button></li>' +
+            '</ul>' +
+            '</div>' +
+            '</header>';
+    }
+
     const FAMILIES = [
         { prefixes: ['/google-sheet'], build: googleSheetMenu },
-        // admin 基座族：挂载点本身就是 <nav class="sidebar ...">，渲染时保留原 class（02 §3.7 渲染等价红线）
+        // admin 基座族：挂载点本身就是 <nav class="sidebar ...">，渲染时整组替换为
+        // Offcanvas 类（02 §3.7 等价红线由本次 D7 行为修订解除，见文件头注释）。
         {
-            prefixes: ['/admin', '/performance_analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
+            prefixes: ['/admin', '/performance-analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
             build: adminSidebar,
-            classes: 'col-md-3 col-lg-2 d-md-block sidebar collapse',
+            classes: 'offcanvas offcanvas-start sidebar',
+            mountId: 'templateSidebar',
+            mountAttrs: { tabindex: '-1', 'aria-label': '侧边导航菜单' },
+            topbar: adminMobileTopbar,
         },
     ];
 
@@ -146,9 +185,22 @@
             mount.remove();
             return;
         }
-        mount.className = family.classes || 'navbar navbar-expand-lg navbar-dark bg-primary';
+        mount.className = family.classes || 'navbar navbar-expand-lg navbar-dark bg-primary sticky-top';
+        if (family.mountId) {
+            mount.id = family.mountId;
+        }
+        if (family.mountAttrs) {
+            Object.keys(family.mountAttrs).forEach(function (name) {
+                mount.setAttribute(name, family.mountAttrs[name]);
+            });
+        }
         mount.removeAttribute('data-navbar');
         mount.innerHTML = family.build();
+        if (family.topbar) {
+            // 顶栏放在栅格容器外（container-fluid 同级），sticky 定位与全宽布局才成立。
+            const host = mount.closest('.container-fluid') || mount;
+            host.insertAdjacentHTML('beforebegin', family.topbar(family.mountId));
+        }
     }
 
     if (document.readyState === 'loading') {

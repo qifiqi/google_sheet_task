@@ -19,6 +19,17 @@ os.environ.setdefault("DATA_ACCESS_MODE", "db")
 os.environ["STOCK_BASE_URL"] = ""
 os.environ.pop("STOCK_API_TOKEN", None)
 
+from app.utils import ttl_cache
+
+
+@pytest.fixture(autouse=True)
+def _isolated_word_export_cache(tmp_path, monkeypatch):
+    """Word 导出缓存指向临时目录并先清再测，用例间互不命中、不污染真实 data/。"""
+    monkeypatch.setattr(ttl_cache, "word_export_cache_dir", lambda: tmp_path / "word_export_cache")
+    ttl_cache.clear_word_export_cache()
+    yield
+    ttl_cache.clear_word_export_cache()
+
 
 @pytest.fixture
 def sqlite_test_url(tmp_path):

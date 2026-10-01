@@ -377,7 +377,6 @@ def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> 
 
 def _extract_stock_code(task: Task, parameters: Any) -> str:
     """处理_extract_stock_code相关逻辑。"""
-    normalized = normalize_task_type(task.task_type)
     parameter_task_name = _first_text_value(
         parameters,
         ("task_name", "name", "base_task_name", "taskName"),
@@ -686,7 +685,6 @@ def _format_backtest_repair_days(value: Any) -> str:
 def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[str, str]:
     """处理_extract_backtest_metric_values相关逻辑。"""
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
-    index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
     start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
     start_kama_all = _all_entry(calculate_metrics.get("start_kama_ratio"))
     start_sortino_all = _all_entry(calculate_metrics.get("start_sortino_ratio"))
@@ -780,11 +778,8 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
     """处理_extract_backtest_summary_rows相关逻辑。"""
     entries = collect_summary_all_entries(calculate_metrics)
     excess_all = entries["excess_all"]
-    index_profit_monthly_all = entries["index_profit_monthly_all"]
     start_profit_monthly_all = entries["start_profit_monthly_all"]
-    index_kama_all = entries["index_kama_all"]
     start_kama_all = entries["start_kama_all"]
-    index_sortino_all = entries["index_sortino_all"]
     start_sortino_all = entries["start_sortino_all"]
     monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
     start_sharpe_all = entries["start_sharpe_all"]

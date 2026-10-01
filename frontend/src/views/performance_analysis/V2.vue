@@ -131,8 +131,17 @@
                   <div class="helper-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
                 </div>
               </el-col>
+              <el-col :xs="24" :lg="12">
+                <div class="performance-analyzer-v2-config-item">
+                  <div class="performance-analyzer-v2-config-label">无风险利率（年化）</div>
+                  <el-input v-model="riskFreeRate" type="number" :min="0" :max="100" :step="0.01" @change="saveRuntimeParams">
+                    <template #append>%</template>
+                  </el-input>
+                  <div class="helper-text">夏普比率与索提诺比率的无风险利率，默认 0%（与历史口径一致）。</div>
+                </div>
+              </el-col>
               <el-col :xs="24" class="helper-text">
-                修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值。
+                修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值与无风险利率（弹窗内可按单次导出临时覆盖）。
               </el-col>
             </el-row>
           </el-tab-pane>
@@ -453,8 +462,14 @@
             <el-option v-for="(label, value) in WORD_PRICE_TYPE_LABELS" :key="value" :value="value" :label="label" />
           </el-select>
         </el-form-item>
+        <el-form-item label="无风险利率（年化）">
+          <el-input v-model="wordRiskFreeRate" type="number" :min="0" :max="100" :step="0.01">
+            <template #append>%</template>
+          </el-input>
+          <div class="helper-text">用于夏普比率计算，默认跟随参数配置，可按单次导出临时覆盖。</div>
+        </el-form-item>
       </el-form>
-      <div class="helper-text">V2 单产品报告的权重固定为 100.00%。</div>
+      <div class="helper-text">报告权重固定为 100.00%；无风险利率同时展示在报告信息中。</div>
       <template #footer>
         <el-button @click="wordDialogVisible = false">取消</el-button>
         <el-button type="success" :loading="exportingWord" @click="confirmWordExport">导出 Word</el-button>
@@ -541,6 +556,7 @@ const downturnThreshold = ref('-2')
 const upturnThreshold = ref('2')
 const dailyExtremeThreshold = ref('2')
 const dailyDrawdownThreshold = ref('5')
+const riskFreeRate = ref('0')
 
 const analyzing = ref(false)
 const exportingExcel = ref(false)
@@ -554,6 +570,7 @@ const wordDialogVisible = ref(false)
 const wordStockCode = ref('')
 const wordStock = ref(null)
 const wordPriceType = ref('sp_price')
+const wordRiskFreeRate = ref('0')
 const stockResults = ref([])
 const stockSearching = ref(false)
 
@@ -608,6 +625,8 @@ function resetWorksheetSelect() {
 }
 
 let urlDebounceTimer = null
+// 已成功（或已尝试）拉取工作表的 spreadsheet_id：URL 未变时不重复请求，变了才重拉
+let lastFetchedSpreadsheetId = ''
 function onUrlInput() {
   clearTimeout(urlDebounceTimer)
   urlDebounceTimer = setTimeout(() => {
@@ -620,7 +639,9 @@ function onUrlInput() {
 function autoFetchWorksheets() {
   const url = gsUrl.value.trim()
   if (!url || !spreadsheetId.value) return
-  if (!worksheets.value.length) fetchWorksheets(true)
+  // 与静态版 lastFetchedSpreadsheetId 一致：来回改 URL 回到同一 id 不重复拉取
+  if (spreadsheetId.value === lastFetchedSpreadsheetId) return
+  fetchWorksheets(true)
 }
 
 async function fetchWorksheets(silent = false) {
@@ -629,6 +650,8 @@ async function fetchWorksheets(silent = false) {
     if (!silent) ElMessage.warning('请先输入正确的 Google Sheet URL（需要能解析 spreadsheet_id）')
     return
   }
+  // 与静态版一致：请求前即记录，失败后不自动重试，需手动点「获取」或改 URL
+  lastFetchedSpreadsheetId = spreadsheetId.value
   fetchingSheets.value = true
   try {
     // 拦截器已深解包：直接拿到 { worksheets, title } 载荷
@@ -739,12 +762,14 @@ function parseThresholdInput(raw, fallback) {
 }
 
 function collectRuntimeParams() {
-  // 页面输入按百分比填写，payload 统一转换为小数阈值。
+  // 页面输入按百分比填写，payload 统一转换为小数阈值；
+  // 无风险利率同样按百分比填（3 = 3%），转 0.03 供夏普/索提诺重算。
   return {
     market_downturn_threshold: parseThresholdInput(downturnThreshold.value, -2) / 100,
     market_upturn_threshold: parseThresholdInput(upturnThreshold.value, 2) / 100,
     daily_extreme_threshold: parseThresholdInput(dailyExtremeThreshold.value, 2) / 100,
     daily_drawdown_threshold: parseThresholdInput(dailyDrawdownThreshold.value, 5) / 100,
+    risk_free_rate: parseThresholdInput(riskFreeRate.value, 0) / 100,
   }
 }
 
@@ -769,6 +794,9 @@ function restoreRuntimeParams() {
   if (Number.isFinite(saved.market_upturn_threshold)) upturnThreshold.value = toPct(saved.market_upturn_threshold)
   if (Number.isFinite(saved.daily_extreme_threshold)) dailyExtremeThreshold.value = toPct(saved.daily_extreme_threshold)
   if (Number.isFinite(saved.daily_drawdown_threshold)) dailyDrawdownThreshold.value = toPct(saved.daily_drawdown_threshold)
+  // 无风险利率是后加字段：旧存档里没有它时保持页面默认值（0），
+  // 避免旧数据把用户刚填的值重置。
+  if (Number.isFinite(saved.risk_free_rate)) riskFreeRate.value = toPct(saved.risk_free_rate)
 }
 
 // ── 分析入口 ─────────────────────────────────────────────────
@@ -1121,13 +1149,32 @@ const sheetResultRows = computed(() => {
 
 const rawJsonText = computed(() => (result.value ? JSON.stringify(result.value, null, 2) : ''))
 
+// 非安全上下文（http）没有 navigator.clipboard：退回隐藏 textarea + execCommand('copy')
+// （与静态版 v2.js copyRawJson 的降级分支一致）
+function copyTextViaExecCommand(text) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('copy failed')
+}
+
 async function copyRawJson() {
   if (!rawJsonText.value) {
     ElMessage.warning('无可复制内容')
     return
   }
   try {
-    await navigator.clipboard.writeText(rawJsonText.value)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(rawJsonText.value)
+    } else {
+      copyTextViaExecCommand(rawJsonText.value)
+    }
     ElMessage.success('已复制')
   } catch {
     ElMessage.error('复制失败')
@@ -1250,6 +1297,9 @@ function resetWordDialog() {
   wordStockCode.value = ''
   wordStock.value = null
   stockResults.value = []
+  // 弹窗里的无风险利率默认跟随「参数配置」页签：打开时同步当前值，
+  // 仍可按单次导出临时覆盖（覆盖不回写参数配置）。
+  wordRiskFreeRate.value = String(parseThresholdInput(riskFreeRate.value, 0))
 }
 
 // 股票搜索：250ms 防抖 + AbortController 丢弃过期响应（静态 v2.js scheduleWordExportStockSearch）
@@ -1307,13 +1357,31 @@ async function confirmWordExport() {
     ElMessage.warning('请从搜索结果中选择股票')
     return
   }
+  // 弹窗内无风险利率按百分比填写（如 3 = 3%），payload 统一转小数（0.03）。
+  const raw = String(wordRiskFreeRate.value ?? '').trim()
+  let riskFreePercent = 0
+  if (raw !== '') {
+    riskFreePercent = Number(raw)
+    if (!Number.isFinite(riskFreePercent) || riskFreePercent < 0 || riskFreePercent > 100) {
+      ElMessage.warning('无风险利率需为 0～100 之间的数字（百分比）')
+      return
+    }
+  }
   const payload = JSON.parse(JSON.stringify(wordReportPayload.value))
   payload.products = [{
     stock_code: wordStock.value.code,
     product_name: wordStock.value.name,
     ratio: '100.00%',
   }]
-  payload.metadata = { ...(payload.metadata || {}), price_type: WORD_PRICE_TYPE_LABELS[wordPriceType.value] || '' }
+  payload.metadata = {
+    ...(payload.metadata || {}),
+    price_type: WORD_PRICE_TYPE_LABELS[wordPriceType.value] || '',
+    risk_free_rate: `${riskFreePercent.toFixed(2)}%`,
+  }
+  payload.runtime_params = {
+    ...(payload.runtime_params || {}),
+    risk_free_rate: riskFreePercent / 100,
+  }
   wordDialogVisible.value = false
   await downloadWordReport(payload)
 }

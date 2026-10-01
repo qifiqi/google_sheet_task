@@ -95,10 +95,11 @@ def test_template_crud_envelope(auth_client):
 def test_results_endpoints_envelope(auth_client):
     client, headers = auth_client
 
-    # 空列表
+    # 空列表（/results 附带成功/失败计数，形状对齐单任务 results 分页分支）
     resp = client.get("/api/results", headers=headers)
     assert resp.get_json()["data"] == {
         "items": [], "total": 0, "pages": 0, "current_page": 1, "per_page": 20,
+        "total_success": 0, "total_failed": 0,
     }
 
     # 准备任务与结果
@@ -111,13 +112,28 @@ def test_results_endpoints_envelope(auth_client):
         db.session.commit()
         result_id = result.id
 
-    # 列表：精简投影键不变，整体移入 data
+    # 列表：原有精简键不变，扩展任务名/类型与预览投影
     resp = client.get("/api/results", headers=headers)
     body = resp.get_json()["data"]
     assert body["total"] == 1
-    assert set(body["items"][0].keys()) == {
+    assert body["total_success"] == 1 and body["total_failed"] == 0
+    assert {
         "id", "task_id", "step_index", "success", "timestamp",
-    }
+    } <= set(body["items"][0].keys())
+    assert body["items"][0]["task_name"] == "result task"
+    assert body["items"][0]["task_type"] == "google_sheet"
+
+    # success 过滤：命中与落空
+    resp = client.get("/api/results?success=true", headers=headers)
+    assert resp.get_json()["data"]["total"] == 1
+    resp = client.get("/api/results?success=false", headers=headers)
+    assert resp.get_json()["data"]["total"] == 0
+
+    # keyword 模糊匹配任务名称
+    resp = client.get("/api/results?keyword=result", headers=headers)
+    assert resp.get_json()["data"]["total"] == 1
+    resp = client.get("/api/results?keyword=不存在关键字", headers=headers)
+    assert resp.get_json()["data"]["total"] == 0
 
     # 按 task_id 过滤：任务不存在返回空页
     resp = client.get("/api/results?task_id=missing", headers=headers)

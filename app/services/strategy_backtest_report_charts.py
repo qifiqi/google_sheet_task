@@ -51,7 +51,7 @@ def _benchmark_color(index: int) -> str:
 
 
 def benchmark_label(benchmark: dict[str, Any], index: int) -> str:
-    """基准图例文案；服务端已按单基准"指数"/多基准"指数(代码)"填好 label。"""
+    """基准图例文案；服务端已按 组合基准"组合指数"/自定义"指数(代码)" 填好 label。"""
     return str(benchmark.get("label") or f"指数{index + 1}")
 # 相关系数热力图配色：0 附近为标准蓝，向 +1/-1 两端渐变为白（相关性越强越浅）。
 CORRELATION_CMAP = LinearSegmentedColormap.from_list(
@@ -87,6 +87,8 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应；
     # 全部序列（含回撤）由服务端 _build_chart_data 预先算好，这里只负责渲染。
     benchmarks = chart_data.get("benchmarks") or []
+    # 策略图例与报告表格的策略列头同源（_strategy_label），缺省回落历史文案。
+    strategy_label = str(chart_data.get("strategy_label") or "策略")
     strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
     strategy_drawdown = _numeric_series(chart_data.get("strategy_drawdown"), len(dates), 0.0)
     nav_series = [
@@ -116,12 +118,12 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     }
     _draw_line_chart(
         charts["累计净值曲线"], "累计净值曲线", dates,
-        [*nav_series, ("策略", strategy_nav, ORANGE)], "净值",
+        [*nav_series, (strategy_label, strategy_nav, ORANGE)], "净值",
     )
     # 最大回撤曲线按面积图渲染；与折线变体保持相同签名，便于一键切换。
     _draw_drawdown_area_chart(
         charts["最大回撤曲线"], "最大回撤曲线", dates,
-        [*drawdown_series, ("策略回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
+        [*drawdown_series, (f"{strategy_label}回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     )
     # _draw_excess_line_bar_chart(
     #     charts["超额收益曲线"], "累计超额收益曲线", dates,
@@ -162,7 +164,10 @@ def generate_correlation_heatmap(
     FigureCanvasAgg(figure)
     axis = figure.subplots()
     values = [[float("nan") if cell is None else float(cell) for cell in row] for row in matrix]
-    image = axis.imshow(ma.masked_invalid(values), cmap=CORRELATION_CMAP, vmin=-1.0, vmax=1.0)
+    # origin="lower" 让矩阵第 0 行画在 y 轴最下方，两轴均从左下角开始排列。
+    image = axis.imshow(
+        ma.masked_invalid(values), cmap=CORRELATION_CMAP, vmin=-1.0, vmax=1.0, origin="lower",
+    )
     axis.set_xticks(range(count), labels, rotation=45, ha="right", fontproperties=_font(8))
     axis.set_yticks(range(count), labels, fontproperties=_font(8))
     axis.tick_params(colors=TEXT, length=0)
@@ -428,7 +433,8 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
          _numeric_series(benchmark.get("values"), len(years), 0.0), _benchmark_color(index))
         for index, benchmark in enumerate(benchmarks)
     ]
-    entries.append(("策略", _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
+    entries.append((str(data.get("strategy_label") or "策略"),
+                    _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
     count = len(entries)
     bar_width = 0.8 / count
     _columns, height, _top = _legend_layout(count)
@@ -602,7 +608,7 @@ def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> No
         (benchmark_label(benchmark, index), _finite_values(benchmark.get("values")), _benchmark_color(index))
         for index, benchmark in enumerate(benchmarks)
     ]
-    panels.append(("策略", _finite_values(data.get("strategy")), ORANGE))
+    panels.append((str(data.get("strategy_label") or "策略"), _finite_values(data.get("strategy")), ORANGE))
     values = [value for _, series, _ in panels for value in series]
     # 全部面板共用、以 0 为中心的核心区间和分箱边界，便于左右对比。
     symmetric_limit = _symmetric_histogram_limit(values)
@@ -624,7 +630,7 @@ def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> No
         axis.set_xlim(-symmetric_limit, symmetric_limit)
         # 0% 是收益率分布的关键参照点，使用浅色细线避免喧宾夺主。
         axis.axvline(0, color="#9EADBD", linewidth=0.8)
-        # 面板小标题自明：指数 / 指数(代码) / 策略 日收益分布。
+        # 面板小标题自明：组合指数 / 指数(代码) / 组合策略 日收益分布。
         axis.set_title(f"{panel_label}日收益分布", color=TEXT, fontproperties=_font(9), pad=8)
         _set_axis_labels(axis, x_label="日收益率（%）")
         _apply_symmetric_percent_ticks(axis, symmetric_limit, mark_overflow=overflow_count > 0)

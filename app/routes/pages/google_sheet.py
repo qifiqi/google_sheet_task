@@ -6,7 +6,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-google_sheet_bp = Blueprint('google_sheet', __name__)
+google_sheet_bp = Blueprint('google_sheet', __name__, url_prefix='/google-sheet')
 
 
 # 无参数的纯静态页走表驱动（ponytail 审计 D1）；create/detail 为版本 dispatcher，保留手写

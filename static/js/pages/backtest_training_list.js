@@ -3,7 +3,7 @@
 // 接口调用经 common/api.js。
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
-const BATCH_EXPORT_API = '/api/exports/global-previews/batch';
+const BATCH_EXPORT_API = '/api/exports/global-previews/batch-export';
 const DEFAULT_PAGE_SIZE = 20;
 const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
 let paginationState = {
@@ -525,4 +525,5 @@ const initialListPagination = getInitialListPaginationState();
 paginationState.page = initialListPagination.page;
 paginationState.per_page = initialListPagination.per_page;
 loadTasks();
-setInterval(loadTasks, 5000);
+// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐）。
+setInterval(loadTasks, 60 * 1000);

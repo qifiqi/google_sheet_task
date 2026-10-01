@@ -952,30 +952,30 @@ def _safe_multiply_100(value: Any) -> Any:
 
 
 def c3_result_row(group: C3ResultGroup) -> list[Any]:
-    r = group.result
+    result = group.result
 
     # ── 参数列（从单元格引用读取，与 _build_stock_param_result_payload 一致）──
-    param_values = [_c3_cell_value(r, cell, name) for name, cell in C3_PARAM_CELL_MAP]
+    param_values = [_c3_cell_value(result, cell, name) for name, cell in C3_PARAM_CELL_MAP]
 
     # ── 指标列（从单元格引用读取，与 SQL 查询字段一一对应）──
     # 数据库存储原始小数（如 0.15），业务层 ×100 后展示为 15.00
-    annualized_rate      = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["annualized_rate"], "annualized_rate"))
-    index_annualized_rate = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["index_annualized_rate"], "index_annualized_rate"))
-    maxdd                = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["max_drawdown"], "maxdd"))
-    max_index_dd         = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["index_max_drawdown"], "max_index_dd"))
-    fee_total            = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["fee_total"], "fee_total"))
-    fee_annualized       = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["fee_annualized"], "fee_annualized"))
-    year_rate            = _c3_cell_value(r, C3_METRIC_CELLS["turnover_rate"], "year_rate")  # 年换手率不乘100
+    annualized_rate      = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["annualized_rate"], "annualized_rate"))
+    index_annualized_rate = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["index_annualized_rate"], "index_annualized_rate"))
+    maxdd                = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["max_drawdown"], "maxdd"))
+    max_index_dd         = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["index_max_drawdown"], "max_index_dd"))
+    fee_total            = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["fee_total"], "fee_total"))
+    fee_annualized       = _safe_multiply_100(_c3_cell_value(result, C3_METRIC_CELLS["fee_annualized"], "fee_annualized"))
+    year_rate            = _c3_cell_value(result, C3_METRIC_CELLS["turnover_rate"], "year_rate")  # 年换手率不乘100
 
     # beats（收益差）和 beats_dd（回撤差）基于已乘 100 的值计算
     return_beats = _safe_subtract(annualized_rate, index_annualized_rate)
     dd_beats     = _safe_subtract(maxdd, max_index_dd)
 
     # 年换手率：优先读取命名键，回退到 year_rate（I23）
-    turnover_rate = r.get("turnover_rate") or year_rate
+    turnover_rate = result.get("turnover_rate") or year_rate
 
     # ── 绩效分析字段（从 flat_result 子字典读取）──
-    flat = r.get("flat_result") if isinstance(r.get("flat_result"), dict) else {}
+    flat = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else {}
     start_monthly_std_dev = flat.get("start_monthly_std_dev", "")
     index_monthly_std_dev = flat.get("index_monthly_std_dev", "")
     index_sharpe_ratio    = flat.get("index_sharpe_ratio", "")
@@ -1014,8 +1014,8 @@ def _return_beats_value(result: dict[str, Any]) -> float:
         _c3_cell_value(result, C3_METRIC_CELLS["annualized_rate"], "annualized_rate"),
         _c3_cell_value(result, C3_METRIC_CELLS["index_annualized_rate"], "index_annualized_rate"),
     )
-    f = _safe_float(val)
-    return f * 100 if f != float("-inf") else f
+    value = _safe_float(val)
+    return value * 100 if value != float("-inf") else value
 
 
 def sort_c3_records(records: list[C3ExportRecord]) -> list[C3ExportRecord]:

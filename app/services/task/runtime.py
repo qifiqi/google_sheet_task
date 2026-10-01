@@ -606,9 +606,8 @@ class TaskRuntimeMixin:
         task_logger.info(f"创建{spec.display_name}任务执行线程")
         self.task_execution_types[task_id] = task_type
 
-        handle = None
         try:
-            handle = self.submit_task_execution(task_id, app, runner)
+            self.submit_task_execution(task_id, app, runner)
         except Exception as exc:
             # submit_task_execution 可能已在入队前注册运行态句柄后失败，
             # 无论失败发生在哪一步都需撤回注册。

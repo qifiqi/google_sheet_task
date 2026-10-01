@@ -4,7 +4,6 @@ registry scope 过滤与占用查询方法按 google_sheet_registry_service、
 task/occupancy.py 调用点定形后补入（B2/B3）。
 """
 from app.extensions import db
-from app.exceptions import NotFoundError
 from app.models import GoogleSheet
 from app.repositories.base import BaseRepository
 

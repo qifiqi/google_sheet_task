@@ -6,13 +6,24 @@
       description="查看任务状态、执行日志、结果趋势和当前配置，支持停止与重启任务。"
     >
       <template #actions>
+        <!-- 对齐静态版：手动刷新 + 刷新频率下拉（5s/15s/30s/60s/关闭） -->
+        <el-select v-model="refreshInterval" class="refresh-frequency-select">
+          <el-option
+            v-for="option in refreshFrequencyOptions"
+            :key="option.value"
+            :value="option.value"
+            :label="option.label"
+          />
+        </el-select>
+        <el-button :loading="manualRefreshing" @click="handleManualRefresh">手动刷新</el-button>
         <el-button @click="checkStatus">检查状态</el-button>
         <!-- 对齐静态版：非运行状态可编辑配置 -->
         <el-button v-if="task && task.status !== 'running'" type="primary" plain @click="openEditConfig">
           编辑配置
         </el-button>
         <el-button v-if="task?.status === 'running'" type="warning" @click="handleCancel">停止任务</el-button>
-        <el-dropdown v-if="task && task.status !== 'running'" @command="handleRestart">
+        <!-- 对齐静态版重启枚举：pending/completed/error/cancelled -->
+        <el-dropdown v-if="canRestart" @command="handleRestart">
           <el-button type="success">
             重启任务
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -60,9 +71,8 @@
               <el-descriptions-item label="创建时间">{{ task.created_at || '-' }}</el-descriptions-item>
               <el-descriptions-item label="开始时间">{{ task.start_time || '-' }}</el-descriptions-item>
               <el-descriptions-item label="结束时间">{{ task.end_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="执行时长">
-                {{ task.duration_seconds != null ? `${task.duration_seconds}s` : '-' }}
-              </el-descriptions-item>
+              <!-- 对齐静态版：created_at→(end_time||now) 的中文时长 -->
+              <el-descriptions-item label="执行时长">{{ executionDurationText }}</el-descriptions-item>
               <el-descriptions-item v-if="task.error_message" label="错误信息">
                 <span class="task-detail-page__error-text">{{ task.error_message }}</span>
               </el-descriptions-item>
@@ -71,28 +81,23 @@
         </el-col>
 
         <el-col :xs="24" :md="8" class="task-detail-page__metric-col">
-          <div class="hero-panel task-detail-page__hero">
-            <div class="hero-panel__eyebrow">Execution Summary</div>
-            <div class="task-detail-page__hero-stats">
-              <div class="task-detail-page__hero-stat">
-                <div class="task-detail-page__hero-value">{{ resultSummary.success_count ?? 0 }}</div>
-                <div class="task-detail-page__hero-label">成功</div>
-              </div>
-              <div class="task-detail-page__hero-stat">
-                <div class="task-detail-page__hero-value">{{ resultSummary.failed_count ?? 0 }}</div>
-                <div class="task-detail-page__hero-label">失败</div>
-              </div>
+          <el-card shadow="never" class="page-section task-detail-page__metric-card">
+            <div class="section-heading">
+              <h3 class="section-title section-title--muted">执行汇总</h3>
             </div>
+            <el-row :gutter="12">
+              <el-col :span="12">
+                <el-statistic title="成功" :value="resultSummary.success_count ?? 0" />
+              </el-col>
+              <el-col :span="12">
+                <el-statistic title="失败" :value="resultSummary.failed_count ?? 0" />
+              </el-col>
+            </el-row>
             <el-progress
               :percentage="resultSummary.success_rate ?? 0"
-              :show-text="false"
-              color="#ffffff"
-              class="task-detail-page__hero-progress"
+              class="task-detail-page__summary-progress"
             />
-            <div class="task-detail-page__hero-foot">
-              成功率 {{ resultSummary.success_rate ?? 0 }}%
-            </div>
-          </div>
+          </el-card>
         </el-col>
       </el-row>
 
@@ -110,13 +115,24 @@
                   <el-radio-button value="success">成功</el-radio-button>
                   <el-radio-button value="failed">失败</el-radio-button>
                 </el-radio-group>
-                <span class="panel-note">共 {{ filteredResultTotal }} 条</span>
+                <!-- C4/C5/C7：对齐静态版 results-summary 文案；C3：总条数 -->
+                <span class="panel-note">{{ resultsSummaryText }}</span>
               </div>
               <div class="section-actions">
-                <el-button size="small" @click="loadResults">刷新结果</el-button>
+                <el-button size="small" @click="refreshResults">刷新结果</el-button>
                 <!-- 对齐静态版：单任务结果导出 Excel -->
                 <el-button size="small" type="success" :loading="exporting" @click="handleExport">
                   导出 Excel
+                </el-button>
+                <!-- 对齐静态版 C7：按股票代码 ZIP 导出 -->
+                <el-button
+                  v-if="versionKind === 'c7'"
+                  size="small"
+                  type="success"
+                  :loading="exportingStocks"
+                  @click="handleExportStocks"
+                >
+                  按股票代码导出
                 </el-button>
               </div>
             </div>
@@ -128,56 +144,70 @@
               </div>
             </div>
 
-            <el-table :data="paginatedResults" stripe class="task-detail-page__table">
-              <el-table-column prop="step_index" label="步骤" width="70" />
-              <el-table-column label="状态" width="80">
-                <template #default="{ row }">
-                  <el-tag :type="row.success ? 'success' : 'danger'" size="small">
-                    {{ row.success ? '成功' : '失败' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="参数" min-width="200" show-overflow-tooltip>
-                <template #default="{ row }">{{ JSON.stringify(row.parameters) }}</template>
-              </el-table-column>
-              <el-table-column label="执行结果" min-width="260">
-                <template #default="{ row }">
-                  <!-- C3 任务：I15-I23 摘要网格（flat_result 优先），其余任务保持 JSON 预览 -->
-                  <template v-if="isC3Task && isPlainObject(row.result)">
-                    <div v-if="resultSummaryItems(row.result).length" class="result-summary-grid">
-                      <div
-                        v-for="item in resultSummaryItems(row.result)"
-                        :key="item.key"
-                        class="result-summary-item"
-                      >
-                        <div class="result-summary-label">{{ item.label }}</div>
-                        <div class="result-summary-value">{{ item.value }}</div>
-                      </div>
-                    </div>
-                    <span v-else>{{ formatResultPreview(row.result) }}</span>
+            <!-- C4/C5/C7：按参数组合分组的模型结果卡片（版本化渲染） -->
+            <ResultGroupsCards
+              v-if="isVersionTask"
+              :version="versionKind"
+              :results="filteredResults"
+              :task-config="parsedTaskConfig"
+            />
+
+            <template v-else>
+              <el-table :data="filteredResults" stripe class="task-detail-page__table">
+                <el-table-column prop="step_index" label="步骤" width="70" />
+                <el-table-column label="状态" width="80">
+                  <template #default="{ row }">
+                    <el-tag :type="row.success ? 'success' : 'danger'" size="small">
+                      {{ row.success ? '成功' : '失败' }}
+                    </el-tag>
                   </template>
-                  <span v-else>{{ formatResultPreview(row.result) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="timestamp" label="时间" width="160" show-overflow-tooltip />
-              <el-table-column label="耗时" width="100">
-                <template #default="{ row }">{{ durationMap.get(row) || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="操作" width="80">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="viewResult(row)">更多</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+                </el-table-column>
+                <el-table-column label="参数" min-width="200" show-overflow-tooltip>
+                  <template #default="{ row }">{{ JSON.stringify(row.parameters) }}</template>
+                </el-table-column>
+                <el-table-column label="执行结果" min-width="260">
+                  <template #default="{ row }">
+                    <!-- C3 任务：I15-I23 摘要（flat_result 优先）；无摘要/其他任务展示完整 JSON -->
+                    <template v-if="isC3Task && isPlainObject(row.result)">
+                      <el-descriptions
+                        v-if="resultSummaryItems(row.result).length"
+                        :column="4"
+                        size="small"
+                      >
+                        <el-descriptions-item
+                          v-for="item in resultSummaryItems(row.result)"
+                          :key="item.key"
+                          :label="item.label"
+                        >
+                          {{ item.value }}
+                        </el-descriptions-item>
+                      </el-descriptions>
+                      <CodeBlock v-else :content="row.result" />
+                    </template>
+                    <span v-else-if="row.result == null">-</span>
+                    <CodeBlock v-else :content="row.result" />
+                  </template>
+                </el-table-column>
+                <el-table-column prop="timestamp" label="时间" width="160" show-overflow-tooltip />
+                <el-table-column label="耗时" width="100">
+                  <template #default="{ row }">{{ durationMap.get(row) || '-' }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="80">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="viewResult(row)">更多</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
 
             <div class="task-detail-page__pagination">
               <el-pagination
                 v-model:current-page="resultPage"
                 v-model:page-size="resultPageSize"
-                :total="filteredResultTotal"
-                :page-sizes="[20, 50, 100]"
+                :total="resultsTotal"
+                :page-sizes="[10, 20, 50, 100]"
                 layout="total, sizes, prev, pager, next"
-                @current-change="scrollResultsToTop"
+                @current-change="handleResultPageChange"
                 @size-change="handleResultPageSizeChange"
               />
             </div>
@@ -216,6 +246,36 @@
                     <el-descriptions-item label="K线数据源">
                       {{ taskConfigSummary.klineDataSource }}
                     </el-descriptions-item>
+                    <!-- C4/C5/C7 版本字段（对齐各版本 loadTaskConfig 的 configItems） -->
+                    <template v-if="isVersionTask">
+                      <el-descriptions-item label="统计方式">
+                        {{ versionConfigSummary.countMode }}
+                      </el-descriptions-item>
+                      <el-descriptions-item v-if="versionKind !== 'c4'" label="价格类型">
+                        {{ versionConfigSummary.priceMode }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="市场类型">
+                        {{ versionConfigSummary.marketType }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="市场代码">
+                        {{ versionConfigSummary.marketCode }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="时间范围类型">
+                        {{ versionConfigSummary.dateRangeMode }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="数据时间范围">
+                        {{ versionConfigSummary.dateRange }}
+                      </el-descriptions-item>
+                      <el-descriptions-item v-if="versionKind !== 'c4'" label="移除的近年区间">
+                        {{ versionConfigSummary.excludedYears }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="认证方式">
+                        {{ versionConfigSummary.tokenType }}
+                      </el-descriptions-item>
+                      <el-descriptions-item label="Token 路径">
+                        {{ versionConfigSummary.tokenFile }}
+                      </el-descriptions-item>
+                    </template>
                   </el-descriptions>
                 </div>
               </el-col>
@@ -233,13 +293,30 @@
                       {{ taskConfigSummary.extraSummary }}
                     </el-descriptions-item>
                   </el-descriptions>
+                  <!-- C4/C5/C7：工作表配置逐表列出（对齐静态版 sheetsBlock） -->
+                  <template v-if="isVersionTask">
+                    <div class="task-detail-page__chart-title task-detail-page__sheets-title">工作表配置</div>
+                    <el-table v-if="versionSheets.length" :data="versionSheets" size="small" border>
+                      <el-table-column type="index" label="表" width="60" />
+                      <el-table-column prop="spreadsheet_id" label="表格 ID" min-width="160" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.spreadsheet_id || '-' }}</template>
+                      </el-table-column>
+                      <el-table-column prop="sheet_name" label="工作表" min-width="120" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.sheet_name || '-' }}</template>
+                      </el-table-column>
+                      <el-table-column label="标题" min-width="120" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.title || '-' }}</template>
+                      </el-table-column>
+                    </el-table>
+                    <div v-else class="panel-note">无工作表配置</div>
+                  </template>
                 </div>
               </el-col>
             </el-row>
 
             <div class="sub-card">
               <div class="task-detail-page__chart-title">完整配置</div>
-              <CodeBlock :content="task.config || {}" />
+              <CodeBlock :content="parsedTaskConfig" />
             </div>
           </el-tab-pane>
         </el-tabs>
@@ -332,8 +409,14 @@
       </div>
     </el-drawer>
 
-    <!-- 编辑配置弹窗（对齐静态版 editConfigModal，仅非运行状态可编辑） -->
-    <el-dialog v-model="editConfigVisible" title="编辑任务配置" width="720px" :fullscreen="isMobile">
+    <!-- C3 编辑配置弹窗（对齐静态版 google_sheet/detail.html editConfigModal，仅非运行状态可编辑） -->
+    <el-dialog
+      v-if="!isVersionTask"
+      v-model="editConfigVisible"
+      title="编辑任务配置"
+      width="720px"
+      :fullscreen="isMobile"
+    >
       <el-alert
         type="warning"
         :closable="false"
@@ -419,6 +502,15 @@
         <el-button type="primary" :loading="savingConfig" @click="saveTaskConfig">保存配置</el-button>
       </template>
     </el-dialog>
+
+    <!-- C4/C5/C7 版本化编辑配置弹窗（对齐 static/js/common/business/config-edit.js） -->
+    <ConfigEditDialog
+      v-if="isVersionTask"
+      v-model:visible="versionEditVisible"
+      :task="task"
+      :version="versionKind"
+      @saved="loadAll"
+    />
   </div>
 </template>
 
@@ -435,6 +527,7 @@ import {
   restartTask,
   updateTaskConfig,
   exportTaskResults,
+  exportTaskResultsByStocks,
   checkTaskStatus as apiCheckStatus
 } from '@/api/task'
 import { getConfig } from '@/api/config'
@@ -443,9 +536,19 @@ import PageToolbar from '@/components/PageToolbar.vue'
 import TaskProgressCell from '@/components/TaskProgressCell.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import CodeBlock from '@/components/CodeBlock.vue'
+import ConfigEditDialog from '@/components/ConfigEditDialog.vue'
+import ResultGroupsCards from './components/ResultGroupsCards.vue'
+import {
+  formatCountMode,
+  formatDateRangeMode,
+  formatExcludedYears,
+  formatExecutionDuration,
+  formatMarketType,
+  formatPriceMode,
+  formatTokenType
+} from './components/versionShared'
 import { formatDateTime } from '@/utils/format'
 import { useChartJs } from '@/composables/useChartJs'
-import { usePolling } from '@/composables/usePolling'
 import { useResponsive } from '@/composables/useResponsive'
 
 const route = useRoute()
@@ -454,13 +557,15 @@ const { isMobile } = useResponsive()
 const taskId = route.params.id
 const task = ref(null)
 const logs = ref([])
-const allResults = ref([])
-const resultSummary = ref({})
+const allResults = ref([]) // 当前页的结果数据（服务端分页）
+const resultsTotal = ref(0)
+const resultStats = ref({ totalSuccess: null, totalFailed: null })
 const loading = ref(false)
 const activeTab = ref('logs')
 const logContainerRef = ref()
 const resultPage = ref(1)
 const resultPageSize = ref(20)
+const pageSizeInitialized = ref(false)
 const resultFilter = ref('all')
 const resultDrawerVisible = ref(false)
 const currentResult = ref(null)
@@ -468,14 +573,75 @@ const resultChartRef = ref(null)
 let resultChart = null
 const { loadChartJs } = useChartJs()
 
-// 刷新间隔：读配置 detail_refresh_interval，读不到用静态版默认 60000（仅 running/pending 轮询）
+// ── 刷新控制（对齐静态版 manual-refresh-btn / refresh-frequency：5s/15s/30s/60s/关闭）──
+
+const refreshFrequencyOptions = [
+  { value: 5000, label: '5秒' },
+  { value: 15000, label: '15秒' },
+  { value: 30000, label: '30秒' },
+  { value: 60000, label: '60秒' },
+  { value: 0, label: '关闭' }
+]
+// 默认 60000，onMounted 时读配置 detail_refresh_interval 覆盖
 const refreshInterval = ref(60000)
+const manualRefreshing = ref(false)
 
-// 导出 Excel
+// ── 任务类型（C3 / C4 / C5 / C7 分发）──
+
+const taskTypeNormalized = computed(() => String(task.value?.task_type || '').toLowerCase())
+const isC3Task = computed(() => taskTypeNormalized.value === 'google_sheet')
+const versionKind = computed(() => {
+  if (taskTypeNormalized.value === 'google_sheet_c4') return 'c4'
+  if (taskTypeNormalized.value === 'google_sheet_c5') return 'c5'
+  if (taskTypeNormalized.value === 'google_sheet_c7') return 'c7'
+  return null
+})
+const isVersionTask = computed(() => !!versionKind.value)
+
+// 重启下拉显示条件（对齐静态版状态枚举：pending/completed/error/cancelled）
+const canRestart = computed(() =>
+  ['pending', 'completed', 'error', 'cancelled'].includes(task.value?.status)
+)
+
+// 任务配置统一解析（config 可能是 JSON 字符串，对齐静态版 loadTaskDetail 的兼容处理）
+const parsedTaskConfig = computed(() => {
+  const raw = task.value?.config
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return {}
+    }
+  }
+  return raw || {}
+})
+
+// C4/C5/C7 工作表配置逐表列出
+const versionSheets = computed(() => {
+  const sheets = parsedTaskConfig.value.sheets
+  return Array.isArray(sheets) ? sheets : []
+})
+
+// 执行时长：created_at→(end_time||now)，运行中任务随轮询刷新
+const executionDurationText = computed(() => {
+  const t = task.value
+  if (!t?.created_at) return '-'
+  const created = new Date(t.created_at)
+  if (Number.isNaN(created.getTime())) return '-'
+  const end = t.end_time ? new Date(t.end_time) : new Date()
+  const seconds = Math.max(0, Math.round((end.getTime() - created.getTime()) / 1000))
+  return formatExecutionDuration(seconds)
+})
+
+// ── 导出 Excel / C7 按股票代码 ZIP 导出 ──
+
 const exporting = ref(false)
+const exportingStocks = ref(false)
 
-// 编辑配置弹窗
+// ── 编辑配置弹窗状态 ──
+
 const editConfigVisible = ref(false)
+const versionEditVisible = ref(false)
 const savingConfig = ref(false)
 const editForm = reactive({
   name: '',
@@ -491,28 +657,51 @@ const editForm = reactive({
   result_positions: '[]'
 })
 
-const isC3Task = computed(() => String(task.value?.task_type || '').toLowerCase() === 'google_sheet')
-
-const taskProgressPercent = computed(() => {
-  if (!task.value?.total_steps) return 0
-  return Math.min(100, Math.round(((task.value.current_step || 0) / task.value.total_steps) * 100))
-})
+// ── 服务端分页结果 ──
 
 const filteredResults = computed(() => {
+  // 对齐静态版：筛选作用于当前页数据（后端暂不支持 success 筛选参数）
   if (resultFilter.value === 'success') return allResults.value.filter((item) => item.success)
   if (resultFilter.value === 'failed') return allResults.value.filter((item) => !item.success)
   return allResults.value
 })
 
-const filteredResultTotal = computed(() => filteredResults.value.length)
+// 统计口径用后端 total_success/total_failed（对齐静态版 updateResultsStatistics）
+const resultSummary = computed(() => {
+  const totalSuccess = resultStats.value.totalSuccess
+  const totalFailed = resultStats.value.totalFailed
+  let successCount
+  let failedCount
+  let totalCount
+  if (typeof totalSuccess === 'number' && typeof totalFailed === 'number') {
+    successCount = totalSuccess
+    failedCount = totalFailed
+    totalCount = resultsTotal.value || (totalSuccess + totalFailed)
+  } else {
+    successCount = allResults.value.filter((item) => item.success).length
+    totalCount = resultsTotal.value || allResults.value.length
+    failedCount = Math.max(totalCount - successCount, 0)
+  }
+  const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0
+  return {
+    success_count: successCount,
+    failed_count: failedCount,
+    success_rate: successRate
+  }
+})
 
-const paginatedResults = computed(() => {
-  const start = (resultPage.value - 1) * resultPageSize.value
-  return filteredResults.value.slice(start, start + resultPageSize.value)
+const resultsSummaryText = computed(() => {
+  if (isVersionTask.value) {
+    // 对齐静态版 C4/C5/C7 results-summary 文案
+    const total = resultsTotal.value
+      || (resultSummary.value.success_count + resultSummary.value.failed_count)
+    return `共 ${total} 条模型结果，其中成功 ${resultSummary.value.success_count} 条，失败 ${resultSummary.value.failed_count} 条。`
+  }
+  return `共 ${resultsTotal.value} 条`
 })
 
 const taskConfigSummary = computed(() => {
-  const config = task.value?.config || {}
+  const config = parsedTaskConfig.value
   const sheets = Array.isArray(config.sheets) ? config.sheets : []
   const firstSheet = sheets[0] || {}
   const parameters = Array.isArray(config.parameters) ? config.parameters : []
@@ -547,10 +736,33 @@ const taskConfigSummary = computed(() => {
   }
 })
 
+// C4/C5/C7 版本配置摘要（对齐各版本 loadTaskConfig configItems 的取值口径）
+const versionConfigSummary = computed(() => {
+  const config = parsedTaskConfig.value
+  return {
+    countMode: formatCountMode(config.count_mode || 'total'),
+    priceMode: formatPriceMode(config.price_mode || 'vwap_price'),
+    marketType: formatMarketType(config.market_type || 'cn'),
+    marketCode: config.exchange_market || config.market || '-',
+    dateRangeMode: formatDateRangeMode(config.date_range_mode || 'full'),
+    dateRange: `${config.start_date || '-'} ~ ${config.end_date || '-'}`,
+    excludedYears: formatExcludedYears(config.exclude_recent_years),
+    tokenType: formatTokenType(config.token_type || 'file'),
+    tokenFile: config.token_file || '-'
+  }
+})
+
 async function loadTask() {
   try {
     const res = await getTask(taskId)
     task.value = res.task || res
+    // 老版本页（C4/C5/C7）resultsPerPage = 10，C3 = 20：首次加载时按版本设默认页大小
+    if (!pageSizeInitialized.value) {
+      pageSizeInitialized.value = true
+      if (isVersionTask.value) {
+        resultPageSize.value = 10
+      }
+    }
   } catch {
     ElMessage.error('加载任务失败')
   }
@@ -568,16 +780,16 @@ async function loadLogs() {
   } catch {}
 }
 
-async function loadResults() {
+// 服务端分页：page & per_page，统计用后端 total_success/total_failed（对齐静态版 loadTaskResults）
+async function loadResults(page = resultPage.value) {
   try {
-    const res = await getTaskResults(taskId)
+    const res = await getTaskResults(taskId, { page, per_page: resultPageSize.value })
     allResults.value = res.items || []
-    const total = res.total || 0
-    const successCount = allResults.value.filter((item) => item.success).length
-    resultSummary.value = {
-      success_count: successCount,
-      failed_count: Math.max(total - successCount, 0),
-      success_rate: total ? Math.round((successCount / total) * 1000) / 10 : 0,
+    resultsTotal.value = res.total || 0
+    resultPage.value = res.current_page || page
+    resultStats.value = {
+      totalSuccess: typeof res.total_success === 'number' ? res.total_success : null,
+      totalFailed: typeof res.total_failed === 'number' ? res.total_failed : null
     }
     if (activeTab.value === 'results') {
       await nextTick()
@@ -589,7 +801,8 @@ async function loadResults() {
 async function loadAll() {
   loading.value = true
   try {
-    await Promise.all([loadTask(), loadLogs(), loadResults()])
+    await loadTask()
+    await Promise.all([loadLogs(), loadResults()])
   } finally {
     loading.value = false
   }
@@ -928,15 +1141,20 @@ function formatParameterCombinationText(parameters) {
   return values.length ? values.join(', ') : '-'
 }
 
-function formatResultPreview(result) {
-  if (result == null) return '-'
-  if (typeof result === 'string') return result
-  const text = JSON.stringify(result)
-  return text.length > 120 ? `${text.slice(0, 120)}...` : text
+// ── 结果分页交互（服务端分页）──
+
+function handleResultPageChange(page) {
+  loadResults(page)
+  scrollResultsToTop()
 }
 
 function handleResultPageSizeChange() {
   resultPage.value = 1
+  loadResults(1)
+}
+
+function refreshResults() {
+  loadResults()
 }
 
 function scrollResultsToTop() {
@@ -1057,7 +1275,7 @@ async function handleRestart(cmd) {
   }
 }
 
-// ── 导出 Excel（对齐静态版 exportResultsToCSV：blob 下载，文件名优先取 Content-Disposition）──
+// ── 导出 Excel / C7 按股票代码 ZIP（blob 下载，文件名优先取 Content-Disposition）──
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
@@ -1068,6 +1286,11 @@ function downloadBlob(blob, filename) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+function ensureZipExtension(filename) {
+  const safeName = String(filename || 'export.zip').trim() || 'export.zip'
+  return safeName.toLowerCase().endsWith('.zip') ? safeName : `${safeName}.zip`
 }
 
 async function handleExport() {
@@ -1087,14 +1310,38 @@ async function handleExport() {
   }
 }
 
-// ── 编辑配置（对齐静态版 openEditConfigModal / saveTaskConfig）──
+// 对齐静态版 exportResultsByStocks：默认名 `${任务名||任务ID}_按股票代码导出.zip`
+async function handleExportStocks() {
+  if (!taskId) {
+    ElMessage.error('任务ID为空，无法导出')
+    return
+  }
+  exportingStocks.value = true
+  try {
+    const { blob, filename } = await exportTaskResultsByStocks(taskId)
+    const defaultName = ensureZipExtension(`${task.value?.name || taskId}_按股票代码导出.zip`)
+    downloadBlob(blob, filename || defaultName)
+    ElMessage.success('按股票代码导出已开始下载')
+  } catch (e) {
+    ElMessage.error(`导出失败: ${e?.message || '未知错误'}`)
+  } finally {
+    exportingStocks.value = false
+  }
+}
+
+// ── 编辑配置（C3：对齐静态版 openEditConfigModal / saveTaskConfig；C4/C5/C7：ConfigEditDialog）──
 
 function openEditConfig() {
   if (!task.value) {
     ElMessage.error('任务数据未加载')
     return
   }
-  const config = task.value.config || {}
+  if (isVersionTask.value) {
+    versionEditVisible.value = true
+    return
+  }
+
+  const config = parsedTaskConfig.value
 
   editForm.name = task.value.name || ''
   editForm.description = task.value.description || ''
@@ -1187,7 +1434,9 @@ function viewResult(row) {
 }
 
 watch(resultFilter, () => {
+  // 切换筛选条件时重置到第一页并按服务端分页重取
   resultPage.value = 1
+  loadResults(1)
 })
 
 watch(activeTab, async (tab) => {
@@ -1197,24 +1446,57 @@ watch(activeTab, async (tab) => {
   }
 })
 
-const { stop: stopPolling, tick: pollerTick } = usePolling(
-  async () => {
+// ── 轮询：仅 running/pending 轮询，间隔经下拉可调（0 = 关闭），隐藏页签不重复请求 ──
+
+let refreshTimer = null
+let pollingInFlight = false
+
+async function pollTick() {
+  if (pollingInFlight || document.hidden) return
+  const status = task.value?.status
+  if (status && status !== 'running' && status !== 'pending') return
+  pollingInFlight = true
+  try {
     await loadTask()
     await loadLogs()
-
     if (activeTab.value === 'results') {
       await loadResults()
     }
-  },
-  {
-    interval: refreshInterval.value,
-    immediate: false,
-    isActive: () => task.value?.status === 'running' || task.value?.status === 'pending',
+  } finally {
+    pollingInFlight = false
   }
-)
+}
 
-// usePolling 的间隔在启动时固定，读取配置后若不同则停用内置定时器、按配置间隔自建
-let customPollTimer = null
+// 手动刷新：全量拉一次任务/日志/结果（对齐静态版 manualRefresh，终态任务也可刷新）
+async function handleManualRefresh() {
+  if (manualRefreshing.value) return
+  manualRefreshing.value = true
+  try {
+    await loadTask()
+    await Promise.all([loadLogs(), loadResults()])
+    ElMessage.success('手动刷新完成')
+  } catch {
+    ElMessage.error('手动刷新失败')
+  } finally {
+    manualRefreshing.value = false
+  }
+}
+
+function restartRefreshTimer() {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (refreshInterval.value > 0) {
+    refreshTimer = window.setInterval(() => {
+      void pollTick()
+    }, refreshInterval.value)
+  }
+}
+
+watch(refreshInterval, () => {
+  restartRefreshTimer()
+})
 
 onMounted(async () => {
   // 刷新间隔读配置（detail_refresh_interval，默认 60000），失败沿用默认
@@ -1223,50 +1505,28 @@ onMounted(async () => {
     const interval = Number(res?.config?.detail_refresh_interval)
     if (Number.isFinite(interval) && interval > 0 && interval !== refreshInterval.value) {
       refreshInterval.value = interval
-      stopPolling()
-      customPollTimer = window.setInterval(() => pollerTick(), interval)
     }
   } catch {}
+  restartRefreshTimer()
   void loadAll()
 })
 
 onUnmounted(() => {
-  if (customPollTimer) {
-    window.clearInterval(customPollTimer)
-    customPollTimer = null
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
   }
-})
-
-onUnmounted(() => {
   if (resultChart) resultChart.destroy()
 })
 </script>
 
 <style scoped>
-/* C3 结果摘要网格（对齐静态版 result-summary-grid） */
-.result-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 6px;
+.refresh-frequency-select {
+  width: 110px;
 }
 
-.result-summary-item {
-  padding: 4px 8px;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  background: var(--app-surface);
-}
-
-.result-summary-label {
-  font-size: 11px;
-  color: var(--app-text-muted);
-}
-
-.result-summary-value {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--app-text);
-  word-break: break-all;
+.task-detail-page__summary-progress {
+  margin-top: 16px;
 }
 
 .task-detail-page__param-badges {
@@ -1333,61 +1593,6 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.task-detail-page__hero {
-  height: 100%;
-}
-
-.task-detail-page__hero-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.task-detail-page__hero-stat {
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-  text-align: center;
-}
-
-.task-detail-page__hero-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.task-detail-page__hero-label,
-.task-detail-page__hero-foot {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.task-detail-page__hero-progress {
-  margin-top: 16px;
-}
-
-.task-detail-page__hero-foot {
-  margin-top: 6px;
-  text-align: center;
-}
-
-.task-detail-page__log-panel {
-  height: 500px;
-  overflow-y: auto;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: #0b1220;
-  color: #dbeafe;
-  font-family: 'Fira Code', monospace;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.task-detail-page__log-empty {
-  padding-top: 120px;
-}
-
 .task-detail-page__results-head {
   margin-bottom: 12px;
 }
@@ -1401,6 +1606,10 @@ onUnmounted(() => {
   color: var(--app-text);
   font-size: 13px;
   font-weight: 700;
+}
+
+.task-detail-page__sheets-title {
+  margin-top: 12px;
 }
 
 .task-detail-page__chart-wrap {
@@ -1425,12 +1634,6 @@ onUnmounted(() => {
   height: 100%;
 }
 
-.task-detail-page__config-code {
-  max-height: 500px;
-  margin: 0;
-  overflow: auto;
-}
-
 .task-detail-page__drawer-body {
   display: grid;
   gap: 16px;
@@ -1439,41 +1642,5 @@ onUnmounted(() => {
 .task-detail-page__drawer-section {
   display: grid;
   gap: 8px;
-}
-
-.task-detail-page__drawer-code {
-  max-height: 250px;
-  margin: 0;
-  overflow: auto;
-}
-
-.task-detail-page__error-block {
-  max-height: 250px;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  border-radius: 12px;
-  background: #fef2f2;
-  color: #dc2626;
-  font-family: 'Fira Code', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.log-line {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.log-info {
-  color: #93c5fd;
-}
-
-.log-warning {
-  color: #fcd34d;
-}
-
-.log-error {
-  color: #fca5a5;
 }
 </style>

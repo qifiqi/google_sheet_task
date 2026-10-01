@@ -22,125 +22,52 @@
       <section class="login-page__panel">
         <div class="login-page__intro">
           <p class="login-page__eyebrow">Workspace Access</p>
-          <h1 class="login-page__title">{{ isSignupMode ? '注册申请' : '登录系统' }}</h1>
-          <p class="login-page__description">
-            {{ isSignupMode
-              ? '当前项目未开放公开注册，保留申请入口与表单校验。'
-              : '使用现有账号进入任务列表、回测结果和系统配置。' }}
-          </p>
+          <h1 class="login-page__title">登录系统</h1>
+          <p class="login-page__description">使用现有账号进入任务列表、回测结果和系统配置。</p>
         </div>
 
-        <div class="login-page__tabs">
-          <button
-            type="button"
-            :class="['login-page__tab', { 'login-page__tab--active': !isSignupMode }]"
-            @click="setMode(false)"
+        <el-form
+          ref="loginFormRef"
+          :model="loginForm"
+          :rules="loginRules"
+          label-position="top"
+          class="login-form"
+        >
+          <el-form-item label="用户名" prop="username">
+            <el-input
+              v-model.trim="loginForm.username"
+              size="large"
+              placeholder="请输入用户名"
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+
+          <el-form-item label="密码" prop="password">
+            <el-input
+              v-model="loginForm.password"
+              size="large"
+              type="password"
+              placeholder="请输入密码"
+              show-password
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+
+          <el-button
+            type="primary"
+            size="large"
+            class="login-form__submit"
+            :loading="loginLoading || ssoLoading"
+            @click="handleLogin"
           >
             登录
-          </button>
-          <button
-            type="button"
-            :class="['login-page__tab', { 'login-page__tab--active': isSignupMode }]"
-            @click="setMode(true)"
-          >
-            注册
-          </button>
-        </div>
-
-        <transition name="login-fade" mode="out-in">
-          <el-form
-            v-if="!isSignupMode"
-            key="login"
-            ref="loginFormRef"
-            :model="loginForm"
-            :rules="loginRules"
-            label-position="top"
-            class="login-form"
-          >
-            <el-form-item label="用户名" prop="username">
-              <el-input
-                v-model.trim="loginForm.username"
-                size="large"
-                placeholder="请输入用户名"
-                @keyup.enter="handleLogin"
-              />
-            </el-form-item>
-
-            <el-form-item label="密码" prop="password">
-              <el-input
-                v-model="loginForm.password"
-                size="large"
-                type="password"
-                placeholder="请输入密码"
-                show-password
-                @keyup.enter="handleLogin"
-              />
-            </el-form-item>
-
-            <el-button
-              type="primary"
-              size="large"
-              class="login-form__submit"
-              :loading="loginLoading || ssoLoading"
-              @click="handleLogin"
-            >
-              登录
-            </el-button>
-          </el-form>
-
-          <el-form
-            v-else
-            key="signup"
-            ref="signupFormRef"
-            :model="signupForm"
-            :rules="signupRules"
-            label-position="top"
-            class="login-form"
-          >
-            <el-form-item label="用户名" prop="username">
-              <el-input v-model.trim="signupForm.username" size="large" placeholder="请输入用户名" />
-            </el-form-item>
-
-            <el-form-item label="邮箱" prop="email">
-              <el-input v-model.trim="signupForm.email" size="large" placeholder="请输入邮箱" />
-            </el-form-item>
-
-            <el-form-item label="密码" prop="password">
-              <el-input
-                v-model="signupForm.password"
-                size="large"
-                type="password"
-                placeholder="请输入密码"
-                show-password
-              />
-            </el-form-item>
-
-            <el-form-item label="确认密码" prop="confirmPassword">
-              <el-input
-                v-model="signupForm.confirmPassword"
-                size="large"
-                type="password"
-                placeholder="请再次输入密码"
-                show-password
-                @keyup.enter="handleSignup"
-              />
-            </el-form-item>
-
-            <el-button
-              size="large"
-              class="login-form__submit login-form__submit--secondary"
-              :loading="signupLoading"
-              @click="handleSignup"
-            >
-              提交申请
-            </el-button>
-          </el-form>
-        </transition>
+          </el-button>
+        </el-form>
 
         <footer class="login-page__footer">
-          <span class="login-page__hint">Element Plus 官方组件</span>
-          <span class="login-page__hint">明暗主题同步</span>
-          <span class="login-page__hint">简洁后台风格</span>
+          <span class="login-page__hint">JWT 登录</span>
+          <span class="login-page__hint">模板页权限控制</span>
+          <span class="login-page__hint">动态菜单同步</span>
         </footer>
       </section>
     </main>
@@ -161,52 +88,18 @@ const route = useRoute()
 const { login, fetchUser, getToken, applyAuthData } = useAuth()
 const { switchValue } = useTheme()
 
-const isSignupMode = ref(false)
 const loginLoading = ref(false)
-const signupLoading = ref(false)
 const ssoLoading = ref(false)
 const loginFormRef = ref()
-const signupFormRef = ref()
 
 const loginForm = reactive({
   username: '',
   password: '',
 })
 
-const signupForm = reactive({
-  username: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-})
-
 const loginRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-}
-
-const signupRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
-  ],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  confirmPassword: [
-    { required: true, message: '请再次输入密码', trigger: 'blur' },
-    {
-      validator: (_, value, callback) => {
-        if (!value) callback(new Error('请再次输入密码'))
-        else if (value !== signupForm.password) callback(new Error('两次输入的密码不一致'))
-        else callback()
-      },
-      trigger: ['blur', 'change'],
-    },
-  ],
-}
-
-function setMode(value) {
-  isSignupMode.value = value
 }
 
 // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数，
@@ -221,7 +114,8 @@ function sanitizeNextUrl(value) {
 }
 
 function resolveNextUrl() {
-  return sanitizeNextUrl(route.query.next) || '/'
+  // 缺省回退 /admin（SPA 路由表的仪表盘是 /admin，无 /admin/dashboard 路由与兜底路由）
+  return sanitizeNextUrl(route.query.next) || '/admin'
 }
 
 // 主服务 SSO 换票：/login#sso_token=<主服务Token>。fragment 不发给服务端、
@@ -240,26 +134,31 @@ function consumeSsoTokenFromHash() {
 }
 
 onMounted(async () => {
-  // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+  // 对齐静态版 bindLoginPage：本地已有可用会话先复用（fetchUser 内含 401
+  // 自动刷新续期），校验失败才降级；之后才用 sso_token 换票。携带 sso_token
+  // 一律先换票会在同一浏览器换主服务账号时立即切换身份，故不采用。
   const ssoToken = consumeSsoTokenFromHash()
-  if (ssoToken) {
-    ssoLoading.value = true
-    try {
-      const data = await ssoExchange(ssoToken)
-      applyAuthData(data)
+  if (getToken()) {
+    const me = await fetchUser()
+    if (me) {
       router.replace(resolveNextUrl())
-    } catch (error) {
-      ElMessage.error(error.response?.data?.message || error.message || '主服务登录失败，请使用账号密码登录')
-    } finally {
-      ssoLoading.value = false
+      return
     }
+    // fetchUser 失败时已清本地登录态；无 sso_token 则留在登录页走账密表单
+    if (!ssoToken) return
+  } else if (!ssoToken) {
     return
   }
 
-  // 已有本地 token：登录态恢复成功直接跳 next，失败由 fetchUser 清本地留在登录页。
-  if (getToken()) {
-    const me = await fetchUser()
-    if (me) router.replace(resolveNextUrl())
+  ssoLoading.value = true
+  try {
+    const data = await ssoExchange(ssoToken)
+    applyAuthData(data)
+    router.replace(resolveNextUrl())
+  } catch (error) {
+    ElMessage.error(error.message || '主服务登录失败，请使用账号密码登录')
+  } finally {
+    ssoLoading.value = false
   }
 })
 
@@ -276,19 +175,6 @@ async function handleLogin() {
     ElMessage.error(error.message || '登录失败，请检查用户名和密码')
   } finally {
     loginLoading.value = false
-  }
-}
-
-async function handleSignup() {
-  const valid = await signupFormRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  signupLoading.value = true
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    ElMessage.info('当前项目未开放公开注册，请联系管理员创建账号')
-  } finally {
-    signupLoading.value = false
   }
 }
 </script>
@@ -389,33 +275,6 @@ async function handleSignup() {
   line-height: 1.7;
 }
 
-.login-page__tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 6px;
-  margin-bottom: 24px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--app-surface-elevated) 86%, transparent);
-}
-
-.login-page__tab {
-  height: 42px;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--app-text-muted);
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.login-page__tab--active {
-  background: var(--app-surface);
-  color: var(--app-text);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
-}
-
 .login-form :deep(.el-form-item) {
   margin-bottom: 18px;
 }
@@ -439,12 +298,6 @@ async function handleSignup() {
   border-radius: 14px;
 }
 
-.login-form__submit--secondary {
-  color: #fff;
-  border: none;
-  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-}
-
 .login-page__footer {
   display: flex;
   flex-wrap: wrap;
@@ -459,17 +312,6 @@ async function handleSignup() {
   color: var(--app-text-muted);
   font-size: 12px;
   background: color-mix(in srgb, var(--app-surface-elevated) 78%, transparent);
-}
-
-.login-fade-enter-active,
-.login-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.login-fade-enter-from,
-.login-fade-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
 }
 
 @media (max-width: 640px) {

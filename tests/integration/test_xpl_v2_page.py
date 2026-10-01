@@ -55,7 +55,7 @@ def _report_analysis_result():
 
 def _default_run(result=None):
     """单基准 runs 形态的便捷构造（code=None、满配表示默认组合基准）。"""
-    return [SimpleNamespace(code=None, weight=1, label="指数", result=result or _report_analysis_result())]
+    return [SimpleNamespace(code=None, weight=1, label="组合指数", result=result or _report_analysis_result())]
 
 
 def _source_args(request):
@@ -119,8 +119,8 @@ def test_backtest_word_report_id_uses_report_type(
     )
     # ETF 资产总数为外网络取数，单测统一桩掉。
     monkeypatch.setattr(
-        "app.services.strategy_backtest_report_service.get_etf_total_assets",
-        lambda *args, **kwargs: None,
+        "app.services.strategy_backtest_report_service.get_etf_total_assets_detail",
+        lambda *args, **kwargs: (None, None),
     )
     payload = _report_payload(
         report_type=report_type,
@@ -144,7 +144,9 @@ def test_v2_json_returns_are_normalized_without_a_product():
     })
 
     assert request.report_type == "RPT-S"
-    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+    rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    assert rows == _report_payload()["returns"]
+    assert stock_code == ""
 
 
 def test_v2_google_sheet_returns_are_normalized(monkeypatch):
@@ -161,7 +163,9 @@ def test_v2_google_sheet_returns_are_normalized(monkeypatch):
         "google_sheet_name": "回测",
     })
 
-    assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+    rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+    assert rows == _report_payload()["returns"]
+    assert stock_code == ""
 
 
 def test_single_product_task_uses_linked_return_series(app_factory):
@@ -189,7 +193,10 @@ def test_single_product_task_uses_linked_return_series(app_factory):
 
         request = StrategyBacktestReportSchema.model_validate({"task_id": task.id})
 
-        assert strategy_backtest_report_service._resolve_source_returns(_source_args(request)) == _report_payload()["returns"]
+        rows, stock_code, stock_name = strategy_backtest_report_service._resolve_source_returns(_source_args(request))
+        assert rows == _report_payload()["returns"]
+        assert stock_code == "600519.SH"
+        assert stock_name == "贵州茅台"
 
 
 def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
@@ -221,9 +228,10 @@ def test_multi_product_returns_are_weighted_as_daily_returns(monkeypatch):
         ],
     })
 
-    runs = strategy_backtest_report_service._build_benchmark_runs(request)
+    runs, task_stock_code, task_stock_name = strategy_backtest_report_service._build_benchmark_runs(request)
 
-    assert len(runs) == 1 and runs[0].label == "指数"
+    assert task_stock_code == ""
+    assert len(runs) == 1 and runs[0].label == "组合指数"
     returns = captured[0]
     assert returns[0]["index_return"] == pytest.approx(0.075)
     assert returns[0]["start_return"] == pytest.approx(0.15)
@@ -289,14 +297,14 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
         ["日收益率峰度", "0.6500", "0.8700"],
     ]
     assert sections[3]["subsections"][1]["table"]["columns"] == [
-        "收益区间", "指数月数", "指数占比", "策略月数", "策略占比",
+        "收益区间", "组合指数月数", "组合指数占比", "组合策略月数", "组合策略占比",
     ]
     assert sections[4]["subsections"][2]["table"]["columns"] == [
-        "收益区间", "指数天数", "指数占比", "策略天数", "策略占比",
+        "收益区间", "组合指数天数", "组合指数占比", "组合策略天数", "组合策略占比",
     ]
-    assert sections[2]["subsections"][0]["table"]["columns"] == ["指标", "指数", "策略"]
+    assert sections[2]["subsections"][0]["table"]["columns"] == ["指标", "组合指数", "组合策略"]
     excess_distribution = sections[5]["subsections"][1]["table"]
-    assert excess_distribution["columns"] == ["超额区间", "月数", "占比"]
+    assert excess_distribution["columns"] == ["超额区间", "组合指数月数", "组合指数占比"]
     assert all(len(row) == 3 for row in excess_distribution["rows"])
     assert chart_data["benchmarks"][0]["nav"] == [1.01, 0.99]
     assert chart_data["strategy_nav"] == [1.02, 0.99]
@@ -325,7 +333,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory, monkeypatch):
     DOM 断言仍打 HTML，脚本内容断言改读 pages JS 文件（同一交付物）。"""
     _auth_disabled(monkeypatch)
     client = _page_cookie_client(app_factory)
-    response = client.get('/performance_analysis/v2')
+    response = client.get('/performance-analysis/v2')
 
     assert response.status_code == 200
     body = response.get_data(as_text=True)
@@ -333,6 +341,10 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory, monkeypatch):
     assert 'Google Sheet' in body
     assert '粘贴数据' in body
     assert '导入 Excel' in body
+    assert '结果分析' in body
+    assert 'id="result-tab"' in body
+    assert 'id="v2-result-id-input"' in body
+    assert 'id="v2-result-select"' in body
     assert 'id="btn-analyze-v2"' in body
     assert 'id="btn-export-word"' in body
     assert 'id="word-export-options-modal"' in body
@@ -354,7 +366,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory, monkeypatch):
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory, monkeypatch):
     _auth_disabled(monkeypatch)
     client = app_factory.test_client()
-    response = client.post('/performance_analysis/analyze', headers=_page_user_headers(app_factory), json={
+    response = client.post('/api/performance-analysis/analyze', headers=_page_user_headers(app_factory), json={
         "data": "\n".join([
             "2024-01-01\t0.01\t0.02",
             "2024-01-02\t0.02\t0.03",
@@ -365,3 +377,237 @@ def test_xpl_v2_accepts_portfolio_return_rows(app_factory, monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["status"] == "success"
+
+
+def _seed_task_result_with_returns(app, result_json="{}", with_series=True):
+    """构造一个带收益序列的成功结果，返回 result_id。"""
+    import json as _json
+
+    with app.app_context():
+        task = Task(id="xpl-analyze-result-task", name="结果分析任务", task_type="backtest_training", status="completed", config="{}")
+        db.session.add(task)
+        db.session.flush()
+        series_id = None
+        if with_series:
+            series = TaskResultReturn(
+                task_id=task.id,
+                **build_return_series_fields(
+                    [
+                        {"date": "2024-01-01", "index_return": 0.01, "start_return": 0.02},
+                        {"date": "2024-01-02", "index_return": 0.02, "start_return": 0.03},
+                        {"date": "2024-01-03", "index_return": 0.01, "start_return": 0.01},
+                    ],
+                    stock_code="600519",
+                    stock_name="贵州茅台",
+                ),
+            )
+            db.session.add(series)
+            db.session.flush()
+            series_id = series.id
+        result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"600519","stock_name":"贵州茅台"}',
+            result=result_json,
+            return_series_id=series_id,
+            success=True,
+        )
+        db.session.add(result)
+        db.session.commit()
+        return result.id
+
+
+def test_analyze_result_runs_task_result_returns(app_factory, monkeypatch):
+    _auth_disabled(monkeypatch)
+    app = app_factory
+    result_id = _seed_task_result_with_returns(app)
+    headers = _page_user_headers(app, username="xpl-analyze-result-user")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": result_id},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "success"
+    assert body["data"]["results"]
+
+
+def test_analyze_result_rejects_result_without_returns(app_factory, monkeypatch):
+    _auth_disabled(monkeypatch)
+    app = app_factory
+    result_id = _seed_task_result_with_returns(app, result_json='{"result":{}}', with_series=False)
+    headers = _page_user_headers(app, username="xpl-analyze-result-empty")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": result_id},
+    )
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert "没有可分析的收益数据" in body["message"]
+
+
+def test_analyze_result_returns_404_for_missing_result(app_factory, monkeypatch):
+    _auth_disabled(monkeypatch)
+    app = app_factory
+    headers = _page_user_headers(app, username="xpl-analyze-result-missing")
+
+    response = app.test_client().post(
+        '/api/performance-analysis/analyze',
+        headers=headers,
+        json={"result_id": 99999999},
+    )
+
+    assert response.status_code == 404
+
+
+def test_word_report_accepts_task_return_series_source(app_factory, monkeypatch):
+    """全局预览页 Word 导出契约：RPT-S 用 task_id + return_series_id 按结果循环调用。
+
+    每个结果（股票×年份×参数方案）一个文档；filename 由前端按结果传入。
+    """
+    from io import BytesIO
+
+    app = app_factory
+    with app.app_context():
+        task = Task(id="word-series-source-task", name="序列来源", task_type="backtest_training", status="completed", config="{}")
+        series = TaskResultReturn(
+            task_id=task.id,
+            **build_return_series_fields(
+                [
+                    {"date": "2024-01-01", "index_return": 0.01, "start_return": 0.02},
+                    {"date": "2024-01-02", "index_return": 0.02, "start_return": 0.03},
+                ],
+                stock_code="600519",
+                stock_name="贵州茅台",
+            ),
+        )
+        db.session.add_all([task, series])
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"600519","year":"2024"}',
+            result="{}",
+            return_series_id=series.id,
+            success=True,
+        ))
+        db.session.commit()
+        series_id = series.id
+
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    calls = []
+
+    def fake_generate_word(request):
+        calls.append(request)
+        return f"{request.filename}.docx", BytesIO(b"data")
+
+    monkeypatch.setattr(
+        "app.services.export_service.strategy_backtest_report_service.generate_word",
+        fake_generate_word,
+    )
+
+    response = app.test_client().post('/api/exports/backtest-reports/word', json={
+        "report_type": "RPT-S",
+        "task_id": "word-series-source-task",
+        "return_series_id": series_id,
+        "filename": "600519_2024_result1",
+    })
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert calls[0].task_id == "word-series-source-task"
+    assert calls[0].return_series_id == series_id
+    assert "600519_2024_result1" in response.headers["Content-Disposition"]
+
+
+def test_task_results_fields_projection(app_factory, monkeypatch):
+    """fields 白名单投影：下拉/索引消费方避开 result 大 JSON，附收益起止日期。"""
+    _auth_disabled(monkeypatch)
+    app = app_factory
+    _seed_task_result_with_returns(app)
+    headers = _page_user_headers(app, username="xpl-results-fields-user")
+    client = app.test_client()
+    url = '/api/tasks/xpl-analyze-result-task/results'
+
+    body = client.get(
+        url + '?fields=id,task_id,parameters,return_series_id,success,return_date_range',
+        headers=headers,
+    ).get_json()
+    items = body["data"]["items"]
+    assert len(items) == 1
+    item = items[0]
+    assert set(item.keys()) == {
+        "id", "task_id", "parameters", "return_series_id", "success", "return_date_range",
+    }
+    assert item["return_date_range"] == {"start": "2024-01-01", "end": "2024-01-03"}
+
+    # 未知字段 → 400，支持列表随消息下发
+    bad = client.get(url + '?fields=id,nope', headers=headers)
+    assert bad.status_code == 400
+    assert "nope" in bad.get_json()["message"]
+
+    # 缺省（不带 fields）仍是历史全量 to_dict，result 大 JSON 在
+    full = client.get(url, headers=headers).get_json()
+    assert "result" in full["data"]["items"][0]
+
+
+def test_generate_word_backfills_products_for_task_source(app_factory, monkeypatch):
+    """task 来源 RPT-S 自动补 products：权重表的股票代码/名称/市场口径不再为空。
+
+    股票取自收益序列，market_type/exchange_market 取自任务配置。
+    """
+    app = app_factory
+    with app.app_context():
+        task = Task(id="word-backfill-task", name="补位", task_type="backtest_training", status="completed",
+                    config='{"market_type":"cn","exchange_market":"SH"}')
+        series = TaskResultReturn(
+            task_id=task.id,
+            **build_return_series_fields(
+                _report_payload()["returns"],
+                stock_code="600519.SH",
+                stock_name="贵州茅台",
+            ),
+        )
+        db.session.add_all([task, series])
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id, step_index=0, parameters="{}", result="{}",
+            return_series_id=series.id, success=True,
+        ))
+        db.session.commit()
+        series_id = series.id
+
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    service = strategy_backtest_report_service
+    index_df = _Frame({
+        "date": _Column([datetime(2026, 8, 20), datetime(2026, 8, 21)]),
+        "index_return": _Column([0.01, -0.01]),
+    })
+    index_df.empty = False
+    canned_runs = [SimpleNamespace(code=None, weight=1, label="组合指数",
+                                   result=SimpleNamespace(metrics={"x": 1}, index_df=index_df))]
+    monkeypatch.setattr(service, "_build_benchmark_runs", lambda request: (canned_runs, "600519.SH", "贵州茅台"))
+    monkeypatch.setattr(service, "_build_chart_data", lambda runs: {})
+    monkeypatch.setattr(service, "_correlation_matrix", lambda request, result: None)
+    monkeypatch.setattr(service, "_conclusion", lambda runs, first, last: ["结论"])
+    monkeypatch.setattr("app.services.strategy_backtest_report_service.generate_report_charts", lambda chart_data, temp_dir: {})
+
+    request = StrategyBacktestReportSchema.model_validate({
+        "report_type": "RPT-S",
+        "task_id": "word-backfill-task",
+        "return_series_id": series_id,
+    })
+    filename, buffer = service.generate_word(request)
+
+    assert request.products[0]["stock_code"] == "600519.SH"
+    assert request.products[0]["product_name"] == "贵州茅台"
+    assert request.products[0]["market_type"] == "cn"
+    assert request.products[0]["exchange_market"] == "SH"
+    assert filename.startswith("RPT-S-600519.SH-")
+    assert buffer.getvalue()

@@ -53,7 +53,12 @@
       </el-button>
     </el-alert>
 
-    <FilterToolbar v-model="filters" :filters="filterDefs" @search="doFilter" @clear="clearFilters" />
+    <FilterToolbar v-model="filters" :filters="filterDefs" @search="doFilter" @clear="clearFilters">
+      <template #extra>
+        <!-- 手动刷新（对齐静态版 refreshTasks：仅重拉列表，不重置页码/筛选） -->
+        <el-button @click="refreshTasks">刷新列表</el-button>
+      </template>
+    </FilterToolbar>
 
     <!-- 桌面表格 -->
     <DataTableCard
@@ -174,7 +179,7 @@
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="[5, 10, 20, 50, 100]"
-          layout="prev, pager, next"
+          layout="prev, pager, next, jumper"
           @current-change="loadTasks"
           @size-change="handlePageSizeChange"
         />
@@ -206,7 +211,8 @@ const { isMobile } = useResponsive()
 const tasks = ref([])
 const loading = ref(false)
 const page = ref(1)
-const pageSize = ref(20)
+// 默认每页 10 条（对齐静态版 tasksPerPage = 10）
+const pageSize = ref(10)
 const total = ref(0)
 const stats = ref({})
 const filters = reactive({ status: '', keyword: '' })
@@ -281,7 +287,7 @@ const filterDefs = [
     type: 'select',
     placeholder: '状态筛选',
     options: [
-      { value: 'pending', label: '待执行' },
+      { value: 'pending', label: '待重启' },
       { value: 'running', label: '运行中' },
       { value: 'completed', label: '已完成' },
       { value: 'cancelled', label: '已取消' },
@@ -331,6 +337,12 @@ function clearFilters() {
   filters.status = ''
   filters.keyword = ''
   doFilter()
+}
+
+// 手动刷新（对齐静态版 refreshTasks：仅重拉列表，不重置页码/筛选）
+function refreshTasks() {
+  loadTasks()
+  ElMessage.info('任务列表已刷新')
 }
 
 function handlePageSizeChange() {
