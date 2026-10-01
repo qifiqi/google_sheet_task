@@ -181,7 +181,7 @@
 4. `template-auth.js` 删除 `data-auth-enabled` 读取分支（此时 4 处注入属性已全部消失）；
 5. AGENTS.md 更新：前端章节（目录约定、pages/api/business/components 分层、dispatcher、双部署入口指向本目录文档）；
 6. 双部署验收（`05` §8 清单）；
-7. 合并分支，zip 归档随仓库保留。
+7. 合并分支，zip 归档随仓库保留（2026-10-01 注：该 zip 已随 docs 清理删除，见下方回滚策略）。
 
 ## 回滚策略
 
@@ -189,6 +189,6 @@
 |---|---|
 | 单页 | `git revert <该页 commit>`（每页独立 commit 的意义） |
 | 批次 | 分支不合并即可；已合并则 revert merge commit |
-| 整体 | `templates-jinja-source.zip` 是最终兜底（解包覆盖即回到 Jinja 版，配合 `render_template` 路由） |
+| 整体 | git 历史兜底：F0 之前任一提交执行 `git archive --format=zip -o jinja-backup.zip <commit> templates` 即可重建 Jinja 原版（2026-10-01 起原 zip 快照已随 docs 清理删除，其内容本就取自 git HEAD） |
 
 > **2026-09-08 F6 执行记录**：三组终检全过——`grep render_template app/routes` 零输出（37 条页面路由全部 `send_page`）；`grep "{{\|{%" templates` 零输出；`grep "fetch(" static/js/pages` 零输出（最后 34 处 admin/xpl 站点已迁入 `common/api.js`，xpl 域含 CSRF 头保持 wire 等价）；`data-auth-enabled` 全库消失，`template-auth.js::isAuthEnabled` 按 D3 恒返回 true；`_resolve_task_version()` 已删除；AGENTS.md"双前端"章节更新为静态化分层约定。全量回归 600 passed / 7 failed（全部既有基线）/ 10 skipped。`test_xpl_v2_page` 的 1 条旧 URL-in-JS 断言按新契约更新（URL 移入 api.js，页面断言 `Api.endpoints.stock.search`）。
