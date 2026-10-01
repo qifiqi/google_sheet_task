@@ -88,6 +88,7 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | `backtest_repository.delete_legacy_performance_analysis_jobs` | xpl_jobs 无过滤 | 全量扫描本地筛选 |
 | `*_repository.delete_by_task / delete_older_than / delete_by_ids` | 只有按 id Delete | 逐 id 删除（非原子）；logs 清理走 timestamp 升序扫描提前终止 |
 | `task_result_repository.list_paginated`（无 task_id 分支） | 无 join/类型过滤 | 任务 id 分块过滤结果后本地分页 |
+| `task_result_repository.list_by_task_fields`（fields 白名单投影，2026-09-28 dev_vue 新增） | **http 孪生缺失**：无字段投影端点 | **TODO(db-to-http)**：http 模式下 `/api/tasks/<id>/results?fields=` 报 AttributeError。补法：http 侧复用 `list_by_task` 取数通道后 Python 白名单投影，`return_date_range` 从 returns 控制器首末行取；长期按 §8 向远端要字段投影 DTO |
 | `google_sheet_repository.get_by_spreadsheet_id` / `get_duplicate_row` | 无对应过滤 | 全量拉取本地匹配（registry 表小） |
 | `stock_metadata_repository.bulk_upsert` | 无批量端点 | 循环 upsert |
 
