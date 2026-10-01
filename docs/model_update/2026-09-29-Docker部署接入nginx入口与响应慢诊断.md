@@ -94,7 +94,7 @@ HTTP/2 多路复用，进一步消除串行。
    （历史目录名归还给真正的 MySQL；**服务器上必须先迁移旧目录再 up，见下**）；
 2. **新增 mysql 5.7 服务**：镜像 `mysql:5.7`，数据落 `/opt/google_task/mysqldata`
    （现在名副其实），仅绑 `127.0.0.1:3306`，utf8mb4 + `max_allowed_packet=64M`，
-   root 密码沿用历史 `Hello1234*`，目标库 `googlesheet_validator`。
+   root 密码经 `dockers/.env` 的 `MYSQL_ROOT_PASSWORD` 注入（2026-10-01 起移出仓库），目标库 `googlesheet_validator`。
 
 ### Navicat 备份导入（20260929135821.nb3）
 
@@ -122,7 +122,7 @@ docker compose up -d
 bash dockers/nb3-import/import-nb3.sh /opt/google_task/20260929135821.nb3
 # ⑤ 验证：行数统计 + 中文抽查
 docker exec google-sheet-validator-mysql-1 mysql --default-character-set=utf8mb4 \
-  -uroot -p'Hello1234*' googlesheet_validator \
+  -uroot -p"$MYSQL_ROOT_PASSWORD" googlesheet_validator \
   -e "SELECT COUNT(*) FROM t_param_tasks; SELECT sheet_name FROM t_param_google_sheet LIMIT 3;"
 ```
 
@@ -131,6 +131,9 @@ docker exec google-sheet-validator-mysql-1 mysql --default-character-set=utf8mb4
 
 ## 变更记录
 
+- 2026-10-01：**MySQL root 密码移出仓库**（compose/导入文档改 `dockers/.env` 注入，样例见
+  `dockers/.env.example`）；**nb3 导入工具 `dockers/nb3-import/` 整目录移除**（改用 SQL 文件
+  导入，见 `docs/model_update/2026-10-01-MySQL密码出库与nb3导入工具移除.md`）。
 - 2026-09-29：**nginx 服务暂时注释停用**（`docker-compose.yml` 内整块注释，启用步骤
   已写在注释里）；app 恢复 `8081:5000` 直接对外。nginx 配置与镜像构建文件保留，
   随时可重新启用。

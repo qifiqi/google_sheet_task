@@ -66,7 +66,7 @@ services:
 #      - "127.0.0.1:5432:5432"
 #    environment:
 #      POSTGRES_USER: google_task
-#      POSTGRES_PASSWORD: "Hello1234*"
+#      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在 dockers/.env 设置 POSTGRES_PASSWORD}"
 #      POSTGRES_DB: googlesheet_validator
 #    volumes:
 #      - /opt/google_task/pgdata:/var/lib/postgresql/data
@@ -79,7 +79,7 @@ services:
 #      retries: 10
 #      start_period: 20s
 
-  # MySQL 5.7：承接 Navicat 备份（20260929135821.nb3）恢复的存量数据。
+  # MySQL 5.7：存量数据容器（原经 nb3 备份恢复，2026-10-01 起改 SQL 文件导入）。
   # 数据落在宿主机 /opt/google_task/mysqldata——这个历史目录名现在名副其实存 MySQL；
   # 仅绑定本机回环。PG 的旧数据目录原本占用此路径，改名 pgdata 后腾出（见上方 postgres）。
   mysql:
@@ -88,8 +88,9 @@ services:
     ports:
       - "127.0.0.1:3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: "Hello1234*"
-      # Navicat 恢复时数据进入该库；nb3 备份本身不含 CREATE DATABASE
+      # 密码不入库：dockers/.env（样例见 .env.example）注入；缺失时 compose 直接报错，不落明文
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?请在 dockers/.env 设置 MYSQL_ROOT_PASSWORD}"
+      # Navicat/SQL 文件恢复时数据进入该库
       MYSQL_DATABASE: googlesheet_validator
     command:
       - --character-set-server=utf8mb4
@@ -98,7 +99,8 @@ services:
     volumes:
       - /opt/google_task/mysqldata:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pHello1234*"]
+      # $$ 转义后由容器内 shell 取自身环境变量，compose 文件不落明文
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\""]
       interval: 10s
       timeout: 5s
       retries: 10
