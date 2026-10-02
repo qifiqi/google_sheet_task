@@ -113,5 +113,5 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 ## 8. 后续工作
 
 1. **Redis 裁决层**：互斥锁（状态机/占用/锁）迁移到 Redis SETNX+TTL+续期，替换 §6.1 的读-改-写退化；启动期清理本应用锁命名空间（替代 startup 占用重置语义）。
-2. **远端增量端点建议**（按收益排序）：条件更新（CAS）、按 task_id 批量删除、聚合统计（count/sum/group by）、join 查询（task+result）、批量 ids 查询。
+2. **远端增量端点建议**（按收益排序）：条件更新（CAS）、按 task_id 批量删除、聚合统计（count/sum/group by）、join 查询（task+result）、批量 ids 查询——**已整理为接口需求规格：[02-remote-incremental-endpoints.md](02-remote-incremental-endpoints.md)**（含请求/响应 DTO、消费方映射与实施顺序）。
 3. 迁移稳定后删除 `DATA_ACCESS_MODE=db` 回退与本地 ORM 仓储（含 models），完成"无兼容层"收口。
