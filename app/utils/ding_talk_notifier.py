@@ -8,7 +8,7 @@ import urllib.parse
 import requests
 from flask import current_app, has_app_context
 
-from app.repositories import auth_repository, task_repository
+from app.repositories import task_repository
 from app.utils.logger import get_logger
 
 
@@ -16,9 +16,12 @@ logger = get_logger(__name__)
 
 
 class DingTalkNotifier:
-    """钉钉机器人通知器。"""
+    """钉钉机器人通知器。
 
-    DEV_ROLE_CODES = {"developer"}
+    @ 手机号机制已移除（2026-10-02，db-to-http 迁移）：值班/创建人手机号
+    原读本地 User 表，纯 http 部署下该表不再维护，收件人恒失效。
+    """
+
     NOTIFY_KEYWORDS = {
         "error": "告警",
         "success": "任务完成",
@@ -37,18 +40,6 @@ class DingTalkNotifier:
         hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
         sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
         return timestamp, sign
-
-    def _normalize_mobile(self, value):
-        mobile = str(value or '').strip()
-        return mobile or None
-
-    def _mask_mobile(self, mobile):
-        raw = self._normalize_mobile(mobile)
-        if not raw:
-            return None
-        if len(raw) <= 7:
-            return raw
-        return f"{raw[:3]}****{raw[-4:]}"
 
     def _task_detail_url(self, task_id, detail_url=None):
         if detail_url:
@@ -79,9 +70,13 @@ class DingTalkNotifier:
         fields,
         summary=None,
         detail_url=None,
-        at_mobiles=None,
     ):
-        """构建更易读且支持 @ 的钉钉 markdown 正文。"""
+        """构建钉钉 markdown 正文。
+
+        @ 手机号机制已移除（2026-10-02，db-to-http 迁移）：值班/创建人手机号
+        原读本地 User 表，纯 http 部署下该表不再维护。后续如需恢复 @ 人，
+        从主 Web 接口取值班名单（见 docs/design/db-to-http-migration/ §8）。
+        """
         lines = [f"### {keyword}", ""]
         for label, value in fields:
             normalized_value = str(value or "").strip() or "-"
@@ -101,41 +96,15 @@ class DingTalkNotifier:
                 f"[查看详情]({detail_url})",
             ])
 
-        mobile_mentions = [
-            f"@{str(mobile or '').strip()}"
-            for mobile in (at_mobiles or [])
-            if str(mobile or '').strip()
-        ]
-        if mobile_mentions:
-            lines.extend([
-                "",
-                " ".join(mobile_mentions),
-            ])
-
         return "\n".join(lines)
 
-    def _collect_oncall_developer_mobiles(self):
-        mobiles = set()
-        users = auth_repository.list_alert_oncall_active_entities()
-        for user in users:
-            role_codes = {str(role.code or '').strip().lower() for role in user.roles}
-            if role_codes & self.DEV_ROLE_CODES:
-                mobile = self._normalize_mobile(user.mobile)
-                if mobile:
-                    mobiles.add(mobile)
-        return mobiles
-
-    def _collect_at_mobiles(self, task, notify_type):
-        mobiles = set()
-        if task and task.created_by:
-            creator_mobile = self._normalize_mobile(task.created_by.mobile)
-            if creator_mobile:
-                mobiles.add(creator_mobile)
-
-        if notify_type == 'error':
-            mobiles.update(self._collect_oncall_developer_mobiles())
-
-        return sorted(mobiles)
+    def _creator_display_name(self, task):
+        """创建人显示名：db 后端为本地用户名；http 后端 RemoteRecord 无
+        created_by 关系（getattr 默认值兼容），退化为 created_by_user_id。"""
+        creator = getattr(task, "created_by", None)
+        if creator is not None and getattr(creator, "username", None):
+            return creator.username
+        return str(getattr(task, "created_by_user_id", None) or "").strip() or "系统/未知"
 
     def send_task_notification(self, task_id, notify_type='error', summary=None, detail_url=None):
         task_id = str(task_id or '').strip()
@@ -170,8 +139,7 @@ class DingTalkNotifier:
             summary_text = task.error_message if notify_type == 'error' else '任务执行完成'
 
         status_label = '执行成功' if notify_type == 'success' else '执行失败'
-        creator_name = task.created_by.username if task.created_by else '系统/未知'
-        mobiles = self._collect_at_mobiles(task, notify_type)
+        creator_name = self._creator_display_name(task)
         payload = {
             "msgtype": "markdown",
             "markdown": {
@@ -188,21 +156,16 @@ class DingTalkNotifier:
                     ],
                     summary=summary_text,
                     detail_url=target_url,
-                    at_mobiles=mobiles,
                 ),
             },
             "at": {"isAtAll": False},
         }
         logger.info(
-            "准备发送钉钉通知: task_id=%s notify_type=%s creator=%s creator_mobile=%s at_mobiles=%s",
+            "准备发送钉钉通知: task_id=%s notify_type=%s creator=%s",
             task_id or 'unknown',
             notify_type,
-            task.created_by.username if task and task.created_by else None,
-            self._mask_mobile(task.created_by.mobile if task and task.created_by else None),
-            [self._mask_mobile(mobile) for mobile in mobiles],
+            creator_name,
         )
-        if mobiles:
-            payload["at"]["atMobiles"] = mobiles
         return self.send_message(payload)
 
     def send_message(self, data):

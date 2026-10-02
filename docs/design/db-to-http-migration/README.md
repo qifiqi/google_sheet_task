@@ -96,8 +96,11 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 
 - `navigation_repository`：导航菜单表远端不存在；本地保留（菜单展示已改走远端路由表，本地表仅存历史数据）。
 - `auth_repository`：用户/角色/权限管理上收主 Web；本地实现仅服务 db 模式。
-- ⚠️ `utils/ding_talk_notifier.py` 的值班用户取数（`list_alert_oncall_active_entities`）读本地 User 表：
-  纯 http 部署下本地用户表不再维护，钉钉告警收件人会失效，需改从主 Web 接口取值班名单（待办）。
+- ~~`utils/ding_talk_notifier.py` 的值班用户取数（`list_alert_oncall_active_entities`）读本地 User 表~~
+  **已解决（2026-10-02）**：@ 手机号机制整体移除（值班开发者 + 任务创建人手机号），告警只发
+  机器人 webhook 群消息；创建人显示在 http 后端退化为 `created_by_user_id`（db 后端保持用户名，
+  `getattr` 默认值兼容 RemoteRecord 无 `created_by` 关系）。后续如需恢复 @ 人，从主 Web 接口取
+  值班名单（并入 §8 路线）。
 
 ## 7. 测试
 
