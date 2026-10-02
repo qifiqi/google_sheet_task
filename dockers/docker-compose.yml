@@ -30,6 +30,27 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    depends_on:
+      - redis
+
+  # Redis 裁决层（db-to-http 迁移 §8.1）：串行化 http 后端读-改-写临界区
+  # （任务状态机/Sheet 占用/token 计数/回测与调度锁）。仅存进程间锁，
+  # 不落盘（TTL 兜底防死锁，重启清空无影响）；仅 docker 内网可达，不暴露宿主端口。
+  # 应用侧在 dockers/.env 配置 REDIS_URL=redis://redis:6379/0（留空则直通退化）。
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 #    depends_on:
 #      postgres:
 #        condition: service_healthy

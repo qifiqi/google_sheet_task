@@ -17,6 +17,7 @@ from app.repositories.http_backend.base import (
     dump_row,
 )
 from app.remote_api import RemoteApiNotFoundError
+from app.adjudication import get_arbiter
 
 
 # 与本地模型/服务层任务状态字面量一致（task 状态机全集）。
@@ -69,14 +70,16 @@ class TaskHttpRepository(HttpRepositoryBase):
     def _conditional_transition(self, task_id, expect_status, fields) -> int:
         """读-改-写状态迁移；命中返回 1，否则 0。
 
-        TODO(db-to-http): 远端无条件更新端点，本方法存在并发竞态窗口；
-        Redis 裁决层接入后由分布式锁保证互斥（迁移文档 §状态机语义）。
+        已接入 Redis 裁决层（app/adjudication，2026-10-02）：临界区经任务级
+        互斥串行化，消除并发竞态窗口；REDIS_URL 未配置时直通退化（等价原
+        读-改-写语义）。远端条件更新端点（E1）落地后可整体替换为 CAS。
         """
-        row = self._get_raw(task_id)
-        if row is None or row.get("status") != expect_status:
-            return 0
-        self.save({**row, **fields})
-        return 1
+        with get_arbiter().mutex(f"task:{task_id}:state", ttl_seconds=15):
+            row = self._get_raw(task_id)
+            if row is None or row.get("status") != expect_status:
+                return 0
+            self.save({**row, **fields})
+            return 1
 
     def _filtered_page(self, *, task_type=None, task_types=None, status=None,
                        keyword=None, created_from=None, page_index=1, page_size=200,
@@ -265,21 +268,29 @@ class TaskHttpRepository(HttpRepositoryBase):
         return rows
 
     def mark_running_if_not_running(self, task_id, start_time, commit=True):
-        """原子置 running（非 running 状态才生效）；返回 1/0。"""
-        row = self._get_raw(task_id)
-        if row is None or row.get("status") == "running":
-            return 0
-        self.save({**row, "status": "running",
-                   "start_time": start_time.isoformat() if hasattr(start_time, "isoformat") else start_time})
-        return 1
+        """原子置 running（非 running 状态才生效）；返回 1/0。
+
+        已接入 Redis 裁决层：任务级互斥串行化读-改-写窗口。
+        """
+        with get_arbiter().mutex(f"task:{task_id}:state", ttl_seconds=15):
+            row = self._get_raw(task_id)
+            if row is None or row.get("status") == "running":
+                return 0
+            self.save({**row, "status": "running",
+                       "start_time": start_time.isoformat() if hasattr(start_time, "isoformat") else start_time})
+            return 1
 
     def revert_running_to_pending(self, task_id, commit=True):
-        """启动失败回退：running → pending 并清 start_time。"""
-        row = self._get_raw(task_id)
-        if row is None or row.get("status") != "running":
-            return 0
-        self.save({**row, "status": "pending", "start_time": None})
-        return 1
+        """启动失败回退：running → pending 并清 start_time。
+
+        已接入 Redis 裁决层：任务级互斥串行化读-改-写窗口。
+        """
+        with get_arbiter().mutex(f"task:{task_id}:state", ttl_seconds=15):
+            row = self._get_raw(task_id)
+            if row is None or row.get("status") != "running":
+                return 0
+            self.save({**row, "status": "pending", "start_time": None})
+            return 1
 
     def mark_running_if_pending(self, task_id, start_time=None, commit=True):
         """仅当任务处于 pending 时置为 running。"""

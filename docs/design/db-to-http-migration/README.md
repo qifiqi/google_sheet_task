@@ -112,6 +112,13 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 
 ## 8. 后续工作
 
-1. **Redis 裁决层**：互斥锁（状态机/占用/锁）迁移到 Redis SETNX+TTL+续期，替换 §6.1 的读-改-写退化；启动期清理本应用锁命名空间（替代 startup 占用重置语义）。
+1. ~~**Redis 裁决层**：互斥锁（状态机/占用/锁）迁移到 Redis SETNX+TTL+续期，替换 §6.1 的读-改-写退化~~
+   **已实施（2026-10-02）**：`app/adjudication.py`（SET NX EX + Lua 校验释放 + 启动命名空间清理）。
+   落地形态与原设想的差异：**只串行化秒级读-改-写临界区**（持久状态仍在远端行，Redis 锁不承载
+   业务语义，TTL 兜底防死锁），因此不需要长持锁与续期；已接入 §6.1 的状态机 CAS ×3、Sheet
+   占用 ×2、token 计数回写 ×1、回测锁 ×3、调度锁 ×2（共 11 处，原 TODO 标注同步改写）。
+   `REDIS_URL` 未配置时直通退化（等价单 worker 现状）；部署见 `dockers/docker-compose.yml`
+   redis 服务与 `dockers/.env.example`。远端条件更新端点（E1）落地后，相关临界区可整体
+   替换为 CAS，届时 Redis 仅剩跨副本兜底职责。
 2. **远端增量端点建议**（按收益排序）：条件更新（CAS）、按 task_id 批量删除、聚合统计（count/sum/group by）、join 查询（task+result）、批量 ids 查询——**已整理为接口需求规格：[02-remote-incremental-endpoints.md](02-remote-incremental-endpoints.md)**（含请求/响应 DTO、消费方映射与实施顺序）。
 3. 迁移稳定后删除 `DATA_ACCESS_MODE=db` 回退与本地 ORM 仓储（含 models），完成"无兼容层"收口。

@@ -1,13 +1,14 @@
 """ScheduledTask HTTP 仓储（本地对应 app/repositories/scheduled_task_repository.py）。
 
 远端 param_scheduled_tasks 分页无过滤字段；定时任务表行数小，统一全量拉取 +
-本地筛选。acquire/release 运行锁为读-改-写（TODO Redis 裁决层）。
+本地筛选。acquire/release 运行锁已接入 Redis 裁决层（app/adjudication，2026-10-02）。
 """
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 
+from app.adjudication import get_arbiter
 from app.exceptions import NotFoundError
 from app.repositories.http_backend.base import (
     HttpRepositoryBase,
@@ -116,31 +117,36 @@ class ScheduledTaskHttpRepository(HttpRepositoryBase):
 
         stale_before 提供时，is_running 为真但 last_run_time 缺失或早于该时刻的
         陈旧锁允许被接管。
-        TODO(db-to-http): 读-改-写窗口存在并发竞态；调度器单线程触发时窗口
-        不构成实际风险，多实例部署前须接入 Redis 裁决层。
+        已接入 Redis 裁决层：任务级互斥消除读-改-写竞态（多实例部署安全）；
+        REDIS_URL 未配置时直通退化（调度器单线程窗口可控）。
         """
-        row = self.get(task_id)
-        if row is None:
-            return 0
-        if self._as_bool(row.get("is_running")):
-            last_run = self._parse_dt(row.get("last_run_time"))
-            if stale_before is None or (last_run is not None and last_run >= stale_before):
+        with get_arbiter().mutex(f"sched:{task_id}:run", ttl_seconds=30):
+            row = self.get(task_id)
+            if row is None:
                 return 0
-        saved = self.save({
-            **row,
-            "is_running": True,
-            "running_instance_id": instance_id,
-            "last_run_time": now.isoformat() if isinstance(now, datetime) else now,
-        })
-        return 1 if saved is not None else 0
+            if self._as_bool(row.get("is_running")):
+                last_run = self._parse_dt(row.get("last_run_time"))
+                if stale_before is None or (last_run is not None and last_run >= stale_before):
+                    return 0
+            saved = self.save({
+                **row,
+                "is_running": True,
+                "running_instance_id": instance_id,
+                "last_run_time": now.isoformat() if isinstance(now, datetime) else now,
+            })
+            return 1 if saved is not None else 0
 
     def release_run_lock(self, task_id, instance_id, commit=True):
-        """按实例释放运行锁。"""
-        row = self.get(task_id)
-        if row is None or row.get("running_instance_id") != instance_id:
-            return 0
-        self.save({**row, "is_running": False, "running_instance_id": None})
-        return 1
+        """按实例释放运行锁。
+
+        已接入 Redis 裁决层：与 acquire_run_lock 同名互斥，防止释放与获取交错。
+        """
+        with get_arbiter().mutex(f"sched:{task_id}:run", ttl_seconds=30):
+            row = self.get(task_id)
+            if row is None or row.get("running_instance_id") != instance_id:
+                return 0
+            self.save({**row, "is_running": False, "running_instance_id": None})
+            return 1
 
     def update_next_run(self, task_id, next_run_time, commit=True):
         """仅更新下次执行时间（add_job 场景，不计执行次数）。"""

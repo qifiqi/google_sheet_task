@@ -14,6 +14,7 @@ from app.repositories.http_backend.base import (
     normalize_bool_fields,
 )
 from app.remote_api import RemoteApiNotFoundError
+from app.adjudication import get_arbiter
 
 
 class GoogleSheetHttpRepository(HttpRepositoryBase):
@@ -81,32 +82,39 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
     def occupy(self, sheet_id, task_id, commit=True):
         """任务占用 Sheet：同任务幂等；成功返回占用后的 dict，占用校验失败返回 None。
 
-        TODO(db-to-http): 远端无条件更新端点，此处读-改-写存在并发竞态窗口；
-        待 Redis 裁决层接入后由分布式锁保证互斥（迁移文档 §占用语义）。
+        已接入 Redis 裁决层（app/adjudication，2026-10-02）：Sheet 级互斥串行化
+        读-改-写窗口；REDIS_URL 未配置时直通退化。远端条件更新端点（E1）落地后
+        可整体替换为 CAS。
         """
-        row = self.get(sheet_id)
-        if row is None:
-            return None
-        if row.get("current_task_id") == task_id:
-            if not row.get("is_in_use"):
-                row = self.save({**row, "is_in_use": True})
-            return row
-        updated = self.save({**row, "is_in_use": True, "current_task_id": task_id})
-        # 对齐原语义：提交后复核，防止读到过期状态。
-        fresh = self.get(sheet_id)
-        if fresh is None or not fresh.get("is_in_use") or fresh.get("current_task_id") != task_id:
-            return None
-        return fresh if fresh is not None else updated
+        with get_arbiter().mutex(f"sheet:{sheet_id}:occupy", ttl_seconds=30):
+            row = self.get(sheet_id)
+            if row is None:
+                return None
+            if row.get("current_task_id") == task_id:
+                if not row.get("is_in_use"):
+                    row = self.save({**row, "is_in_use": True})
+                return row
+            updated = self.save({**row, "is_in_use": True, "current_task_id": task_id})
+            # 对齐原语义：提交后复核，防止读到过期状态。
+            fresh = self.get(sheet_id)
+            if fresh is None or not fresh.get("is_in_use") or fresh.get("current_task_id") != task_id:
+                return None
+            return fresh if fresh is not None else updated
 
     def release_by_task(self, task_id, commit=True):
-        """按任务释放其占用的全部 Sheet；返回受影响行数。"""
-        rows = self.list_all({"task_id": task_id})
-        updated = 0
-        for row in rows:
-            if row.get("current_task_id") == task_id:
-                self.save({**row, "is_in_use": False, "current_task_id": None})
-                updated += 1
-        return updated
+        """按任务释放其占用的全部 Sheet；返回受影响行数。
+
+        已接入 Redis 裁决层：任务级互斥串行化释放遍历；行级
+        current_task_id 校验保持（防误释放他任务占用）。
+        """
+        with get_arbiter().mutex(f"sheet:release-by-task:{task_id}", ttl_seconds=60):
+            rows = self.list_all({"task_id": task_id})
+            updated = 0
+            for row in rows:
+                if row.get("current_task_id") == task_id:
+                    self.save({**row, "is_in_use": False, "current_task_id": None})
+                    updated += 1
+            return updated
 
     # ---- CRUD ----
 

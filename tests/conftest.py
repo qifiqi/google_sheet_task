@@ -18,6 +18,9 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ.setdefault("DATA_ACCESS_MODE", "db")
 os.environ["STOCK_BASE_URL"] = ""
 os.environ.pop("STOCK_API_TOKEN", None)
+# Redis 裁决层同样防直连：测试固定直通模式（REDIS_URL 为空），需要真实/替身
+# 仲裁器的用例在用例内经 configure_arbiter 注入。
+os.environ["REDIS_URL"] = ""
 
 from app.utils import ttl_cache
 

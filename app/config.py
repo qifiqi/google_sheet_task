@@ -93,6 +93,10 @@ class BaseConfig:
     # http（默认，数据层全量走远程 DY.Stock.Api）或 db（本地 SQLAlchemy）。
     # 仅启动期读取，不做运行时热切换；db 模式为暂时保留的本地回退。
     DATA_ACCESS_MODE = os.environ.get('DATA_ACCESS_MODE', 'http').strip().lower()
+    # Redis 裁决层（app/adjudication.py）：串行化 http 后端读-改-写临界区
+    # （状态机 CAS/占用/锁）。REDIS_URL 为空时直通退化（等价单 worker 现状）。
+    REDIS_URL = ''
+    REDIS_NAMESPACE = 'arb:gstask'
     # 远程数据服务凭据与超时（app/remote_api/client.py 统一调用器消费）。
     # Token 只能来自环境变量/密钥服务，禁止写入源码。
     STOCK_API_TOKEN = os.environ.get('STOCK_API_TOKEN', '')
@@ -139,6 +143,9 @@ class BaseConfig:
         # 远程数据服务 DY.Stock.Api（app/remote_api 统一调用器）的服务地址，
         # 单一来源：环境变量 STOCK_BASE_URL；未配置时远程数据访问不可用。
         cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
+        # Redis 裁决层配置镜像（实际读取在 app/adjudication.py，环境变量单一来源）。
+        cls.REDIS_URL = os.environ.get('REDIS_URL', '')
+        cls.REDIS_NAMESPACE = os.environ.get('REDIS_NAMESPACE', 'arb:gstask')
         # 主服务 SSO 配置：环境变量可覆盖默认值（多环境部署指向不同主服务）。
         cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)
         cls.SSO_MAIN_VERIFY_URL = os.environ.get(

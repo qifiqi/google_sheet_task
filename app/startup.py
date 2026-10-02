@@ -771,6 +771,11 @@ def _recover_runtime_resources():
     reset_google_sheet_token_occupancy()
     reset_google_sheet_occupancy()
     cleanup_stale_backtest_sheet_run_locks()
+    # Redis 裁决层锁命名空间清理（db-to-http §8.1）：清掉上一个进程的残留
+    # 裁决锁（正常退出已释放，异常退出靠 TTL 兜底，这里立即清）。REDIS_URL
+    # 未配置时为直通 no-op；多副本共库经 REDIS_NAMESPACE 隔离互不影响。
+    from app.adjudication import get_arbiter
+    get_arbiter().namespace_reset()
 
 
 def _start_background_components(app):

@@ -2,14 +2,15 @@
 BacktestSheetRunLock / XplAnalysisJobs（本地对应 app/repositories/backtest_repository.py）。
 
 窗口函数（dedupe_best_per_task / page_summary_index 的 best_per_stock）远端无
-等价端点，退化为过滤拉取 + 本地分组去重；acquire/release 锁语义保留读-改-写
-（TODO Redis 裁决层）。所有窗口/锁方法均带 TODO 标注。
+等价端点，退化为过滤拉取 + 本地分组去重；acquire/release 锁与幂等插入已接入
+Redis 裁决层（app/adjudication，2026-10-02）。窗口类方法仍带 TODO 标注。
 """
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 
+from app.adjudication import get_arbiter
 from app.repositories.http_backend.base import (
     HttpRepositoryBase,
     RemoteRecord,
@@ -407,17 +408,18 @@ class BacktestHttpRepository(HttpRepositoryBase):
     def insert_product_cache_if_absent(self, batch_id, cache_key, fields, commit=True):
         """已存在则跳过（不覆盖），返回是否新插入。
 
-        TODO(db-to-http): 读-改-写幂等窗口；同 batch 并发写入时依赖远端
-        唯一约束兜底（DuplicateKey 判失败），无约束时可能重复插入。
+        已接入 Redis 裁决层：同 batch 写入互斥消除幂等窗口；远端唯一约束
+        （DuplicateKey 判失败）兜底保留。
         """
-        if self.exists_product_cache(batch_id, cache_key):
-            return False
-        payload = {"batch_id": batch_id, "cache_key": cache_key, **fields}
-        try:
-            self.api.param_backtest_product_result_cache.modify_or_add(dump_row(payload))
-        except RemoteApiDuplicateKeyError:
-            return False
-        return True
+        with get_arbiter().mutex(f"btcache:{batch_id}", ttl_seconds=30):
+            if self.exists_product_cache(batch_id, cache_key):
+                return False
+            payload = {"batch_id": batch_id, "cache_key": cache_key, **fields}
+            try:
+                self.api.param_backtest_product_result_cache.modify_or_add(dump_row(payload))
+            except RemoteApiDuplicateKeyError:
+                return False
+            return True
 
     # ---- BacktestSheetRunLock（acquire/release 语义红线） ----
 
@@ -434,41 +436,46 @@ class BacktestHttpRepository(HttpRepositoryBase):
         - 同任务已持锁 → (True, None)（幂等）；
         - 他任务持锁 → (False, 该任务 id)；
         - 无锁 → 插入行；唯一约束冲突（并发竞态）→ 复查后判失败。
-        TODO(db-to-http): 读-改-写窗口存在双持锁竞态；Redis 裁决层接入前，
-        单实例执行链串行调用可接受。
+        已接入 Redis 裁决层：Sheet 级互斥消除双持锁竞态窗口（持久锁行仍在
+        远端表，Redis 只串行化本临界区）；REDIS_URL 未配置时直通退化。
         """
         if not spreadsheet_id:
             return True, None
-        existing = self.get_lock(spreadsheet_id)
-        if existing is not None:
-            if existing.get("task_id") == task_id:
-                return True, None
-            return False, existing.get("task_id")
-        try:
-            self.api.param_backtest_sheet_run_locks.modify_or_add(dump_row({
-                "spreadsheet_id": spreadsheet_id,
-                "task_id": task_id,
-                "task_type": task_type,
-            }))
-        except RemoteApiDuplicateKeyError:
+        with get_arbiter().mutex(f"btlock:{spreadsheet_id}", ttl_seconds=30):
             existing = self.get_lock(spreadsheet_id)
-            return False, existing.get("task_id") if existing else None
-        return True, None
+            if existing is not None:
+                if existing.get("task_id") == task_id:
+                    return True, None
+                return False, existing.get("task_id")
+            try:
+                self.api.param_backtest_sheet_run_locks.modify_or_add(dump_row({
+                    "spreadsheet_id": spreadsheet_id,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                }))
+            except RemoteApiDuplicateKeyError:
+                existing = self.get_lock(spreadsheet_id)
+                return False, existing.get("task_id") if existing else None
+            return True, None
 
     def release_lock(self, spreadsheet_id, task_id, commit=True):
-        """仅持锁任务可释放；返回是否实际删除。"""
+        """仅持锁任务可释放；返回是否实际删除。
+
+        已接入 Redis 裁决层：与 acquire_lock 同名互斥，防止释放与获取交错。
+        """
         if not spreadsheet_id:
             return False
-        lock = self.get_lock(spreadsheet_id)
-        if not lock:
-            return False
-        if lock.get("task_id") != task_id:
-            return False
-        try:
-            self.api.param_backtest_sheet_run_locks.delete({"id": self.normalize_id(lock["id"])})
-        except RemoteApiNotFoundError:
-            return False
-        return True
+        with get_arbiter().mutex(f"btlock:{spreadsheet_id}", ttl_seconds=30):
+            lock = self.get_lock(spreadsheet_id)
+            if not lock:
+                return False
+            if lock.get("task_id") != task_id:
+                return False
+            try:
+                self.api.param_backtest_sheet_run_locks.delete({"id": self.normalize_id(lock["id"])})
+            except RemoteApiNotFoundError:
+                return False
+            return True
 
     def release_locks_by_task(self, task_id, commit=True):
         """按任务清其持有的全部锁；返回删除行数。"""

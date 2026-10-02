@@ -14,6 +14,7 @@ from app.repositories.http_backend.base import (
     normalize_bool_fields,
 )
 from app.remote_api import RemoteApiNotFoundError
+from app.adjudication import get_arbiter
 
 
 class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
@@ -32,17 +33,18 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
     def apply_in_use_counts(self, usage: dict, commit=True) -> int:
         """按主键回写 current_in_use_count（对账）；返回更新的行数。
 
-        TODO(db-to-http): 读-改-写窗口存在并发竞态；Redis 裁决层接入后由
-        分布式锁保证互斥（迁移文档 §占用语义）。
+        已接入 Redis 裁决层（app/adjudication，2026-10-02）：对账遍历全局
+        互斥，消除计数回写竞态；REDIS_URL 未配置时直通退化。
         """
-        updated = 0
-        for token_id, count in (usage or {}).items():
-            row = self.get(int(token_id))
-            if row is None:
-                continue
-            self.save({**row, "current_in_use_count": int(count)})
-            updated += 1
-        return updated
+        with get_arbiter().mutex("gsheet-token:in-use-counts", ttl_seconds=60):
+            updated = 0
+            for token_id, count in (usage or {}).items():
+                row = self.get(int(token_id))
+                if row is None:
+                    continue
+                self.save({**row, "current_in_use_count": int(count)})
+                updated += 1
+            return updated
 
     def list_entities_ordered(self, task_type=None):
         """list_tokens 的实体形态（服务层转 dict）。
