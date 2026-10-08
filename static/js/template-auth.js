@@ -62,6 +62,31 @@
         return localStorage.getItem(REFRESH_KEY) || "";
     }
 
+    // 解析 access token（JWT）的 exp，换算 cookie Max-Age，使 cookie 与 localStorage
+    // 同生命周期。此前 cookie 是会话级：浏览器重启后 cookie 消失而 localStorage 里的
+    // token 仍有效，登录页据 localStorage 自动跳转、页面守卫（page_login_required）
+    // 据 cookie 鉴权并 302 弹回 → /login ↔ 目标页无限刷新循环，登录无法进行
+    // （2026-10 实测踩坑，清空站点数据可临时解除）。解析失败返回 null，保持原
+    // 会话 cookie 行为，绝不写 Max-Age=0（会误删 cookie）。
+    function getAccessTokenMaxAgeSeconds(accessToken) {
+        try {
+            const payloadPart = accessToken.split(".")[1];
+            if (!payloadPart) {
+                return null;
+            }
+            let base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+            base64 += "=".repeat((4 - (base64.length % 4)) % 4);
+            const bytes = Uint8Array.from(atob(base64), function (ch) { return ch.charCodeAt(0); });
+            const payload = JSON.parse(new TextDecoder().decode(bytes));
+            if (typeof payload.exp !== "number") {
+                return null;
+            }
+            return Math.max(Math.floor(payload.exp - Date.now() / 1000), 0);
+        } catch (_error) {
+            return null;
+        }
+    }
+
     function setTokens(accessToken, refreshToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
@@ -70,9 +95,11 @@
             // 名字须与后端 ACCESS_TOKEN_COOKIE(gsc_access_token) 一致：cookie 不按
             // 端口隔离，通用名会被本机其他服务的同名（HttpOnly）cookie 顶死。
             const securePart = window.location.protocol === "https:" ? "; Secure" : "";
+            const maxAge = getAccessTokenMaxAgeSeconds(accessToken);
+            const maxAgePart = maxAge !== null && maxAge > 0 ? "; Max-Age=" + maxAge : "";
             document.cookie =
                 "gsc_access_token=" + encodeURIComponent(accessToken) +
-                "; path=/; SameSite=Lax" + securePart;
+                "; path=/; SameSite=Lax" + securePart + maxAgePart;
         }
         if (refreshToken) {
             localStorage.setItem(REFRESH_KEY, refreshToken);
@@ -710,6 +737,33 @@
         return trimmed;
     }
 
+    // 登录页防弹跳护栏：从登录页跳往 next 后，若被页面守卫再次 302 弹回
+    // （cookie 通道失效而 localStorage 有效、同名 HttpOnly cookie 顶死等），
+    // 10 秒内不再自动跳转，保留登录表单——否则“/login 自动跳转 → 守卫弹回”
+    // 会形成无限刷新循环，登录无法进行（2026-10 实测踩坑）。sessionStorage
+    // 不可用（隐私模式等）时护栏退化为不生效，仅回到无护栏现状。
+    const LOGIN_BOUNCE_KEY = "templateLoginBounceAt";
+    const LOGIN_BOUNCE_WINDOW_MS = 10000;
+
+    function canAutoLeaveLogin() {
+        let last = 0;
+        try {
+            last = Number(sessionStorage.getItem(LOGIN_BOUNCE_KEY) || 0);
+        } catch (_error) {
+            return true;
+        }
+        return !(last && Date.now() - last < LOGIN_BOUNCE_WINDOW_MS);
+    }
+
+    function leaveLoginForNext() {
+        try {
+            sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
+        } catch (_error) {
+            // 标记失败仅失去护栏，不阻断跳转
+        }
+        window.location.replace(getLoginNextUrl());
+    }
+
     // 主服务 SSO 换票（docs/design/sso-integration-2026-09/）：
     // /login#sso_token=<主服务Token> → POST /api/auth/sso/exchange（Token 走 header，
     // 不进 URL/访问日志）→ 复用 setTokens 管线。fragment 不发给服务端、不进
@@ -764,17 +818,22 @@
         // 换票。注意：同一浏览器先后被不同主服务账号使用时，复用会话会沿用上一
         // 次换票得到的本地身份。
         const ssoToken = consumeSsoTokenFromHash();
-        if (getToken()) {
+        if (!canAutoLeaveLogin()) {
+            // 刚发生过一轮“跳转 → 被守卫弹回”：停止自动跳转并给出可行动的提示，
+            // 不再继续闪屏循环。
+            errorBox.textContent = "登录跳转被页面鉴权拦回（浏览器 Cookie 与本地登录状态不一致），请重新登录；若反复出现，请清理浏览器缓存后重试。";
+            errorBox.classList.remove("d-none");
+        } else if (getToken()) {
             fetchCurrentUser()
                 .then(() => {
-                    window.location.replace(getLoginNextUrl());
+                    leaveLoginForNext();
                 })
                 .catch(() => {
                     clearAuthState();
                     if (ssoToken) {
                         performSsoExchange(ssoToken)
                             .then(() => {
-                                window.location.replace(getLoginNextUrl());
+                                leaveLoginForNext();
                             })
                             .catch((error) => {
                                 errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
@@ -785,7 +844,7 @@
         } else if (ssoToken) {
             performSsoExchange(ssoToken)
                 .then(() => {
-                    window.location.replace(getLoginNextUrl());
+                    leaveLoginForNext();
                 })
                 .catch((error) => {
                     errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
@@ -815,7 +874,7 @@
                 setTokens(data.access_token, data.refresh_token);
                 currentUser = data.user || null;
                 currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : [];
-                window.location.replace(getLoginNextUrl());
+                leaveLoginForNext();
             } catch (error) {
                 errorBox.textContent = error.message || "登录失败，请检查用户名和密码";
                 errorBox.classList.remove("d-none");
