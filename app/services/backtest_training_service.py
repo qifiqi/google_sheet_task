@@ -335,9 +335,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
 
-            total_combinations = 0
-            precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
-
             # 行情数据和参数组合在执行前一次性预计算，避免每个组合重复请求行情接口。
             combinations, column_A_length,kline_data_map = self._get_all_parameters(
                 full_years,
@@ -353,8 +350,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 include_ohlc=is_c7_0_3,
                 data_source=config_data.get("kline_data_source", "akshare"),
             )
-            precomputed_params.append((combinations, column_A_length,kline_data_map))
-            total_combinations += len(combinations)
+            total_combinations = len(combinations)
             # 更新任务总步数
             task.total_steps = total_combinations
             task_result_repository.commit_with_retry()
@@ -393,7 +389,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
-            for outer_idx, (combinations, column_A_length,kline_data_map) in enumerate(precomputed_params):
+            # 外层保留单元素循环结构以复用既有缩进块（历史上支持多段参数，现仅一段）
+            for combinations, column_A_length, kline_data_map in ((combinations, column_A_length, kline_data_map),):
                 for combination in combinations:
                     if self._is_cancel_requested():
                         return success_count, failed_count, 'cancelled'

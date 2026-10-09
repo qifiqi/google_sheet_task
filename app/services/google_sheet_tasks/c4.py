@@ -295,9 +295,7 @@ class C4Service(BaseGoogleSheetService):
             kline = combination['kline']
             # 准备要更新的单元格
             for i in range(len(kline)):
-                item = {}
-                if i <= len(kline):
-                    item = kline[i]
+                item = kline[i]
                 cell_num = i + 2
                 cell_A = f"{c4_input_column_a}{cell_num}"
                 cell_B = f"{c4_input_column_b}{cell_num}"

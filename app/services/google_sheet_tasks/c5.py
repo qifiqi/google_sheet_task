@@ -118,9 +118,7 @@ class C5Service(BaseGoogleSheetService):
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
-                        item = {}
-                        if i <= _kline_len:
-                            item = kline[i]
+                        item = kline[i]
                         cell_num = i + 2
                         cell_A = f"{c5_input_column_a}{cell_num}"
                         cell_B = f"{c5_input_column_b}{cell_num}"
@@ -157,13 +155,6 @@ class C5Service(BaseGoogleSheetService):
                     return False
                 c5_check_positions_c_v = check_values.get(":".join(c5_check_positions))
                 c5_output_range_1_c_v = check_values.get(c5_output_range_1)
-                # for position, value in check_values.items():
-                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                #         return False
-                #     if 'target' in str(value).lower():
-                #         return False
-                _check_values = initial_results[spreadsheet_id]
-
                 if (c5_parameter_1.strip() != c5_check_positions_c_v.get(c5_check_positions[0]).strip()
                         and c5_parameter_2.strip() != c5_check_positions_c_v.get(c5_check_positions[1]).strip()):
                     # 校验参数是否成功响应

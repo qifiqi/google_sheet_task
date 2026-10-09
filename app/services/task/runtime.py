@@ -21,9 +21,9 @@ from app.services.backtest_multi_product_service import BacktestMultiProductServ
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_tasks.c3 import C3Service
-from app.services.google_sheet_tasks.c4 import C4Service as C4Service
+from app.services.google_sheet_tasks.c4 import C4Service
 from app.services.google_sheet_tasks.c5 import C5Service
-from app.services.google_sheet_tasks.c7 import C7Service as C7Service
+from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
