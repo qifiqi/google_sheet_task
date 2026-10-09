@@ -24,14 +24,6 @@ class TaskRepository(BaseRepository):
             raise NotFoundError(f"任务不存在: {task_id}")
         return task_dict
 
-    def list_all(self, task_type=None, task_types=None):
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-        return [t.to_dict() for t in query.order_by(Task.created_at.desc()).all()]
-
     def get_latest_task_id_by_type(self, task_type, statuses=None):
         """指定类型的最近一个任务 id（created_at desc, id desc）；statuses 可选过滤；无则 None。"""
         query = Task.query.filter(Task.task_type == task_type)
@@ -292,24 +284,6 @@ class TaskRepository(BaseRepository):
 
     def count(self):
         return Task.query.count()
-
-    def count_by_status(self, status):
-        return Task.query.filter_by(status=status).count()
-
-    def summary_counts(self):
-        """admin 仪表盘四连 count 合并：{total, completed, running, error}。"""
-        return {
-            "total": self.count(),
-            "completed": self.count_by_status("completed"),
-            "running": self.count_by_status("running"),
-            "error": self.count_by_status("error"),
-        }
-
-    def list_recent(self, limit=10):
-        return [
-            t.to_dict()
-            for t in Task.query.order_by(Task.created_at.desc()).limit(limit).all()
-        ]
 
     def list_distinct_task_types(self):
         rows = db.session.query(Task.task_type).distinct().all()

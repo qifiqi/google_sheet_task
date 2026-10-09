@@ -343,7 +343,6 @@ class C7Service(BaseGoogleSheetService):
                     layout = sheet_layouts[google_sheet.spreadsheet_id]
                     initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(
                         layout["output_range_1"],
-                        # value_render_option="UNFORMATTED_VALUE",
                     )
 
                 for google_sheet in self.google_sheets:
@@ -429,7 +428,6 @@ class C7Service(BaseGoogleSheetService):
                     _result = {}
                     batch_results = google_sheet.get_ranges(
                        [output_range_1, ":".join(check_positions)]
-                        # value_render_option="UNFORMATTED_VALUE",
                     )
 
                     if _validate_check_values(batch_results, google_sheet.spreadsheet_id, layout):

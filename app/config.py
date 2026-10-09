@@ -18,7 +18,6 @@ BASE_DIR = Path(__file__).parent.parent
 INSTANCE_DIR = BASE_DIR / 'instance'  # SQLite 数据库目录。
 DATA_DIR = BASE_DIR / 'data'          # token、导入文件等运行时数据。
 LOGS_DIR = BASE_DIR / 'logs'          # 应用日志目录。
-CONFIG_DIR = BASE_DIR / 'config'      # 预留的配置文件目录。
 
 
 def _resolve_database_url(default_url):
@@ -59,7 +58,6 @@ class BaseConfig:
     INSTANCE_DIR = INSTANCE_DIR
     DATA_DIR = DATA_DIR
     LOGS_DIR = LOGS_DIR
-    CONFIG_DIR = CONFIG_DIR
     # 未设置 DATABASE_URL 时使用 instance/app.db，适合最小本地运行。
     DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "app.db"}'
     DEBUG = False

@@ -203,8 +203,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if task_status == 'cancelled':
                     # 任务被取消，保持cancelled状态
                     self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    # # 推送任务取消通知
-                    # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
                     return 'error'
@@ -906,11 +904,3 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     data.append(d)
 
         return data, len(all_kline) + 20,kline_data_map
-
-
-# soxx,qqq,spy
-# 权重不超过50，
-# 7.02-收盘价
-# return 22-25
-# 回撤 10% 以内
-# 20-25

@@ -19,53 +19,6 @@ logger = get_logger(__name__)
 
 
 class TextReturnAnalysisMixin:
-    def get_performance_analysis(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
-        """根据日期和日收益数据计算 绩效分析 指标。"""
-        if not data:
-            return {}
-
-        try:
-            # 转换为DataFrame便于计算
-            # Convert to DataFrame for calculation
-            df = pd.DataFrame(data)
-            df['date'] = pd.to_datetime(df[date])
-            df = df.sort_values('date')
-
-            # 1. 计算净值
-            # Calculate net value
-            df['net_value'] = 1 * (1 + df[val])
-
-            # 2. 提取年份信息
-            # Extract year and month information
-            df['year'] = df['date'].dt.year
-            df['month'] = df['date'].dt.month
-            df['year_month'] = df['date'].dt.strftime('%Y-%m')
-
-            # 计算月度收益率数据
-            # Calculate monthly return data
-            monthly_data = self.calculate_monthly_return_data(df)
-
-            # 创建月度收益率DataFrame
-            # Create monthly return DataFrame
-            monthly_df = pd.DataFrame(monthly_data)
-
-            # 记录数据范围信息
-            # Record data range information
-            start_date = df['date'].min()
-            end_date = df['date'].max()
-            total_months = len(monthly_df)
-
-            logger.info(f"数据时间范围/Data time range: {start_date.date()} 到/to {end_date.date()}")
-            logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
-            # 计算全部数据的夏普比率
-            # Calculate Sharpe ratio for all data
-            res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
-            return res
-
-        except Exception as e:
-            logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
-            return {}
-
     def analyze(self, data, time_format: str = 'auto', runtime_params=None,
                 include_series: bool = False) -> Dict[str, Any]:
         """

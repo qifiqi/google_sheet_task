@@ -105,12 +105,6 @@ class StrategyBacktestReportService:
                     {"type": "image", "title": title, "path": path, "caption": f"{title}（基于传入回测数据生成）"}
                     for title, path in chart_paths.items()
                 ],
-                # {"type": "heading", "text": "十、指标计算说明", "level": 1},
-                # {"type": "bullet_list", "items": [
-                #     "净值按每日收益率连续复合计算，月度与年度指标由 performance_analysis 统一计算。",
-                #     "超额收益按策略收益率减指数收益率计算。",
-                #     "市场下跌阶段和上涨阶段阈值通过 runtime_params 传入。",
-                # ]},
                 {"type": "heading", "text": "十、结论", "level": 1},
                 *[{"type": "paragraph", "text": text} for text in self._conclusion(runs, first_date, last_date)],
             ])
@@ -950,8 +944,6 @@ class StrategyBacktestReportService:
                     ["最大回撤(MDD)", *[self._pct(-self._num(value)) for value in index_drawdowns],
                      self._pct(-self._num(strategy_drawdown))],
                     ["最大回撤修复天数(年度最大)",
-                    #  self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
-                    #  self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
                     *[self._integer(max((m.get("year_index_yearly_max_repair_days") or {}).values(), default=0))
                       for m in metrics_list],
                     self._integer(max((strategy.get("year_start_yearly_max_repair_days") or {}).values(), default=0))],

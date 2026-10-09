@@ -204,7 +204,7 @@ def test_golden_multi_derive_metrics():
 
 def test_golden_report_query_extract_summary_rows():
     assert list(_extract_summary_rows(
-        json.loads(json.dumps(CALCULATE_METRICS)), "vTest")) == RQ_EXPECTED
+        json.loads(json.dumps(CALCULATE_METRICS)))) == RQ_EXPECTED
 
 
 def test_golden_extractor_backtest_summary_rows():

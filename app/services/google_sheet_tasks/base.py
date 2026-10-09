@@ -269,14 +269,6 @@ class BaseGoogleSheetService:
             step = kwargs.get('step', 0)
             total = kwargs.get('total', 0)
             return f"[Step {step}/{total}] {message}"
-        if log_type == 'progress':
-            percentage = kwargs.get('percentage', 0)
-            return f"[Progress {percentage:.1f}%] {message}"
-        if log_type == 'api':
-            action = kwargs.get('action', '')
-            details = kwargs.get('details', '')
-            base_msg = f"[API] {action}"
-            return f"{base_msg} - {details}" if details else base_msg
         if log_type == 'api_error':
             action = kwargs.get('action', '')
             error = kwargs.get('error', '')
@@ -1110,7 +1102,6 @@ class BaseGoogleSheetService:
         task_index: int,
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        # stock_code = (
         stock_code = str(task_name or "").strip()
 
         return {

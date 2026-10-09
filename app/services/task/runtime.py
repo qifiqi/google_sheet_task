@@ -427,22 +427,6 @@ class TaskRuntimeMixin:
             return False
 
         config_data = self._get_task_config_dict(task)
-        if self._is_backtest_task_type(task.task_type):
-            with self.backtest_sheet_start_lock:
-                spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
-                running_backtest = self._find_running_backtest_task_for_spreadsheets(
-                    spreadsheet_ids,
-                    exclude_task_id=task_id,
-                )
-                if running_backtest:
-                    error_msg = (
-                        "同一个 Google Sheet 已有回测任务正在运行，"
-                        f"当前任务保持待执行: {running_backtest.id}"
-                    )
-                    self.start_errors[task_id] = error_msg
-                    task_logger.info(error_msg)
-                    self.add_task_log(task_id, "info", error_msg)
-                    return False
 
         max_concurrent = int(self._get_config("max_concurrent_tasks", 20))
         if len(self.running_tasks) >= max_concurrent:

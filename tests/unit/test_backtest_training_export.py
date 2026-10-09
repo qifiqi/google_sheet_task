@@ -312,7 +312,7 @@ def test_single_global_preview_derives_year_max_excess_drawdown_with_string_year
         "excess_maximum_number_of_backtest_repair_days": 2,
     }
 
-    _period_text, rows = _extract_summary_rows(calculate_metrics, "C3")
+    _period_text, rows = _extract_summary_rows(calculate_metrics)
 
     drawdown_row = next(row for row in rows if row["metric"] == "年最大超额回撤")
     assert drawdown_row["model_value"] == "4.00%"
@@ -347,7 +347,7 @@ def test_single_global_preview_fallback_keeps_drawdown_values_negative(monkeypat
         lambda _payload: (_ for _ in ()).throw(RuntimeError("format failed")),
     )
 
-    _period_text, rows = _extract_summary_rows(calculate_metrics, "C3")
+    _period_text, rows = _extract_summary_rows(calculate_metrics)
 
     values = {row["metric"]: row["model_value"] for row in rows}
     assert values["年最大超额回撤"] == "4.00%"

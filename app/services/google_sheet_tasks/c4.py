@@ -282,7 +282,6 @@ class C4Service(BaseGoogleSheetService):
             c4_output_column_l = config_data.get('c4_output_column_l')
 
             for google_sheet in self.google_sheets:
-                # A_num = google_sheet.get_last_row('A')
                 A_num = column_A_length
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
                 google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
@@ -365,9 +364,7 @@ class C4Service(BaseGoogleSheetService):
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
                     _result = google_sheet.get_range(c4_output_range_1)
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
-                        # _result = check_result(_result)
                         _result_yearly = google_sheet.get_range(c4_output_range_2)
-                        # _result_yearly = check_result(google_sheet.get_range(c4_output_range_2))
                         _index_return = check_result(
                             google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
                         )

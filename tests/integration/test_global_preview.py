@@ -149,7 +149,7 @@ def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, mon
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("2024-01-01/2024-12-31", [{
+            lambda _metrics: ("2024-01-01/2024-12-31", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "5.00%", "model_value": "10.00%",
             }]),
         )
@@ -188,7 +188,7 @@ def test_c7_0_3_preview_uses_task_result_version_for_excess_return(app_factory, 
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("2024-01-01/2024-12-31", [{
+            lambda _metrics: ("2024-01-01/2024-12-31", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "", "model_value": "",
             }]),
         )
@@ -225,7 +225,7 @@ def test_c7_preview_prefers_sheet_metrics_for_excess_return(app_factory, monkeyp
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("2024-01-01/2024-12-31", [{
+            lambda _metrics: ("2024-01-01/2024-12-31", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "", "model_value": "",
             }]),
         )
@@ -265,7 +265,7 @@ def test_global_preview_upgrades_legacy_metric_aliases(app_factory, monkeypatch)
     with app.app_context():
         observed = {}
 
-        def summary_rows(metrics, _model_name):
+        def summary_rows(metrics):
             observed.update(metrics)
             return "", [{
                 "category": "夏普",
@@ -316,7 +316,7 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
     with app.app_context():
         observed = {}
 
-        def summary_rows(metrics, _model_name):
+        def summary_rows(metrics):
             observed.update(metrics)
             return "", [{
                 "category": "回撤",
@@ -378,7 +378,7 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("", [{
+            lambda _metrics: ("", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "", "model_value": "",
             }]),
         )
@@ -415,7 +415,7 @@ def test_c7_preview_falls_back_to_analyze_result_for_excess_return(app_factory, 
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("2024-01-01/2024-12-31", [{
+            lambda _metrics: ("2024-01-01/2024-12-31", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "", "model_value": "",
             }]),
         )
@@ -454,7 +454,7 @@ def test_c3_and_c5_preview_use_task_type_specific_metric_cells(app_factory, monk
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("", [{
+            lambda _metrics: ("", [{
                 "category": "绝对收益", "metric": "年化收益", "index_value": "", "model_value": "",
             }]),
         )
@@ -536,7 +536,7 @@ def test_global_preview_columns_carry_word_report_payload(app_factory, monkeypat
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("", []),
+            lambda _metrics: ("", []),
         )
         task, series = _add_word_export_preview_task("preview-word-payload")
 
@@ -563,7 +563,7 @@ def test_single_product_word_export_uses_selected_return_series(app_factory, mon
     with app.app_context():
         monkeypatch.setattr(
             "app.services.backtest_report_query_service._extract_summary_rows",
-            lambda _metrics, _model: ("", []),
+            lambda _metrics: ("", []),
         )
         task, series = _add_word_export_preview_task("preview-word-export")
 

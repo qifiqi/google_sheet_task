@@ -1,12 +1,4 @@
-"""进程内统一 TTL 缓存。
-
-服务于"重复请求代价高、结果在短窗口内稳定"的场景：内存侧提供通用
-TTLCache 引擎；Word 报告导出为磁盘缓存（data/word_export_cache/），
-跨进程重启仍然有效。
-
-说明：get_or_set 不做并发单飞，TTL 过期瞬间的并发请求可能各自执行
-一次 builder；生成型 builder 幂等且无副作用，可接受。
-"""
+"""Word 报告导出的磁盘 TTL 缓存（data/word_export_cache/），跨进程重启仍然有效。"""
 
 from __future__ import annotations
 
@@ -16,7 +8,6 @@ import os
 import shutil
 import threading
 import time
-from collections import OrderedDict
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -32,43 +23,6 @@ logger = get_logger(__name__)
 # Word 导出：任务重跑后同条件请求在 TTL 内会命中旧报告，取 10 分钟
 # 平衡重复导出的等待成本与数据新鲜度；仅缓存成功生成的结果。
 WORD_EXPORT_TTL_SECONDS = 10 * 60
-
-
-class TTLCache:
-    """带 TTL 与 LRU 容量上限的进程内键值缓存。"""
-
-    def __init__(self, max_entries: int = 128) -> None:
-        self._max_entries = max_entries
-        self._lock = threading.Lock()
-        # key → (取样时间, 值)；OrderedDict 维护访问序供 LRU 淘汰。
-        self._entries: OrderedDict[str, tuple[float, Any]] = OrderedDict()
-
-    def get_or_set(self, key: str, builder: Callable[[], Any], ttl_seconds: int) -> Any:
-        """命中且未过期直接返回；否则执行 builder 并缓存其结果。
-
-        builder 抛异常时不缓存任何内容，异常原样上抛（只缓存成功结果）。
-        """
-        now = time.monotonic()
-        with self._lock:
-            stamped = self._entries.get(key)
-            if stamped is not None:
-                stored_at, value = stamped
-                if now - stored_at <= ttl_seconds:
-                    self._entries.move_to_end(key)
-                    return value
-                del self._entries[key]
-        value = builder()
-        with self._lock:
-            self._entries[key] = (time.monotonic(), value)
-            self._entries.move_to_end(key)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
-        return value
-
-    def clear(self) -> None:
-        """清空全部缓存；测试隔离与强制刷新用。"""
-        with self._lock:
-            self._entries.clear()
 
 
 def word_export_cache_dir() -> Path:

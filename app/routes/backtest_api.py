@@ -164,22 +164,6 @@ def _build_excel_download_name(task_name, fallback_id: str) -> str:
     return f"{safe_name or fallback_id}.xlsx"
 
 
-def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
-    filename = _build_excel_download_name(task_name, fallback_id)
-    if filename not in used_names:
-        used_names.add(filename)
-        return filename
-
-    stem = filename[:-5]
-    index = 2
-    while True:
-        candidate = f"{stem}_{index}.xlsx"
-        if candidate not in used_names:
-            used_names.add(candidate)
-            return candidate
-        index += 1
-
-
 # ==================== bmp：Excel 导入 / 结果查询 / 全局预览 ====================
 
 

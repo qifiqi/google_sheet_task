@@ -18,11 +18,6 @@ from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import extract_return_rows, parse_return_series_fields
 from app.utils.value_parser import coerce_bool
 
-_EMPTY_RESULT_DATA: Dict[str, Any] = {"results": [], "metrics": {}}
-
-# 公开出口（routes 只允许引用公开符号；2026-09 审计 B3）
-EMPTY_RESULT_DATA = _EMPTY_RESULT_DATA
-
 
 # 组合枚举的规模上限。
 # 单次请求实际会枚举的组合数超过此值时直接拒绝，避免 CPU 长时间占用。
@@ -63,21 +58,6 @@ def _normalize_result(result: Dict[str, Any], *, include_series: bool = False) -
         "message": result.get("message", ""),
         "data": data,
     }
-
-
-def get_index_annualized_rates(metrics: dict[str, Any]) -> list[dict[str, Any]]:
-    """提取组合的指数年化收益率。"""
-    value = metrics.get("index_annualized_rates")
-    return value if isinstance(value, list) else []
-
-
-def get_start_max_drawdown(metrics: dict[str, Any]) -> Any:
-    """提取组合策略的总最大回撤。"""
-    drawdown = metrics.get("start_maximum_drawdown")
-    if not isinstance(drawdown, dict):
-        return None
-    total = drawdown.get("total_maximum_drawdown")
-    return total.get("drawdown") if isinstance(total, dict) else None
 
 
 def _year_max_drawdown(metrics: dict[str, Any], key: str) -> list[dict[str, Any]]:

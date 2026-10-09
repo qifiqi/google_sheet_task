@@ -67,17 +67,6 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
         index += 1
 
 
-def _sanitize_json_value(value):
-    """Convert NaN/Infinity values into JSON-safe nulls."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(val) for key, val in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
-    return value
-
-
 def _infer_backtest_model_version(config):
     if not isinstance(config, dict):
         return "c3"
@@ -713,18 +702,10 @@ def _with_excess_return_preview_row(summary_rows, column, calculate_metrics=None
     return rows
 
 
-def _extract_summary_rows(calculate_metrics, model_name):
+def _extract_summary_rows(calculate_metrics):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
     calculate_metrics = _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics)
-
-    def _normalize_display_value(value):
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        while text.startswith("--"):
-            text = text[1:]
-        return normalize_scientific_text(text)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
@@ -943,7 +924,7 @@ def _build_global_preview_payload_from_results(task, task_results):
             result_core,
             return_rows=_get_task_result_return_rows(task_result, return_series_by_id),
         )
-        period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
+        period_text, summary_rows = _extract_summary_rows(calculate_metrics)
         summary_rows = _with_excess_return_preview_row(
             summary_rows, column, calculate_metrics
         )

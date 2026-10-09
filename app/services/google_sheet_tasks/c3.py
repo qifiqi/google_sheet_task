@@ -539,7 +539,6 @@ class C3Service(BaseGoogleSheetService):
     def cell_kline_data(self,config_data):
         stock_code = config_data.get('stock_code', '')
         year_n = config_data.get('year_n', '1y')
-        # count_mode = config_data.get('count_mode', 'n_plus_1')
         price_mode = config_data.get('price_mode', 'vwap_price')
         end_date = config_data.get('end_date')
         market_type = config_data.get('market_type','cn')
@@ -644,9 +643,6 @@ class C3Service(BaseGoogleSheetService):
             cell_updates[cell_A] = stock_date
             cell_updates[cell_B] = stock_val
         self.google_sheet.update_jumped_cells(cell_updates)
-
-
-        pass
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""

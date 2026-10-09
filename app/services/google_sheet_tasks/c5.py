@@ -112,7 +112,6 @@ class C5Service(BaseGoogleSheetService):
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
                 elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
-                        # A_num = google_sheet.get_last_row('A')
                         A_num = column_A_length
                         self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                         google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
