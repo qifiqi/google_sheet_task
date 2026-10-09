@@ -85,7 +85,8 @@ class BaseConfig:
 
     # Flask/前端使用的应用基础地址。
     BASE_URL = 'http://localhost:5000'
-    # 股票 SDK / K 线服务地址；为空时由 SDK 使用默认地址。
+    # 股票服务基地址；K线 SDK / 参数回推(StockAPIClient) / 代理池(SmartProxyManager) 共用，
+    # 为空时各消费方回退自身历史默认地址。
     STOCK_BASE_URL = ''
     # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
     # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
@@ -126,8 +127,9 @@ class BaseConfig:
         )
         cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
-        # 股票 SDK(StockClient/KlineService) 的服务地址，单一来源：环境变量 STOCK_BASE_URL。
-        # 未配置时保持空串，由 stock_sdk 使用其默认地址。
+        # 股票服务基地址，单一来源：环境变量 STOCK_BASE_URL。
+        # 三个消费方共用：K线 SDK(StockClient/KlineService)、参数回推(StockAPIClient)、
+        # 代理池(SmartProxyManager)。未配置时保持空串，各消费方回退自身历史默认地址。
         cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
         # 主服务 SSO 配置：环境变量可覆盖默认值（多环境部署指向不同主服务）。
         cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)

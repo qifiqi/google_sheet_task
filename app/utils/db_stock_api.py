@@ -9,6 +9,7 @@ import requests
 import json
 from typing import Dict, Optional
 from app.utils.logger import get_logger
+from app.utils.stock_api_base import resolve_stock_base_url
 
 logger = get_logger(__name__)
 
@@ -16,15 +17,17 @@ logger = get_logger(__name__)
 class StockAPIClient:
     """股票API客户端"""
 
-    def __init__(self, base_url: str = "http://stockapi.stplan.cn", timeout: int = 30):
+    def __init__(self, base_url: str = "", timeout: int = 30):
         """
         初始化API客户端
 
         Args:
-            base_url: API基础URL
+            base_url: API基础URL；为空时按 应用配置 STOCK_BASE_URL > 历史默认地址 解析。
             timeout: 请求超时时间（秒）
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = resolve_stock_base_url(
+            base_url, fallback='http://stockapi.stplan.cn'
+        ).rstrip('/')
         self.timeout = timeout
         self.session = requests.Session()
 

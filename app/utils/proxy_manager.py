@@ -4,18 +4,23 @@ from typing import Any
 
 import requests
 
+from app.utils.stock_api_base import resolve_stock_base_url
+
 
 class SmartProxyManager:
     """Manage a short-lived proxy pool for DFCF requests."""
 
-    def __init__(self, logger=None, base_url: str = "http://stockapi.stplan.cn/"):
+    def __init__(self, logger=None, base_url: str = ""):
         self.lock = threading.Lock()
         self.proxy_size = 0
         self.logger = logger
         self.max_proxy_size = 50
         self.proxy = {}
         self.proxy_time = time.time()
-        self.base_url = base_url.strip("/")
+        # base_url 为空时按 应用配置 STOCK_BASE_URL > 历史默认地址 解析。
+        self.base_url = resolve_stock_base_url(
+            base_url, fallback="http://stockapi.stplan.cn"
+        ).strip("/")
         self.proxy_config = {
             "url": f"{self.base_url}/api/StockDic/GetProxyListByOne",
         }
