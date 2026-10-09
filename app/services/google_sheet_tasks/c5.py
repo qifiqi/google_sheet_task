@@ -283,22 +283,7 @@ class C5Service(BaseGoogleSheetService):
         )
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
-        data = []
-        for v1 in parameters[1]:
-            for v2 in parameters[2]:
-                data.append({
-                    "stock_code": parameter,
-                    "A1": v1,
-                    "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
-                })
-
-        if not data:
-            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
-
-        data = self._deduplicate_parameter_combinations(data, custom_kline_map)
-        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
+        return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=True)
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。

@@ -15,6 +15,7 @@ from app.services.google_sheet_tasks.kline_prep import project_and_validate_writ
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.db_retry import safe_db_operation
+from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
@@ -377,6 +378,13 @@ class BaseGoogleSheetService:
     # 外层异常是否打 [NETWORK_RETRYABLE] 标记（C7 = True；C5 默认无）。
     _retryable_outer = False
 
+    def _load_custom_kline_map(self, config_data: dict) -> dict:
+        """custom K线读取钩子（C5 默认：固定 c5 A/B 输入列；C7 覆盖为布局驱动）。"""
+        c5_input_column_a = config_data.get('c5_input_column_a').upper()
+        c5_input_column_b = config_data.get('c5_input_column_b').upper()
+        custom_kline = self._get_custom_kline_data(c5_input_column_a, c5_input_column_b)
+        return {'custom': custom_kline}
+
     def _prepare_batch(self, config_data: dict) -> dict:
         """从任务配置提取批量执行所需的标量与自定义K线映射（C5 默认实现）。"""
         kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
@@ -384,10 +392,7 @@ class BaseGoogleSheetService:
             raise ValueError("kline_source 仅支持 auto 或 custom")
         custom_kline_map = None
         if kline_source == 'custom':
-            c5_input_column_a = config_data.get('c5_input_column_a').upper()
-            c5_input_column_b = config_data.get('c5_input_column_b').upper()
-            custom_kline = self._get_custom_kline_data(c5_input_column_a, c5_input_column_b)
-            custom_kline_map = {'custom': custom_kline}
+            custom_kline_map = self._load_custom_kline_map(config_data)
         return {
             "kline_source": kline_source,
             "count_mode": config_data.get('count_mode', 'n_plus_1'),
@@ -424,6 +429,29 @@ class BaseGoogleSheetService:
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
         )
+
+    def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool):
+        """custom K线模式的固定双参数组合（原 C5/C7 各持一份，仅去重差异经参数表达）。
+
+        C5 传入 deduplicate=True（组合对 K线窗口去重）；C7 传 False 保持原行为。
+        """
+        data = []
+        for v1 in parameters[1]:
+            for v2 in parameters[2]:
+                data.append({
+                    "stock_code": parameter,
+                    "A1": v1,
+                    "B1": v2,
+                    "year": "custom",
+                    "Kline_key": "custom",
+                })
+
+        if not data:
+            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
+
+        if deduplicate:
+            data = self._deduplicate_parameter_combinations(data, custom_kline_map)
+        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
     def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
         """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。"""
@@ -853,11 +881,15 @@ class BaseGoogleSheetService:
             self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
+    @alert_on_failure(
+        result_predicate=should_alert_execute_task_result,
+        message_builder=build_execute_task_alert,
+    )
     def execute_task(self):
-        """执行任务的模板方法（原 C4/C5/C7 逐字相同的 97 行骨架，C1 收敛为基类唯一实现）。
+        """执行任务的模板方法（C3~C7 统一骨架，C1 收敛为基类唯一实现）。
 
         子类通过覆盖 get_bdl / _init_google_sheet 钩子体现任务差异；
-        C3 因头部取消检查/多重收益收尾差异保留自己的 execute_task 覆盖。
+        取消检查点统一含 stop_event（_is_cancel_requested）与库状态两种信号。
         """
         try:
 
@@ -873,6 +905,9 @@ class BaseGoogleSheetService:
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
+                    return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
                 # 解析配置
@@ -906,7 +941,13 @@ class BaseGoogleSheetService:
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
+                    return 'cancelled'
 
+                # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
+                # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
+                self._log_info("开始执行参数批量处理（默认参数模式）")
                 success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
 
                 # 根据任务状态决定返回结果
