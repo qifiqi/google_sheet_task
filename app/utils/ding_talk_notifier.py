@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import time
 import urllib.parse
+from collections.abc import Iterable
 
 import requests
 from flask import current_app, has_app_context
@@ -13,6 +14,57 @@ from app.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+
+Field = tuple[str, object]
+
+
+def build_markdown_message(
+    title: str,
+    fields: Iterable[Field],
+    summary: str | None = None,
+    body_lines: Iterable[str] | None = None,
+    detail_url: str | None = None,
+    at_mobiles: Iterable[str] | None = None,
+) -> str:
+    """钉钉 markdown 正文统一构建（ding 微服务与告警通知器共用）。
+
+    标题 + 字段行（``- **label**：value``，空值归 "-"）+ 多行摘要引用块 +
+    可选正文行 + 可选详情链接与 @手机号。摘要按行拆分逐行加 ``> `` 前缀。
+    """
+    lines = [f"### {title}", ""]
+    for label, value in fields:
+        normalized_value = str(value or "").strip() or "-"
+        lines.append(f"- **{label}**：{normalized_value}")
+
+    summary_text = str(summary or "").strip()
+    if summary_text:
+        lines.extend(["", "> 摘要"])
+        for line in summary_text.splitlines():
+            lines.append(f"> {line}")
+
+    if body_lines:
+        lines.append("")
+        lines.extend(str(line) for line in body_lines)
+
+    if detail_url:
+        lines.extend([
+            "",
+            f"[查看详情]({detail_url})",
+        ])
+
+    mobile_mentions = [
+        f"@{str(mobile or '').strip()}"
+        for mobile in (at_mobiles or [])
+        if str(mobile or '').strip()
+    ]
+    if mobile_mentions:
+        lines.extend([
+            "",
+            " ".join(mobile_mentions),
+        ])
+
+    return "\n".join(lines)
 
 
 class DingTalkNotifier:
@@ -81,38 +133,14 @@ class DingTalkNotifier:
         detail_url=None,
         at_mobiles=None,
     ):
-        """构建更易读且支持 @ 的钉钉 markdown 正文。"""
-        lines = [f"### {keyword}", ""]
-        for label, value in fields:
-            normalized_value = str(value or "").strip() or "-"
-            lines.append(f"- **{label}**：{normalized_value}")
-
-        summary_text = str(summary or "").strip()
-        if summary_text:
-            lines.extend([
-                "",
-                "> 摘要",
-                f"> {summary_text}",
-            ])
-
-        if detail_url:
-            lines.extend([
-                "",
-                f"[查看详情]({detail_url})",
-            ])
-
-        mobile_mentions = [
-            f"@{str(mobile or '').strip()}"
-            for mobile in (at_mobiles or [])
-            if str(mobile or '').strip()
-        ]
-        if mobile_mentions:
-            lines.extend([
-                "",
-                " ".join(mobile_mentions),
-            ])
-
-        return "\n".join(lines)
+        """构建更易读且支持 @ 的钉钉 markdown 正文（委托统一构建器）。"""
+        return build_markdown_message(
+            keyword,
+            fields,
+            summary=summary,
+            detail_url=detail_url,
+            at_mobiles=at_mobiles,
+        )
 
     def _collect_oncall_developer_mobiles(self):
         mobiles = set()

@@ -12,10 +12,11 @@ from flask import has_app_context
 
 from app.constants.c_template_layout import C3_METRIC_CELLS, C4_C5_METRIC_CELLS
 from app.models import Task, TaskResult
-from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
 from app.services.performance_analysis.historical_metrics import (
+    avg_monthly_excess_return_diff,
     collect_summary_all_entries,
     find_all_entry as _all_entry,
+    upgrade_historical_metrics,
 )
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.performance_analysis.analyzer import performance_analyzer
@@ -684,15 +685,7 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
         else {}
     ) or {}
 
-    monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-    valid_excess_months = [
-        item.get("monthly_excess_return_diff")
-        for item in monthly_excess_returns
-        if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
-    ]
-    avg_monthly_excess_returns = (
-        sum(valid_excess_months) / len(valid_excess_months) if valid_excess_months else None
-    )
+    avg_monthly_excess_returns = avg_monthly_excess_return_diff(calculate_metrics)
 
     max_drawdown = None
     try:
@@ -774,87 +767,15 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
     start_sharpe_all = entries["start_sharpe_all"]
 
     def _fallback_rows() -> tuple[str, list[dict[str, str]]]:
-        monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-        valid_excess_months = [
-            item.get("monthly_excess_return_diff")
-            for item in monthly_excess_returns
-            if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
-        ]
-        avg_monthly_excess_returns = (
-            sum(valid_excess_months) / len(valid_excess_months) if valid_excess_months else None
-        )
-
-        max_drawdown = None
-        try:
-            index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
-            start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
-            year_excess_returns = [
-                int(item["year"])
-                for item in (calculate_metrics.get("excess_returns") or [])
-                if isinstance(item, dict)
-                and item.get("year") != "all"
-                and item.get("annualized_return_diff") is not None
-                and item.get("annualized_return_diff") > 0
-            ]
-            index_year_map = {
-                item["year"]: item
-                for item in index_max_dd.get("year_maximum_drawdown", [])
-                if isinstance(item, dict) and item.get("year") in year_excess_returns
-            }
-            start_year_map = {
-                item["year"]: item
-                for item in start_max_dd.get("year_maximum_drawdown", [])
-                if isinstance(item, dict) and item.get("year") in year_excess_returns
-            }
-            diffs = [
-                (start_year_map.get(year) or {})["drawdown"] - index_item["drawdown"]
-                for year, index_item in index_year_map.items()
-                if index_item.get("drawdown") is not None
-                and (start_year_map.get(year) or {}).get("drawdown") is not None
-            ]
-            max_drawdown = max(diffs) if diffs else None
-        except Exception:
-            max_drawdown = None
-
-        total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
-        year_start_max_repair_days = _max_yearly_repair_days(
-            calculate_metrics.get("year_start_yearly_max_repair_days")
-        )
+        # 回退行与 _extract_backtest_metric_values 同一取数/格式化口径，
+        # 经 BACKTEST_SUMMARY_METRICS 的 slug→中文标签映射生成（收敛此前的重复拷贝）。
+        metric_values = _extract_backtest_metric_values(calculate_metrics)
         period_text = str(excess_all.get("start_end_date") or "")
         rows = [
-            ("年化收益", _format_backtest_percent(excess_all.get("start_annualized_return"))),
-            ("盈利年份百分比", _format_backtest_percent(calculate_metrics.get("start_profit_annual"))),
-            ("月盈利百分比", _format_backtest_percent(start_profit_monthly_all.get("profit_monthly_percentage"))),
-            ("平均月收益率", _format_backtest_percent(start_sharpe_all.get("avg_monthly_return"))),
-            ("月收益率波动率", _format_backtest_percent(calculate_metrics.get("start_monthly_return_volatility"))),
-            ("年化超额收益", _format_backtest_percent(excess_all.get("annualized_return_diff"))),
-            ("跑赢年份(百分比)", _format_backtest_percent(calculate_metrics.get("outperform_year"))),
-            ("月超额收益胜率", _format_backtest_percent(monthly_excess_percentage_all.get("excess_return"))),
-            ("平均月超额", _format_backtest_percent(avg_monthly_excess_returns)),
-            ("月超额波动率", _format_backtest_percent(calculate_metrics.get("monthly_excess_volatility"))),
-            ("年最大超额回撤", _format_backtest_percent(-max_drawdown) if max_drawdown is not None else ""),
-            (
-                "超额回撤胜率",
-                _format_backtest_percent(_negative_number(calculate_metrics.get("excess_drawdown_winning_rate")))
-                if calculate_metrics.get("excess_drawdown_winning_rate") is not None
-                else "",
-            ),
-            (
-                "年最大回撤",
-                _format_backtest_percent(_negative_number(total_max_drawdown.get("drawdown")))
-                if total_max_drawdown.get("drawdown") is not None
-                else "",
-            ),
-            ("最大修复天数", str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")),
-            ("超额最大修复天数", str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")),
-            ("年最大回测修复天数", _format_backtest_repair_days(year_start_max_repair_days)),
-            ("夏普比率", _format_backtest_number(start_sharpe_all.get("sharpe_ratio"))),
-            ("卡玛比率", _format_backtest_number(start_kama_all.get("kama_ratio"))),
-            ("索提诺比率", _format_backtest_number(start_sortino_all.get("sortino_ratio"))),
-            ("超额夏普", _format_backtest_number(calculate_metrics.get("excess_sharpe"))),
-            ("超额索提诺比率", _format_backtest_number(calculate_metrics.get("excess_sortino"))),
+            {"metric": label, "model_value": metric_values[key]}
+            for key, label in BACKTEST_SUMMARY_METRICS
         ]
-        return period_text, [{"metric": metric, "model_value": value} for metric, value in rows]
+        return period_text, rows
 
     try:
         summary_df = performance_analyzer.format_export_file_data({

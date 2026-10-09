@@ -42,6 +42,8 @@ from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DE
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,
+    avg_monthly_excess_return_diff,
+    metric_year_key,
     extract_core_metrics,
     extract_core_weighted_metrics,
     upgrade_historical_metrics,
@@ -331,23 +333,10 @@ def _safe_number(value: Any) -> float | None:
         return None
 
 
-def _year_key(value: Any) -> str:
-    text = str(value if value is not None else "").strip()
-    if not text or text.lower() == "all":
-        return ""
-    try:
-        number = float(text)
-    except ValueError:
-        return text
-    if number.is_integer():
-        return str(int(number))
-    return text
-
-
 def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
     """旧预览摘要契约：正值"跌幅优势"（index−start），共享实现见 historical_metrics。"""
     return derive_year_max_excess_drawdown(
-        calculate_metrics, _safe_number, _year_key, direction=1,
+        calculate_metrics, _safe_number, metric_year_key, direction=1,
     )
 
 
@@ -557,17 +546,7 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
     start_sortino_all = entries["start_sortino_all"]
     index_sharpe_all = entries["index_sharpe_all"]
     start_sharpe_all = entries["start_sharpe_all"]
-    monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-    monthly_excess_values = [
-        item.get("monthly_excess_return_diff")
-        for item in monthly_excess_returns
-        if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
-    ]
-    avg_monthly_excess_return = (
-        sum(monthly_excess_values) / len(monthly_excess_values)
-        if monthly_excess_values
-        else None
-    )
+    avg_monthly_excess_return = avg_monthly_excess_return_diff(calculate_metrics)
     total_max_drawdown = (
         (calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown")
         or {}

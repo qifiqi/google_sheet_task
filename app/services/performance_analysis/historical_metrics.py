@@ -33,6 +33,32 @@ def find_all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
     return {}
 
 
+def metric_year_key(value: Any) -> str:
+    """指标年度键归一（multi/report_query 两份拷贝收敛）：all→""，整型浮点转 int。"""
+    text = str(value if value is not None else "").strip()
+    if not text or text.lower() == "all":
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else text
+
+
+def avg_monthly_excess_return_diff(calculate_metrics: Any) -> float | None:
+    """月超额收益差（monthly_excess_return_diff）的算术均值；无有效月份返回 None。
+
+    multi/report_query/extractor 的同构拷贝收敛于此。
+    """
+    monthly_excess_returns = (calculate_metrics or {}).get("monthly_excess_returns") or []
+    values = [
+        item.get("monthly_excess_return_diff")
+        for item in monthly_excess_returns
+        if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
+    ]
+    return sum(values) / len(values) if values else None
+
+
 def collect_summary_all_entries(metrics: Any) -> dict[str, Any]:
     """一次收集汇总投影所需的全部 ``year=='all'`` 条目与 sharpe 'all' 表
     （ponytail 审计 B2：multi/report_query/extractor 三处查找管道收敛）。

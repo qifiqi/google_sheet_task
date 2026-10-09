@@ -1,31 +1,11 @@
-"""Markdown message formatting for DingTalk replies."""
+"""钉钉回复消息格式化（实现已上移 app.utils.ding_talk_notifier，此处再导出）。
+
+ding_stream_service 虽为独立进程，但本就依赖 app（create_app/仓储层），
+消息格式单一来源收敛到 app/utils/ding_talk_notifier.build_markdown_message。
+"""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from app.utils.ding_talk_notifier import Field, build_markdown_message
 
-
-Field = tuple[str, object]
-
-
-def build_markdown_message(
-    title: str,
-    fields: Iterable[Field],
-    summary: str | None = None,
-    body_lines: Iterable[str] | None = None,
-) -> str:
-    lines = [f"### {title}", ""]
-    for label, value in fields:
-        normalized_value = str(value or "").strip() or "-"
-        lines.append(f"- **{label}**：{normalized_value}")
-
-    if summary:
-        lines.extend(["", "> 摘要"])
-        for line in str(summary).splitlines():
-            lines.append(f"> {line}")
-
-    if body_lines:
-        lines.append("")
-        lines.extend(str(line) for line in body_lines)
-
-    return "\n".join(lines)
+__all__ = ["Field", "build_markdown_message"]

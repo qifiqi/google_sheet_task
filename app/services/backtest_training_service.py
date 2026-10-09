@@ -9,6 +9,7 @@ from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
+from app.utils.backtest_report_metadata import is_c7_0_3_config
 from app.utils.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.task.error_handling import (
     format_task_error_message,
@@ -54,10 +55,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _is_c7_0_3(config_data):
-        sheet = config_data.get('sheet') or {}
-        version = str(sheet.get('c7_model_version') or config_data.get('c7_model_version') or '').strip().lower()
-        title = str(sheet.get('title') or config_data.get('title') or '').upper()
-        return version == 'c7_0_3' or 'C7.0.3' in title
+        # 共享判定见 app.utils.backtest_report_metadata.is_c7_0_3_config（含 sheets[] 遍历超集）
+        return is_c7_0_3_config(config_data)
 
     @staticmethod
     def _calculate_c7_0_3_index_returns(kline):

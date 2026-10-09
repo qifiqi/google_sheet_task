@@ -55,6 +55,18 @@ def preview_runtime_params(raw: Any) -> MetricsRuntimeParamsDTO | None:
         raise ValidationError(str(exc)) from exc
 
 
+def _apply_ratio_override(products: list[dict[str, Any]], ratios_override: list[Any] | None) -> None:
+    """比例覆盖数量校验 + 归一化回填（原三处逐字拷贝收敛于此）。"""
+    if ratios_override is None:
+        return
+    if len(ratios_override) != len(products):
+        raise ValidationError("比例数量与产品数量不一致")
+    for product, ratio in zip(products, ratios_override):
+        product["ratio"] = normalize_ratio_display(
+            ratio.get("ratio") if isinstance(ratio, dict) else ratio
+        )
+
+
 def build_multi_product_global_preview_payload(
     task_id: str,
     ratios_override: list[Any] | None = None,
@@ -79,13 +91,7 @@ def build_multi_product_global_preview_payload(
     risk_free_active = bool(runtime and runtime.risk_free_rate)
     config = normalize_multi_product_config(task.to_dict().get("config") or {})
     products = config["products"]
-    if ratios_override is not None:
-        if len(ratios_override) != len(products):
-            raise ValidationError("比例数量与产品数量不一致")
-        for product, ratio in zip(products, ratios_override):
-            product["ratio"] = normalize_ratio_display(
-                ratio.get("ratio") if isinstance(ratio, dict) else ratio
-            )
+    _apply_ratio_override(products, ratios_override)
     # 结果必须按 step_index 稳定排序，后续按产品索引归位时才能保持执行顺序。
     results = task_result_repository.list_preview_entities(task_id)
     weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
@@ -288,13 +294,7 @@ def build_multi_product_global_preview_word_payload(
 
     config = normalize_multi_product_config(task.to_dict().get("config") or {})
     products = config["products"]
-    if ratios_override is not None:
-        if len(ratios_override) != len(products):
-            raise ValidationError("比例数量与产品数量不一致")
-        for product, ratio in zip(products, ratios_override):
-            product["ratio"] = normalize_ratio_display(
-                ratio.get("ratio") if isinstance(ratio, dict) else ratio
-            )
+    _apply_ratio_override(products, ratios_override)
 
     product_results: dict[int, dict[str, Any]] = {}
     results = task_result_repository.list_preview_entities(task_id, success_only=True)
@@ -381,13 +381,7 @@ def build_return_series_export_payload(
     if is_multi_product:
         config = normalize_multi_product_config(task.to_dict().get("config") or {})
         products = config["products"]
-        if ratios_override is not None:
-            if len(ratios_override) != len(products):
-                raise ValidationError("比例数量与产品数量不一致")
-            for product, ratio in zip(products, ratios_override):
-                product["ratio"] = normalize_ratio_display(
-                    ratio.get("ratio") if isinstance(ratio, dict) else ratio
-                )
+        _apply_ratio_override(products, ratios_override)
 
     ratios_source = "override" if ratios_override is not None else "default"
     products_meta = build_product_export_weights(products) if is_multi_product else []

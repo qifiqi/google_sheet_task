@@ -1189,24 +1189,20 @@ class StrategyBacktestReportService:
         if daily_extreme_threshold is None:
             daily_extreme_threshold = MetricsRuntimeParamsDTO().daily_extreme_threshold
         daily_extreme_label = self._percent_label(daily_extreme_threshold)
-        downturn_rows = [
-            ["阶段月数", *[self._integer(m.get("index_downfall_months_len")) for m in metrics_list],
-             self._integer(strategy.get("start_downfall_months_len")), *["-"] * len(runs)],
-            ["平均收益", *[self._pct(m.get("index_downfall_avg_return")) for m in metrics_list],
-             self._pct(strategy.get("start_downfall_avg_return")),
-             *[self._pct(m.get("downfall_excess_avg_return")) for m in metrics_list]],
-            [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
-             self._integer(strategy.get("downfall_outperform_count")),
-             *[self._pct(m.get("downfall_win_rate")) for m in metrics_list]]]
-        upturn_rows = [
-            ["阶段月数", *[self._integer(m.get("index_upward_months_len")) for m in metrics_list],
-             self._integer(strategy.get("start_upward_months_len")), *["-"] * len(runs)],
-            ["平均收益", *[self._pct(m.get("index_upward_avg_return")) for m in metrics_list],
-             self._pct(strategy.get("start_upward_avg_return")),
-             *[self._pct(m.get("upward_excess_avg_return")) for m in metrics_list]],
-            [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
-             self._integer(strategy.get("upward_outperform_count")),
-             *[self._pct(m.get("upward_win_rate")) for m in metrics_list]]]
+        def _stage_rows(prefix: str):
+            """下跌(downfall)/上涨(upward) 两段同构表格行，仅字段前缀不同。"""
+            return [
+                ["阶段月数", *[self._integer(m.get(f"index_{prefix}_months_len")) for m in metrics_list],
+                 self._integer(strategy.get(f"start_{prefix}_months_len")), *["-"] * len(runs)],
+                ["平均收益", *[self._pct(m.get(f"index_{prefix}_avg_return")) for m in metrics_list],
+                 self._pct(strategy.get(f"start_{prefix}_avg_return")),
+                 *[self._pct(m.get(f"{prefix}_excess_avg_return")) for m in metrics_list]],
+                [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
+                 self._integer(strategy.get(f"{prefix}_outperform_count")),
+                 *[self._pct(m.get(f"{prefix}_win_rate")) for m in metrics_list]]]
+
+        downturn_rows = _stage_rows("downfall")
+        upturn_rows = _stage_rows("upward")
         extreme_rows = [
             ["最大单日涨幅", *[self._pct(m.get("index_max_daily_gain")) for m in metrics_list],
              self._pct(strategy.get("start_max_daily_gain"))],
