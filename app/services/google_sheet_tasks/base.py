@@ -524,7 +524,8 @@ class BaseGoogleSheetService:
         此前 c5.py / c7.py 各持有一份 ~155 行拷贝；差异经参数表达：
         - include_ohlc：C7 写回需要 OHLC 列；random_price 展开强制开启；
         - random_price_range / random_group_count：随机价格分组（C5 已同步该能力）；
-        - recent 模式统一包含近半年（0.5）区间。
+        - recent 模式统一包含近半年（0.5）区间；
+        - count_mode=N+1 时同样生成全区间组合（"+1"），与窗口重合时由组合去重合并。
         custom K线分支仍留在各自 service（_get_custom_parameters），不进本骨架。
         """
         # random_price 分组展开前先按收盘价占位取价；分组随机取价在 _expand_random_price_groups 里做
@@ -537,6 +538,9 @@ class BaseGoogleSheetService:
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
+        # 近年区间总数按用户配置区间的起点年份计算；下方K线首日截断会改写
+        # _start_date，但那只收缩单个区间内的实际数据，不应减少区间数量。
+        _config_start_year = _start_date
         limit = (_end_year - _start_date + 1) * 300
 
         klines = self.kline_service.get_kline_data(
@@ -613,18 +617,19 @@ class BaseGoogleSheetService:
         data = []
 
         kline_data_map = {}
-        if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
-            for i, v1 in enumerate(parameters[1]):
-                for j, v2 in enumerate(parameters[2]):
-                    Kline_key = f'{_end_year_1}-{_start_date}'
-                    # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
-                    d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
-                    if stock_name:
-                        d['stock_name'] = stock_name
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = all_kline
+        # N+1 与 total 都保留全区间组合（N+1 的"+1"）：整年模式 = 各年份 + 全区间，
+        # 近年模式 = 各近年窗口 + 全区间；窗口与全区间完全重合时由组合去重合并。
+        for i, v1 in enumerate(parameters[1]):
+            for j, v2 in enumerate(parameters[2]):
+                Kline_key = f'{_end_year_1}-{_start_date}'
+                # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
+                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                if stock_name:
+                    d['stock_name'] = stock_name
+                if Kline_key not in kline_data_map:
+                    kline_data_map[Kline_key] = all_kline
 
-                    data.append(d)
+                data.append(d)
 
         if count_mode != 'n_plus_1':
             data, kline_data_map = self._expand_random_price_groups(
@@ -636,7 +641,9 @@ class BaseGoogleSheetService:
         if 'recent' in date_range_mode:
             # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
             # 应生成近 1 年到近 5 年，不能额外生成近 6 年的区间。
-            total_years = max(0, _end_year_1 - _start_date)
+            # 用配置起点年份而非K线截断后的 _start_date，否则数据首日
+            # 截断会把近3年/近5年整段区间悄悄丢掉。
+            total_years = max(0, _end_year_1 - _config_start_year)
             # 近半年（0.5）排在最前，开始日期 = 结束日期往前推 6 个月
             recent_spans = [(0.5, _shift_date_months(end_date, -6))]
             recent_spans.extend(
@@ -658,6 +665,19 @@ class BaseGoogleSheetService:
                 if not kline:
                     continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                existing = kline_data_map.get(Kline_key)
+                if existing is not None and (
+                    existing[0]['stock_date'] != kline[0]['stock_date']
+                    or existing[-1]['stock_date'] != kline[-1]['stock_date']
+                    or len(existing) != len(kline)
+                ):
+                    # 键标签相同但窗口不同（同年配置下近半年 vs 全区间）：
+                    # kline_data_map 按键只能存一份，后者让位，避免组合取到错误窗口。
+                    self._log_info(
+                        f"股票{parameter} 近年窗口 {Kline_key} 与已注册窗口区间不同，"
+                        f"跳过该窗口（{kline[0]['stock_date']}~{kline[-1]['stock_date']}）"
+                    )
+                    continue
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}

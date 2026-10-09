@@ -147,7 +147,12 @@ def test_c4_execute_parameter_combination_reraises_sheet_errors():
         )
 
 
-def test_c5_recent_mode_skips_empty_ranges_and_raises_when_none_left(app_factory):
+def test_c5_recent_mode_keeps_full_range_group_when_recent_spans_excluded(app_factory):
+    """N+1+近年：近年窗口全被排除时不再空跑报错，由全区间组合（N+1 的"+1"）兜底。
+
+    同年配置下近半年窗口与全区间的 Kline_key 标签相同（如 2024-2024），
+    kline_data_map 按键只能存一份，近半年窗口应让位并记录日志，不得错选取数窗口。
+    """
     with app_factory.app_context():
         service = C5GoogleSheetService({}, "task-id")
         service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: _search_result("1")
@@ -155,18 +160,24 @@ def test_c5_recent_mode_skips_empty_ranges_and_raises_when_none_left(app_factory
             lambda *_args, **_kwargs: _kline_rows("2024-01-01", "2024-12-31")
         )
 
-        with pytest.raises(ValueError, match="没有可执行K线组合"):
-            service._get_all_parameters(
-                "600000",
-                "n_plus_1",
-                "sp_price",
-                "2024-12-31",
-                "2024-01-01",
-                "cn",
-                ["recent"],
-                [1],
-                [["600000"], [1], [2]],
-            )
+        combinations, _, kline_data_map = service._get_all_parameters(
+            "600000",
+            "n_plus_1",
+            "sp_price",
+            "2024-12-31",
+            "2024-01-01",
+            "cn",
+            ["recent"],
+            [1],
+            [["600000"], [1], [2]],
+            data_source="dfcf",
+        )
+
+    assert len(combinations) == 1
+    assert combinations[0]["Kline_key"] == "2024-2024"
+    full_range = kline_data_map["2024-2024"]
+    assert full_range[0]["stock_date"] == "2024-01-01"
+    assert full_range[-1]["stock_date"] == "2024-12-31"
 
 
 def _multi_product_service(app_factory, kline_start, kline_end):
