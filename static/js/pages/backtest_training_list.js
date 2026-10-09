@@ -64,8 +64,9 @@ function inferModelVersion(task) {
     }
 
     const config = task.config || {};
-    const sheet = config.sheet || {};
-    const title = String(sheet.title || config.title || task.name || '').toUpperCase();
+    const sheets = Array.isArray(config.sheets) ? config.sheets : [];
+    const sheet = sheets.length && sheets[0] ? sheets[0] : (config.sheet || {});
+    const title = String(sheet.title || task.name || '').toUpperCase();
     // 详细版本：标题带子版本号时一并展示（如 C7.0.3）。
     if (title.includes('C7.0.3')) {
         return 'C7.0.3';
@@ -97,9 +98,10 @@ function inferModelVersion(task) {
 function renderTaskCell(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const taskName = task.name || '未命名任务';
-    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
-        ? task.config.sheet.sheet_name
-        : '-';
+    const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
+        ? task.config.sheets[0]
+        : (task.config && task.config.sheet || {});
+    const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
 
     return `
         <div class="fw-semibold" title="${Biz.escapeHtml(task.id || '')}">${Biz.escapeHtml(taskName)}</div>
@@ -109,9 +111,10 @@ function renderTaskCell(task) {
 
 function getTaskSecondaryText(task) {
     const shortId = String(task.id || '').slice(0, 8);
-    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
-        ? task.config.sheet.sheet_name
-        : '-';
+    const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
+        ? task.config.sheets[0]
+        : (task.config && task.config.sheet || {});
+    const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
     return `ID: ${shortId} · Sheet: ${sheetName}`;
 }
 

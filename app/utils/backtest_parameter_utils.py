@@ -99,7 +99,8 @@ def _is_c3_config(config: dict[str, Any]) -> bool:
     if model_version in {"c4", "c5"}:
         return False
 
-    sheet = config.get("sheet") if isinstance(config.get("sheet"), dict) else {}
+    sheets = config.get("sheets") if isinstance(config.get("sheets"), list) else []
+    sheet = sheets[0] if sheets and isinstance(sheets[0], dict) else {}
     title_parts = [
         config.get("sheet_name"),
         sheet.get("sheet_name"),

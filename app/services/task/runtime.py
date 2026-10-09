@@ -43,13 +43,11 @@ class TaskRuntimeMixin:
         if not isinstance(config, dict):
             return ""
 
-        sheet_config = config.get("sheet")
-        if isinstance(sheet_config, dict):
-            spreadsheet_id = str(sheet_config.get("spreadsheet_id") or "").strip()
-            if spreadsheet_id:
-                return spreadsheet_id
+        sheets = config.get("sheets")
+        if isinstance(sheets, list) and sheets and isinstance(sheets[0], dict):
+            return str(sheets[0].get("spreadsheet_id") or "").strip()
 
-        return str(config.get("spreadsheet_id") or "").strip()
+        return ""
 
     def _extract_backtest_spreadsheet_ids(self, config: dict[str, Any] | None) -> list[str]:
         """Extract all spreadsheet IDs touched by a backtest task."""

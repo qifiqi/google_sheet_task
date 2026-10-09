@@ -1,5 +1,4 @@
 """JWT 认证、权限装饰器与密码策略"""
-import logging
 import os
 import secrets
 from datetime import datetime, timedelta
@@ -11,6 +10,7 @@ from flask import request, g, redirect
 from app.exceptions import ForbiddenError, UnauthorizedError
 from app.repositories import auth_repository
 from app.services.config_manager import get_config_manager
+from app.utils.logger import get_logger
 
 # 公开默认 secret 保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
 # 该常量只是"显式误配置"的识别标记：_get_secret 的任何解析路径都不会再
@@ -92,7 +92,7 @@ def validate_auth_runtime_settings(
         resolved_env not in SAFE_AUTH_DISABLED_ENVS
         and not (resolved_secret or '').strip()
     ):
-        logging.getLogger('app.auth').warning(
+        get_logger('app.auth').warning(
             'JWT_SECRET_KEY 环境变量未设置：JWT 将使用进程内随机密钥签名，'
             '进程重启后所有已签发令牌失效（用户需重新登录）。'
             '生产部署建议显式设置 JWT_SECRET_KEY。'

@@ -1345,9 +1345,11 @@ function openEditConfig() {
 
   editForm.name = task.value.name || ''
   editForm.description = task.value.description || ''
-  editForm.spreadsheet_id = config.spreadsheet_id || ''
-  editForm.sheet_name = config.sheet_name || ''
-  editForm.title = config.title || config.spreadsheet_title || ''
+  // 统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退
+  const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {}
+  editForm.spreadsheet_id = firstSheet.spreadsheet_id || config.spreadsheet_id || ''
+  editForm.sheet_name = firstSheet.sheet_name || config.sheet_name || ''
+  editForm.title = firstSheet.title || config.title || config.spreadsheet_title || ''
   editForm.token_file = config.token_file || 'data/token.json'
   editForm.proxy_url = config.proxy_url || ''
   editForm.parameter_positions = JSON.stringify(config.parameter_positions || [])
@@ -1403,10 +1405,13 @@ async function saveTaskConfig() {
     return
   }
 
+  // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态
   const config = {
-    spreadsheet_id: spreadsheetId,
-    sheet_name: editForm.sheet_name.trim(),
-    title: editForm.title.trim() || null,
+    sheets: [{
+      spreadsheet_id: spreadsheetId,
+      sheet_name: editForm.sheet_name.trim(),
+      title: editForm.title.trim() || ''
+    }],
     token_file: editForm.token_file.trim(),
     proxy_url: editForm.proxy_url.trim(),
     parameters,

@@ -32,12 +32,18 @@ class TaskResultListQuery(PageQuery):
 
 
 class TaskConfigUpdateSchema(APIModel):
-    """PUT /api/tasks/<id>/config。"""
+    """PUT /api/tasks/<id>/config。
+
+    merge=True（默认）：payload 中的顶层键覆盖旧值、未出现的键保留——
+    供结构化编辑表单做部分提交，修复"表单重建丢键"；merge=False：整体
+    替换（管理端 JSON 编辑器等提交完整 config 的场景，支持删键）。
+    """
 
     config: dict[str, Any]
     name: str | None = None
     description: str | None = None
     status: str | None = None
+    merge: bool = True
 
 
 class TaskIdsBatchSchema(APIModel):

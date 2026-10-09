@@ -37,7 +37,14 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
     """BUG-01：task_repository.get 返回 dict，create_restart_task 不得做属性访问。"""
     app = app_factory
     with app.app_context():
-        original = _task("origin-1", task_type="google_sheet", config={"parameters": [["1"]]})
+        original = _task(
+            "origin-1",
+            task_type="google_sheet",
+            config={
+                "sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data", "title": ""}],
+                "parameters": [["1"]],
+            },
+        )
         db.session.add(original)
         db.session.commit()
 
@@ -62,7 +69,11 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
 def test_create_restart_task_skips_occupancy_for_backtest(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
-        original = _task("origin-bt", task_type="backtest_training", config={})
+        original = _task(
+            "origin-bt",
+            task_type="backtest_training",
+            config={"sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data", "title": ""}]},
+        )
         db.session.add(original)
         db.session.commit()
 

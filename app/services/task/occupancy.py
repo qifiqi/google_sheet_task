@@ -45,7 +45,6 @@ class TaskOccupancyMixin:
                     sheet_ids.append(int(matched_sheet["id"]))
 
         add_sheet_reference(config)
-        add_sheet_reference(config.get("sheet"))
 
         sheets = config.get("sheets")
         if isinstance(sheets, list):
@@ -111,7 +110,8 @@ class TaskOccupancyMixin:
 
     def validate_backtest_training_sheet(self, config: dict[str, Any] | None) -> None:
         """Verify that a single-product backtest uses its dedicated sheet type."""
-        sheet_config = config.get("sheet") if isinstance(config, dict) else None
+        sheets = config.get("sheets") if isinstance(config, dict) else None
+        sheet_config = sheets[0] if isinstance(sheets, list) and sheets and isinstance(sheets[0], dict) else None
         if not isinstance(sheet_config, dict):
             raise ValidationError("单品回测缺少 Google Sheet 配置")
 

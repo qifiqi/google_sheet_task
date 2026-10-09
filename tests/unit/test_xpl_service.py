@@ -32,7 +32,7 @@ def test_export_model_name_prefers_explicit_model_name():
 
 
 def test_single_backtest_result_uses_task_sheet_model_name():
-    assert _infer_backtest_export_model_name({"sheet": {"title": "C4 单品回测"}}) == "C4"
+    assert _infer_backtest_export_model_name({"sheets": [{"spreadsheet_id": "s", "title": "C4 单品回测"}]}) == "C4"
     assert _infer_backtest_export_model_name({"model_version": "c7"}) == "C7"
 
 

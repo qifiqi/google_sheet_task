@@ -33,20 +33,16 @@ def get_price_type(price_mode: Any) -> str:
 
 
 def is_c7_0_3_config(config: Any) -> bool:
-    """C7.0.3 任务配置判定（training/query 两份判定收敛于此，query 版含 sheets 遍历为准）。
+    """C7.0.3 任务配置判定（training/query 共用，统一 sheets[] 形态）。
 
-    依次看 sheet/top 级 ``c7_model_version``、sheet/top 级标题含 "C7.0.3"、
-    以及多 sheet 布局 ``sheets[]`` 逐项版本。
+    看 sheets[].c7_model_version 或 sheets[].title 含 "C7.0.3"；
+    多品回测的逐产品判定传 ``{"sheets": [product["sheet"]]}`` 包装。
     """
     if not isinstance(config, dict):
         return False
-    sheet = config.get("sheet") or {}
-    version = str(sheet.get("c7_model_version") or config.get("c7_model_version") or "").strip().lower()
-    title = str(sheet.get("title") or config.get("title") or "").upper()
-    if version == "c7_0_3" or "C7.0.3" in title:
-        return True
     return any(
         str(item.get("c7_model_version") or "").strip().lower() == "c7_0_3"
+        or "C7.0.3" in str(item.get("title") or "").upper()
         for item in config.get("sheets") or []
         if isinstance(item, dict)
     )

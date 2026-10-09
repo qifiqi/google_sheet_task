@@ -412,12 +412,18 @@ function parseTaskConfig(rawConfig) {
   return {}
 }
 
+function firstSheetRef(config) {
+  // 统一 sheets[1] 形态；旧 sheet{} 仅作未迁移数据回退
+  const sheets = config && Array.isArray(config.sheets) ? config.sheets : []
+  if (sheets.length && sheets[0] && typeof sheets[0] === 'object') return sheets[0]
+  return config && config.sheet && typeof config.sheet === 'object' ? config.sheet : {}
+}
+
 function inferModelVersion(config, taskName = '') {
-  const sheet = config && config.sheet ? config.sheet : {}
+  const sheet = firstSheetRef(config)
   const text = [
     config && config.model_version,
     taskName,
-    config && config.title,
     sheet.title,
     sheet.sheet_name,
   ].filter(Boolean).join(' ').toUpperCase()
@@ -681,7 +687,7 @@ function isComplexValue(value) {
 
 const configDisplayItems = computed(() => {
   const config = { ...currentModelConfig.value, task_name: task.value?.name }
-  const sheet = config.sheet && typeof config.sheet === 'object' ? config.sheet : {}
+  const sheet = firstSheetRef(config)
   const marketType = String(config.market_type || '').trim().toLowerCase()
   return [
     { label: '股票代码', value: config.stock_code },

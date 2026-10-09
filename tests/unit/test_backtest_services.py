@@ -238,7 +238,7 @@ def test_backtest_training_selected_en_vwap_quote_skips_stock_search(monkeypatch
 
 def test_backtest_sheet_config_supports_c7():
     config = {
-        "sheet": {"title": "策略 C7 模型"},
+        "sheets": [{"title": "策略 C7 模型"}],
         "c7_input_column_a": "A",
         "c7_input_column_b": "B",
         "c7_output_range_1": "D8:D26",
@@ -263,7 +263,7 @@ def test_backtest_sheet_config_supports_c7():
 
 def test_backtest_sheet_config_supports_c7_0_3():
     config = {
-        "sheet": {"title": "C7.0.3 回测", "c7_model_version": "c7_0_3"},
+        "sheets": [{"title": "C7.0.3 回测", "c7_model_version": "c7_0_3"}],
     }
 
     assert BacktestTrainingService._c3_to_c5_get_config(config) == (
@@ -353,7 +353,7 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
         10,
         {"parameter": ["2.3", "3"], "stock_code": "600000", "Kline_key": "2026-2025"},
         {"combination": {}},
-        {"sheet": {"title": sheet.title, "c7_model_version": "c7_0_3"}},
+        {"sheets": [{"title": sheet.title, "c7_model_version": "c7_0_3"}]},
         {"2026-2025": kline},
     )
 

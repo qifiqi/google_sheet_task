@@ -184,7 +184,7 @@ def test_backtest_nested_sheet_config_acquires_google_sheet_occupancy(app_factor
         manager = TaskManager()
         manager.ensure_google_sheet_occupancy(
             "task-backtest",
-            {"sheet": {"spreadsheet_id": "spreadsheet-backtest-1"}},
+            {"sheets": [{"spreadsheet_id": "spreadsheet-backtest-1"}]},
         )
 
         refreshed = db.session.get(GoogleSheet, sheet.id)
@@ -211,7 +211,7 @@ def test_create_backtest_task_allows_busy_sheet_to_queue(app_factory):
             name="backtest",
             description="",
             task_type="backtest_training",
-            config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-busy"}},
+            config={"sheets": [{"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-busy"}]},
         )
 
         task = db.session.get(Task, task_id)
@@ -237,7 +237,7 @@ def test_create_backtest_task_rejects_non_backtest_sheet(app_factory):
                 name="backtest",
                 description="",
                 task_type="backtest_training",
-                config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-c3"}},
+                config={"sheets": [{"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-c3"}]},
             )
 
 
@@ -249,7 +249,7 @@ def test_create_backtest_task_allows_custom_sheet(app_factory):
             name="custom-backtest",
             description="",
             task_type="backtest_training",
-            config={"sheet": {"spreadsheet_id": "custom-spreadsheet"}},
+            config={"sheets": [{"spreadsheet_id": "custom-spreadsheet"}]},
         )
 
         assert db.session.get(Task, task_id) is not None
@@ -331,7 +331,7 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             name="running-backtest",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-queue"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-queue"}]}),
             status="running",
             start_time=datetime.now(),
         )
@@ -343,7 +343,7 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             name="queued-backtest",
             description="",
             task_type="backtest_training",
-            config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-queue"}},
+            config={"sheets": [{"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-queue"}]},
         )
 
         queued_task = db.session.get(Task, response["task_id"])
@@ -360,7 +360,7 @@ def test_backtest_start_task_blocks_same_sheet_running_task_created_within_one_d
             name="running-backtest-day",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="running",
             created_at=datetime.now() - timedelta(minutes=1),
             start_time=datetime.now() - timedelta(minutes=1),
@@ -370,7 +370,7 @@ def test_backtest_start_task_blocks_same_sheet_running_task_created_within_one_d
             name="queued-backtest-day",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
@@ -395,7 +395,7 @@ def test_backtest_start_task_blocks_same_sheet_running_task_older_than_one_day(a
             name="running-backtest-old",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="running",
             created_at=datetime.now() - timedelta(days=2),
             start_time=datetime.now() - timedelta(days=2),
@@ -405,7 +405,7 @@ def test_backtest_start_task_blocks_same_sheet_running_task_older_than_one_day(a
             name="queued-backtest-old",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
@@ -430,7 +430,7 @@ def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory
             name="queued-backtest-file-lock",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
@@ -469,7 +469,7 @@ def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
             name="backtest-thread-fail-lock",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
@@ -506,7 +506,7 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
             name="first-backtest-pre-mark",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now() - timedelta(minutes=1),
         )
@@ -515,7 +515,7 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
             name="second-backtest-pre-mark",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
@@ -558,7 +558,7 @@ def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
             name="restart-start-error",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-restart-error"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-restart-error"}]}),
             status="error",
             created_at=datetime.now(),
         )
@@ -586,7 +586,7 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
             name="running-backtest-restart-blocked",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="running",
             created_at=datetime.now(),
             start_time=datetime.now(),
@@ -620,7 +620,7 @@ def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch
             name="running-backtest-restart-conflict",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="running",
             created_at=datetime.now(),
             start_time=datetime.now(),
@@ -630,7 +630,7 @@ def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch
             name="cancelled-backtest-restart-conflict",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="cancelled",
             created_at=datetime.now(),
         )
@@ -665,7 +665,7 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
             name="backtest-restart-file-lock",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="error",
             created_at=datetime.now(),
         )
@@ -697,7 +697,7 @@ def test_backtest_checkpoint_resume_skips_saved_result_steps(app_factory):
             name="backtest-resume-skip-saved",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-resume"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-resume"}]}),
             status="cancelled",
             current_step=2,
             total_steps=4,
@@ -734,7 +734,7 @@ def test_backtest_checkpoint_resume_retries_step_without_saved_result(app_factor
             name="backtest-resume-retry-missing-result",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-resume-gap"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-resume-gap"}]}),
             status="error",
             current_step=3,
             total_steps=4,
@@ -762,7 +762,7 @@ def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_fact
             name="backtest-restart-clears-returns",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-clear-returns"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-clear-returns"}]}),
             status="error",
             current_step=3,
             total_steps=5,
@@ -804,7 +804,7 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
             name="finished-backtest",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-next"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-next"}]}),
             status="completed",
             end_time=datetime.now(),
         )
@@ -813,7 +813,7 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
             name="next-backtest",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-next"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-next"}]}),
             status="pending",
             created_at=datetime.now() - timedelta(minutes=5),
         )
@@ -822,7 +822,7 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
             name="other-backtest",
             description="",
             task_type="backtest_training",
-            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-other"}}),
+            config=json.dumps({"sheets": [{"spreadsheet_id": "spreadsheet-other"}]}),
             status="pending",
             created_at=datetime.now() - timedelta(minutes=10),
         )

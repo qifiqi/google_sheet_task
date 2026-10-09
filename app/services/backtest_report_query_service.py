@@ -70,12 +70,19 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
         index += 1
 
 
+def _first_sheet(config):
+    """统一 sheets[] 形态取首个 Sheet 引用（无则空 dict）。"""
+    if not isinstance(config, dict):
+        return {}
+    sheets = config.get("sheets") if isinstance(config.get("sheets"), list) else []
+    return sheets[0] if sheets and isinstance(sheets[0], dict) else {}
+
+
 def _infer_backtest_model_version(config):
     if not isinstance(config, dict):
         return "c3"
 
-    sheet = config.get("sheet") or {}
-    title = str(sheet.get("title") or config.get("title") or "").upper()
+    title = str(_first_sheet(config).get("title") or "").upper()
     if "C7" in title:
         return "c7"
     if "C5" in title or "C4" in title:
@@ -102,11 +109,10 @@ def _infer_backtest_export_model_name(config):
     if not isinstance(config, dict):
         return "C3"
 
-    sheet = config.get("sheet") or {}
+    sheet = _first_sheet(config)
     sources = (
         config.get("model_name"),
         sheet.get("title"),
-        config.get("title"),
         config.get("model_version"),
     )
     for source in sources:
@@ -780,7 +786,7 @@ def build_single_product_word_report_payload(task_id, task_config, return_series
     任务结果详情接口与全局预览导出弹窗共用同一结构，避免两处字段漂移；
     return_series 缺失时 products 留空（报告文件名/权重表回落单品默认展示）。
     """
-    sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
+    sheet = _first_sheet(task_config)
     return {
         "report_type": "RPT-S",
         "task_id": task_id,
@@ -791,8 +797,6 @@ def build_single_product_word_report_payload(task_id, task_config, return_series
         "metadata": {
             "model_version": get_backtest_model_version(
                 sheet.get("title")
-                or task_config.get("title")
-                or task_config.get("spreadsheet_title")
             ),
             "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
         },

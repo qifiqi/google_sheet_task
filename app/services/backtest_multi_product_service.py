@@ -230,7 +230,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         # 显式指定非 OHLC 直接拒绝（界面显示必须与实际生效一致），未指定时归一为 OHLC；
         # 混排的非 C7.0.3 产品不受影响。存量任务重启不走本校验（restart 不重跑 normalize），
         # 执行期强制继续兜底。
-        if BacktestTrainingService._is_c7_0_3({"sheet": sheet}):
+        if BacktestTrainingService._is_c7_0_3({"sheets": [sheet]}):
             explicit_price_mode = str(product.get("price_mode") or config.get("price_mode") or "").strip().lower()
             if explicit_price_mode and explicit_price_mode != "ohlc_price":
                 product_name = str(product.get("product_name") or product.get("name") or stock_code).strip()
@@ -993,10 +993,8 @@ class BacktestMultiProductService(BacktestTrainingService):
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         product_config = dict(config_data)
         product_config.update({
-            "sheet": product["sheet"],
-            "spreadsheet_id": product["sheet"]["spreadsheet_id"],
-            "sheet_name": product["sheet"]["sheet_name"],
-            "title": product["sheet"].get("title") or "",
+            # 统一 Sheet 引用形态：单品执行配置 = sheets[1]
+            "sheets": [product["sheet"]],
             "stock_code": product["stock_code"],
             "market_type": product["market_type"],
             "kline_adjustment": product.get("kline_adjustment", "forward"),

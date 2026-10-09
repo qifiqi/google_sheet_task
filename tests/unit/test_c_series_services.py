@@ -111,7 +111,8 @@ def test_c5_c7_kline_processing_is_limited_to_configured_date_range():
             [["600000"], [1], [2]],
         )
 
-        assert set(kline_map) == {"2026-2025", "2026-2024", "2026-2023", "2026-2022", "2026-2021"}
+        # recent 模式现统一包含近半年（0.5）窗口，对应键 "2026-2026"
+        assert set(kline_map) == {"2026-2026", "2026-2025", "2026-2024", "2026-2023", "2026-2022", "2026-2021"}
         assert all(
             configured_start <= row["stock_date"] <= configured_end
             for kline in kline_map.values()

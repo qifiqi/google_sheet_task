@@ -1172,72 +1172,42 @@ class BaseGoogleSheetService:
         }
 
     def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化 Google Sheet 连接，兼容单表、多表和嵌套 sheet 配置。"""
+        """初始化 Google Sheet 连接（唯一形态：config_data['sheets']）。"""
         try:
             self._log_info("开始初始化Google Sheet连接")
 
             token_file = config_data.get('token_file', 'data/token.json')
             proxy_url = config_data.get('proxy_url')
 
-            if 'sheets' in config_data:
-                sheets = config_data.get('sheets') or []
-                if not sheets:
-                    error_msg = "缺少spreadsheet_id配置"
-                    self._log_error(error_msg)
-                    raise ValueError(error_msg)
-
-                self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
-                if proxy_url:
-                    self._log_info(f"使用代理: {proxy_url}")
-
-                connected_sheets = []
-                for sheet in sheets:
-                    spreadsheet_id = sheet.get('spreadsheet_id')
-                    sheet_name = sheet.get('sheet_name', 'data')
-                    google_sheet = GoogleSheet(
-                        spreadsheet_id,
-                        sheet_name,
-                        token_file,
-                        proxy_url,
-                        task_id=self.task_id,
-                    )
-                    if not google_sheet.worksheet:
-                        raise Exception("请先选择工作表")
-                    connected_sheets.append(google_sheet)
-                    self._log_info(f"已连接工作表: {sheet}")
-
-                self.google_sheets = connected_sheets
-                self._log_info("Google Sheet连接初始化成功")
-                return
-
-            spreadsheet_id = config_data.get('spreadsheet_id')
-            sheet_name = config_data.get('sheet_name', 'data')
-            if isinstance(config_data.get('sheet'), dict):
-                sheet = config_data['sheet']
-                spreadsheet_id = sheet.get('spreadsheet_id', spreadsheet_id)
-                sheet_name = sheet.get('sheet_name', sheet_name)
-
-            if not spreadsheet_id:
+            sheets = config_data.get('sheets') or []
+            if not sheets:
                 error_msg = "缺少spreadsheet_id配置"
                 self._log_error(error_msg)
                 raise ValueError(error_msg)
 
-            self._log_info(
-                f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}"
-            )
+            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
             if proxy_url:
                 self._log_info(f"使用代理: {proxy_url}")
 
-            self.google_sheet = GoogleSheet(
-                spreadsheet_id,
-                sheet_name,
-                token_file,
-                proxy_url,
-                task_id=self.task_id,
-            )
-            if not self.google_sheet.worksheet:
-                raise Exception("请先选择工作表")
+            connected_sheets = []
+            for sheet in sheets:
+                spreadsheet_id = sheet.get('spreadsheet_id')
+                sheet_name = sheet.get('sheet_name', 'data')
+                google_sheet = GoogleSheet(
+                    spreadsheet_id,
+                    sheet_name,
+                    token_file,
+                    proxy_url,
+                    task_id=self.task_id,
+                )
+                if not google_sheet.worksheet:
+                    raise Exception("请先选择工作表")
+                connected_sheets.append(google_sheet)
+                self._log_info(f"已连接工作表: {sheet}")
 
+            self.google_sheets = connected_sheets
+            # 单表任务（C3/C31 子任务/单品回测）消费单对象引用
+            self.google_sheet = connected_sheets[0] if len(connected_sheets) == 1 else None
             self._log_info("Google Sheet连接初始化成功")
         except Exception as err:
             error_msg = f"初始化Google Sheet连接失败: {err}"

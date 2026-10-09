@@ -1095,7 +1095,7 @@ function buildPayload() {
   }
 
   const config = {
-    sheet: sheetConfig,
+    sheets: [sheetConfig],
     stock_code: stockCode.value.trim().toUpperCase(),
     market_type: normalizeMarketTypeValue(form.market_type),
     kline_adjustment: form.kline_adjustment || 'forward',

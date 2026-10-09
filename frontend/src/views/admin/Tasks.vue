@@ -746,11 +746,13 @@ async function handleSaveEdit() {
   }
   saving.value = true
   try {
+    // JSON 编辑器提交完整 config：merge=false 整体替换，支持删键
     await updateTaskConfig(editingTaskId.value, {
       name: editForm.name,
       description: editForm.description,
       status: editForm.status,
       config,
+      merge: false,
     })
     ElMessage.success('任务已更新')
     editDialogVisible.value = false

@@ -245,8 +245,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             value = config_data.get(key)
             return default if value is None else value
 
-        sheet = config_data.get('sheet') or {}
-        title = str(sheet.get('title') or config_data.get('title') or '').upper()
+        sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
+        title = str(sheet.get('title') or '').upper()
         if BacktestTrainingService._is_c7_0_3(config_data):
             c7_0_3_config = BacktestTrainingService._get_c7_0_3_sheet_config(config_data)
             return (
@@ -642,8 +642,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 cell_k = output_range_1[0]
                 cell_v = 2
-                sheet = config_data.get('sheet') or {}
-                title = str(sheet.get('title') or config_data.get('title') or '').upper()
+                sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
+                title = str(sheet.get('title') or '').upper()
 
                 if "C7" in title or "C5" in title:
                     if "C7" in title and not is_c7_0_3:
