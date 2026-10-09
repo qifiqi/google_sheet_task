@@ -1,6 +1,8 @@
 import json
 import threading
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
+
+from app.exceptions import BadRequestError
 from app.repositories import system_config_repository
 from app.utils.logger import get_logger
 from app.utils.value_parser import coerce_bool as _coerce_bool_value
@@ -13,6 +15,22 @@ _MISSING = object()
 
 # 值里包含这些关键字的配置项，日志中打码，防止敏感信息进入日志文件。
 _SENSITIVE_KEY_HINTS = ('token', 'secret', 'password', 'credential', 'apikey')
+
+# 受保护配置键：身份与网络链路的关键安全配置，禁止经 HTTP 配置接口写入
+# （/api/config POST 与 /system-configs PUT 一并拦截）。这些键只能由运维
+# 经环境变量或服务端脚本（set_config）设置，防止篡改 JWT 签名密钥、
+# 或把平台 Google Sheet 流量导向外部代理（凭据窃取面）。
+PROTECTED_CONFIG_KEYS = ('JWT_SECRET_KEY', 'SECRET_KEY', 'proxy_url', 'token_file')
+
+
+def assert_keys_writable(keys: Iterable[Any]) -> None:
+    """校验待写配置键不含受保护键，命中抛 BadRequestError（调用方不 catch，走全局信封）。"""
+    blocked = sorted({str(k) for k in keys if str(k) in PROTECTED_CONFIG_KEYS})
+    if blocked:
+        raise BadRequestError(
+            f"配置项 {', '.join(blocked)} 为受保护配置，禁止经接口写入；"
+            "请由运维通过环境变量或服务端脚本设置"
+        )
 
 
 def _mask_config_value(key: str, value: Any) -> Any:
@@ -116,8 +134,6 @@ class ConfigManager:
         self._loaded = False
         self._lock = threading.RLock()
         self._app = None
-        # 延迟加载配置，避免在应用上下文外初始化
-        # self._load_configs()
 
     def init_app(self, app):
         self._app = app
@@ -205,7 +221,10 @@ class ConfigManager:
         """单条配置行更新 + 缓存刷新（/system-configs PUT 语义）；不存在返回 None。
 
         行级写入走 repository，缓存/负缓存刷新留在本层（数据层分层规则）。
+        受保护键拒绝更新 value（description 等元数据修订不受限）。
         """
+        if 'value' in fields:
+            assert_keys_writable([key])
         updated = system_config_repository.update(key, fields)
         if updated is None:
             return None
@@ -265,7 +284,8 @@ class ConfigManager:
             return False
 
     def update_configs(self, configs: Dict[str, Any]) -> bool:
-        """批量更新配置"""
+        """批量更新配置（/api/config POST 语义；受保护键直接拒绝）"""
+        assert_keys_writable(configs.keys())
         try:
             for key, value in configs.items():
                 success = self.set_config(key, value)
