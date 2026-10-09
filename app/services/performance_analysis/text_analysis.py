@@ -5,13 +5,12 @@
 """
 
 import json
-import math
 import re
 from typing import Any, Dict, List
 
-import numpy as np
 import pandas as pd
 
+from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
 from app.utils.value_parser import _convert_pandas_to_native
 
@@ -56,7 +55,7 @@ class TextReturnAnalysisMixin:
             else:
                 metrics = self._calculate_metrics(parsed_data)
                 metrics["analysis_mode"] = "single"
-            metrics = self._sanitize_for_json(_convert_pandas_to_native(metrics))
+            metrics = sanitize_json_value(metrics)
 
             # 准备返回结果
             payload = {
@@ -148,21 +147,6 @@ class TextReturnAnalysisMixin:
             else:
                 value = float(value)
         return round(float(value), 4)
-
-    @classmethod
-    def _sanitize_for_json(cls, value: Any) -> Any:
-        """递归清理 NaN、时间对象和 NumPy 标量，使分析结果可 JSON 编码。"""
-        if isinstance(value, dict):
-            return {key: cls._sanitize_for_json(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [cls._sanitize_for_json(item) for item in value]
-        if isinstance(value, tuple):
-            return [cls._sanitize_for_json(item) for item in value]
-        if isinstance(value, np.generic):
-            value = value.item()
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        return value
 
     def _calculate_metrics(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

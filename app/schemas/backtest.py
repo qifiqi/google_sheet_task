@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import APIModel
+from app.utils.request_parsing import parse_query
 
 
 class CalculateRatiosSchema(APIModel):
@@ -246,3 +247,14 @@ class PreviewGroupSchema(APIModel):
     """POST /api/global-preview/tasks/<task_id>/preview-group。"""
 
     result_ids: list[int] = []
+
+
+def parse_preview_runtime_params() -> dict[str, Any] | None:
+    """全局预览的运行参数（当前仅无风险利率，年化小数形式）。
+
+    GET 预览与预览导出共用：与页面读同一组查询参数
+    （``GlobalPreviewQuery``），保证导出的 Excel 与页面看到的指标同源；
+    None 表示未指定 → 沿用默认口径（rf=0）。
+    """
+    risk_free_rate = parse_query(GlobalPreviewQuery).risk_free_rate
+    return None if risk_free_rate is None else {"risk_free_rate": risk_free_rate}

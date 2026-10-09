@@ -26,13 +26,13 @@ from app.services.backtest_multi_product_service import (
     _get_return_date_for_task_result,
     _get_global_preview_cache,
     _global_preview_cache_key,
-    _parse_json,
     _set_global_preview_cache,
     build_product_export_weights,
     normalize_multi_product_config,
     normalize_ratio_display,
 )
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
+from app.utils.formatting import parse_lenient_json
 from app.services.performance_analysis.portfolio_combiner import normalize_weighting_mode
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.logger import get_logger
@@ -125,7 +125,7 @@ def build_multi_product_global_preview_payload(
 
     # 第一阶段只建立“方案 -> 产品结果”索引；组合指标和展示行在第二阶段统一计算。
     for result in results:
-        parameters = _parse_json(result.parameters, {})
+        parameters = parse_lenient_json(result.parameters, {})
         group_index = int(parameters.get("parameter_group_index") or 0)
         group_key = str(group_index)
         group = groups.setdefault(group_key, {
@@ -299,7 +299,7 @@ def build_multi_product_global_preview_word_payload(
     product_results: dict[int, dict[str, Any]] = {}
     results = task_result_repository.list_preview_entities(task_id, success_only=True)
     for result in results:
-        parameters = _parse_json(result.parameters, {})
+        parameters = parse_lenient_json(result.parameters, {})
         if str(parameters.get("parameter_group_index") or 0) != str(group_key):
             continue
         product_index = int(parameters.get("product_index") or 0)

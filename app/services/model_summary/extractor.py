@@ -135,17 +135,6 @@ class SummaryRecord:
     result_timestamp: datetime | None
 
 
-def _parse_json(raw: Any, default: Any) -> Any:
-    return parse_lenient_json(raw, default)
-
-
-_safe_number = parse_percent_like
-
-
-def _fmt_percent_like(value: Any) -> float | None:
-    """处理_fmt_percent_like相关逻辑。"""
-    return _safe_number(value)
-
 
 def _summary_key_from_label(label: str) -> str:
     """处理_summary_key_from_label相关逻辑。"""
@@ -243,7 +232,7 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
 
     normalized = normalize_task_type(task.task_type)
     if normalized == "google_sheet":
-        config = _parse_json(task.config, {})
+        config = parse_lenient_json(task.config, {})
         if isinstance(config, dict):
             period_key = _period_key_from_year_n(config.get("year_n"))
             if period_key:
@@ -293,7 +282,7 @@ def _normalize_excess_return_min(value: Any) -> float | None:
     """处理_normalize_excess_return_min相关逻辑。"""
     if value in (None, ""):
         return None
-    number = _safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return None
     return number / 100 if abs(number) > 1 else number
@@ -382,7 +371,7 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
         ("task_name", "name", "base_task_name", "taskName"),
     )
 
-    config = _parse_json(task.config, {})
+    config = parse_lenient_json(task.config, {})
 
     def standardize(value: Any) -> str:
         """处理standardize相关逻辑。"""
@@ -439,7 +428,7 @@ def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str
     if stock_name:
         return stock_name
 
-    config = _parse_json(task.config, {})
+    config = parse_lenient_json(task.config, {})
     if isinstance(config, dict):
         stock_name = _first_text_value(config, ("stock_name", "name_cn", "product_name"))
         if stock_name:
@@ -507,16 +496,16 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
     }
     metrics = {}
     for output_key, source_key in field_map.items():
-        value = _safe_number(payload.get(source_key))
+        value = parse_percent_like(payload.get(source_key))
         if value is not None:
             metrics[output_key] = value
     return metrics
 
 
-def _first_safe_number(*values: Any) -> float | None:
+def _firstparse_percent_like(*values: Any) -> float | None:
     """处理_first_safe_number相关逻辑。"""
     for value in values:
-        number = _safe_number(value)
+        number = parse_percent_like(value)
         if number is not None:
             return number
     return None
@@ -524,13 +513,13 @@ def _first_safe_number(*values: Any) -> float | None:
 
 def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
     """处理_extract_c3相关逻辑。"""
-    parameters = _parse_json(result.parameters, [])
-    payload = _parse_json(result.result, {})
+    parameters = parse_lenient_json(result.parameters, [])
+    payload = parse_lenient_json(result.result, {})
     if not isinstance(payload, dict):
         return []
 
-    return_rate = _fmt_percent_like(payload.get("I15"))
-    metrics = {key: _fmt_percent_like(payload.get(cell)) for key, cell in C3_METRIC_CELLS.items()}
+    return_rate = parse_percent_like(payload.get("I15"))
+    metrics = {key: parse_percent_like(payload.get(cell)) for key, cell in C3_METRIC_CELLS.items()}
     index_return = metrics.get("index_return")
     return_beats = round(return_rate - index_return, 12) if return_rate is not None and index_return is not None else None
     metrics["return_beats"] = return_beats
@@ -563,8 +552,8 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
     """处理_extract_c4_c5相关逻辑。"""
-    parameters = _parse_json(result.parameters, {})
-    payload = _parse_json(result.result, {})
+    parameters = parse_lenient_json(result.parameters, {})
+    payload = parse_lenient_json(result.result, {})
     if not isinstance(payload, dict):
         return []
 
@@ -573,10 +562,10 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         if model_key == "flat_result" or not isinstance(raw_metrics, dict):
             continue
 
-        return_beats = _safe_number(raw_metrics.get("D11"))
+        return_beats = parse_percent_like(raw_metrics.get("D11"))
         if return_beats is None:
-            left = _safe_number(raw_metrics.get("D2"))
-            right = _safe_number(raw_metrics.get("D5"))
+            left = parse_percent_like(raw_metrics.get("D2"))
+            right = parse_percent_like(raw_metrics.get("D5"))
             return_beats = left - right if left is not None and right is not None else None
         start_legacy_metrics = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
         index_legacy_metrics = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
@@ -584,17 +573,17 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         model_name = "__".join(key_parts[1:]) if len(key_parts) > 1 else str(model_key)
         model_name = _display_model_name(model_name, task.task_type)
         metrics = {
-            key: _safe_number(raw_metrics.get(cell))
+            key: parse_percent_like(raw_metrics.get(cell))
             for key, cell in C4_C5_METRIC_CELLS.items()
         }
         metrics.update({"return_beats": return_beats})
         metrics.update(_extract_return_analysis_metrics(raw_metrics))
         metrics.update({
-            "start_sharpe_ratio": _first_safe_number(
+            "start_sharpe_ratio": _firstparse_percent_like(
                 start_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("start_sharpe_ratio"),
             ),
-            "index_sharpe_ratio": _first_safe_number(
+            "index_sharpe_ratio": _firstparse_percent_like(
                 index_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("index_sharpe_ratio"),
             ),
@@ -631,7 +620,7 @@ def _extract_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 def _format_backtest_percent(value: Any) -> str:
     """处理_format_backtest_percent相关逻辑。"""
-    number = _safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return ""
     return f"{number:.2%}"
@@ -639,7 +628,7 @@ def _format_backtest_percent(value: Any) -> str:
 
 def _format_backtest_number(value: Any) -> str:
     """处理_format_backtest_number相关逻辑。"""
-    number = _safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return ""
     return f"{number:.2f}".rstrip("0").rstrip(".")
@@ -647,7 +636,7 @@ def _format_backtest_number(value: Any) -> str:
 
 def _negative_number(value: Any) -> float | None:
     """处理_negative_number相关逻辑。"""
-    number = _safe_number(value)
+    number = parse_percent_like(value)
     return -number if number is not None else None
 
 
@@ -668,7 +657,7 @@ def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
     values = [
         number
         for value in yearly_repair_days.values()
-        for number in [_safe_number(value)]
+        for number in [parse_percent_like(value)]
         if number is not None
     ]
     return max(values) if values else None
@@ -676,7 +665,7 @@ def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
 
 def _format_backtest_repair_days(value: Any) -> str:
     """处理_format_backtest_repair_days相关逻辑。"""
-    number = _safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return ""
     return str(int(number)) if number.is_integer() else str(number)
@@ -890,8 +879,8 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
 
 def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     """处理_extract_backtest相关逻辑。"""
-    parameters = _parse_json(result.parameters, {})
-    payload = _parse_json(result.result, {})
+    parameters = parse_lenient_json(result.parameters, {})
+    payload = parse_lenient_json(result.result, {})
     core = _first_dict_value(payload)
     if isinstance(core, dict) and isinstance(core.get("metrics_payload"), dict):
         # 统一存储契约：{schema_version, metrics, canonical_metrics}。
@@ -917,9 +906,9 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
         for key, value in _extract_backtest_metric_values(calculate_metrics).items()
         if value not in (None, "")
     })
-    annualized_diff = _safe_number(metrics.get("relative_annualized_excess_return"))
+    annualized_diff = parse_percent_like(metrics.get("relative_annualized_excess_return"))
     if annualized_diff is None:
-        annualized_diff = _safe_number((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
+        annualized_diff = parse_percent_like((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
     stock_code = _extract_stock_code(task, parameters)
     year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
     return [

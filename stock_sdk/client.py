@@ -5,7 +5,7 @@ from __future__ import annotations
 import requests
 
 from .api import bind_api_groups
-from .http_client import SyncHttpClient
+from .http_client import DEFAULT_BASE_URL, SyncHttpClient
 
 
 class StockClient(SyncHttpClient):
@@ -19,7 +19,7 @@ class StockClient(SyncHttpClient):
         self,
         *,
         token: str | None = None,
-        base_url: str = "http://172.18.20.20:8081",
+        base_url: str = DEFAULT_BASE_URL,
         timeout: float = 10.0,
         session: requests.Session | None = None,
     ) -> None:

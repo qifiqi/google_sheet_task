@@ -32,6 +32,8 @@ from app.services.export_workbook_service import (
     build_c7_stock_code_export_archive,
     build_task_export,
     sanitize_export_filename,
+    EXCEL_MIMETYPE,
+    ZIP_MIMETYPE,
 )
 from app.services.config_manager import get_config_manager
 from app.services.model_summary_service import model_summary_service
@@ -44,9 +46,7 @@ from app.utils.value_parser import parse_int
 
 logger = get_logger(__name__)
 
-EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-ZIP_MIMETYPE = "application/zip"
 CSV_MIMETYPE = "text/csv; charset=utf-8"
 MAX_BATCH_TASKS = 10
 

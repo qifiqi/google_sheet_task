@@ -5,6 +5,7 @@ import pytest
 
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import PerformanceAnalyzer
+from app.utils.formatting import sanitize_json_value
 from app.routes.backtest_api import _infer_product_export_model_name
 from app.services.backtest_report_query_service import _infer_backtest_export_model_name
 
@@ -416,7 +417,7 @@ def test_export_file_handles_unavailable_sortino_ratios():
 
 
 def test_sanitize_for_json_replaces_numpy_and_python_non_finite_numbers():
-    sanitized = PerformanceAnalyzer._sanitize_for_json(
+    sanitized = sanitize_json_value(
         {
             "infinity": float("inf"),
             "nan": float("nan"),

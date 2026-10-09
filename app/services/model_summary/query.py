@@ -10,6 +10,7 @@ from app.exceptions import ValidationError
 from app.repositories import backtest_repository
 from app.services.model_summary import extractor
 from app.utils.task_types import normalize_task_type
+from app.utils.value_parser import parse_percent_like
 
 
 class SummaryQueryMixin:
@@ -256,7 +257,7 @@ class SummaryQueryMixin:
             if task_id:
                 task_ids.add(task_id)
 
-            value = extractor._safe_number((item or {}).get("best_metric_value"))
+            value = parse_percent_like((item or {}).get("best_metric_value"))
             if value is None:
                 continue
             if value > 0:

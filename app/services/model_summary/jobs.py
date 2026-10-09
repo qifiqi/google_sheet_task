@@ -15,6 +15,7 @@ from typing import Any
 from app.models import Task, TaskLog, TaskResultSummaryIndex
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.services.model_summary import extractor
+from app.utils.formatting import parse_lenient_json
 from app.utils.logger import get_logger
 
 
@@ -430,7 +431,7 @@ class SummaryJobMixin:
         task = task_repository.get_entity(task_id)
         if not task or task.task_type != extractor.MODEL_SUMMARY_REBUILD_TASK_TYPE:
             return None
-        config = extractor._parse_json(task.config, {})
+        config = parse_lenient_json(task.config, {})
         return {
             "job_id": task.id,
             "task_id": task.id,

@@ -261,12 +261,8 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_json(raw: Any, default: Any) -> Any:
-    return parse_lenient_json(raw, default)
-
-
 def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
-    payload = _parse_json(task_result.result, {})
+    payload = parse_lenient_json(task_result.result, {})
     if not isinstance(payload, dict) or not payload:
         return {}
 
@@ -405,7 +401,7 @@ def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
 
 
 def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
-    payload = _parse_json(raw, {})
+    payload = parse_lenient_json(raw, {})
     if not isinstance(payload, dict):
         return []
     dates = payload.get("dates") or []
@@ -426,7 +422,7 @@ def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, 
         return_series = task_result_repository.get_return_entity(task_result.return_series_id)
         if return_series:
             return parse_return_series_fields(return_series)
-    return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
+    return _extract_return_date_from_result_payload(parse_lenient_json(task_result.result, {}))
 
 
 def _set_weighted_metrics_on_result_payload(
@@ -762,7 +758,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         parameter: list[Any],
         cache_entry: dict[str, Any],
     ) -> None:
-        result_payload = _parse_json(cache_entry.get("result_json"), {})
+        result_payload = parse_lenient_json(cache_entry.get("result_json"), {})
         return_date = _parse_returns_json(cache_entry.get("returns_json"))
         parameters = self._build_cached_result_parameters(
             config_data,
@@ -815,7 +811,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     return "cancelled"
 
                 # 多品配置在执行前统一归一化，确保产品级字段和任务级默认值格式一致。
-                raw_config = _parse_json(task.config, {})
+                raw_config = parse_lenient_json(task.config, {})
                 config_data = {
                     **get_config_manager().get_google_sheet_config(),
                     **normalize_multi_product_config(raw_config),

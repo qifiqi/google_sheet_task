@@ -1,9 +1,7 @@
 import calendar
 import json
-import math
 import random
 import time
-from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 from flask import current_app, has_app_context
@@ -20,6 +18,7 @@ from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
+from app.utils.formatting import sanitize_json_value
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import (
@@ -74,46 +73,9 @@ class BaseGoogleSheetService:
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
         self.api_client = StockAPIClient()
 
-    @classmethod
-    def _sanitize_json_value(cls, value: Any):
-        """Recursively convert values into strict JSON-safe Python objects."""
-        if isinstance(value, dict):
-            return {
-                key: cls._sanitize_json_value(item)
-                for key, item in value.items()
-            }
-
-        if isinstance(value, (list, tuple, set)):
-            return [cls._sanitize_json_value(item) for item in value]
-
-        if isinstance(value, (datetime, date)):
-            return value.isoformat()
-
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-
-        if value is None or isinstance(value, (str, int, bool)):
-            return value
-
-        tolist_method = getattr(value, "tolist", None)
-        if callable(tolist_method):
-            try:
-                return cls._sanitize_json_value(tolist_method())
-            except Exception:
-                pass
-
-        item_method = getattr(value, "item", None)
-        if callable(item_method):
-            try:
-                return cls._sanitize_json_value(item_method())
-            except Exception:
-                pass
-
-        return value
-
     def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
         """Ensure persisted result parameters always contain stock_code."""
-        safe = self._sanitize_json_value(parameters)
+        safe = sanitize_json_value(parameters)
         normalized = dict(safe) if isinstance(safe, dict) else {"parameters": safe}
         stock_code = (
             normalized.get("stock_code")
@@ -317,7 +279,7 @@ class BaseGoogleSheetService:
             else:
                 summary[key] = value
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )[:1000]
@@ -996,7 +958,7 @@ class BaseGoogleSheetService:
         """
         def save_result_operation():
             safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(
+            safe_result = sanitize_json_value(
                 self._prepare_result_for_persistence(
                     self._build_task_result_persistence_payload(safe_parameters, result, return_date)
                 )
