@@ -10,10 +10,15 @@ from app.utils.logger import get_logger
 import asyncio
 import random
 from datetime import datetime, timedelta
+from functools import partial
 from itertools import groupby
 from typing import Any, Callable, Iterable
-from stock_sdk import StockClient
 
+from app.repositories.stock_sdk import (
+    create_stock_client,
+    get_stock_data_all_list,
+    upsert_stock_data,
+)
 from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.market import (
@@ -101,10 +106,7 @@ class KlineService:
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
         stock_base_url = _resolve_stock_base_url()
-        if stock_base_url:
-            self.stock_client = StockClient(base_url=stock_base_url)
-        else:
-            self.stock_client = StockClient()
+        self.stock_client = create_stock_client(stock_base_url)
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self._akshare_api = None
@@ -223,13 +225,13 @@ class KlineService:
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
 
         if str(stock_code).isdigit():
-            data = self.stock_client.stock_data.get_data_all_list({
+            data = get_stock_data_all_list(self.stock_client, market="cn", payload={
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": self.get_stock_market(stock_code),
             })
 
         else:
-            data = self.stock_client.stock_data_us.get_data_all_list({
+            data = get_stock_data_all_list(self.stock_client, market="us", payload={
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": stock_code,
             })
@@ -258,14 +260,11 @@ class KlineService:
             return []
 
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
-        if str(stock_code).isdigit(): # A 股美股不同接口
-            stock_data = self.stock_client.stock_data
-
+        market = "cn" if str(stock_code).isdigit() else "us"
+        if market == "cn": # A 股美股不同接口
             stock_code = self.get_stock_market(stock_code)
-        else:
-            stock_data = self.stock_client.stock_data_us
 
-        data = stock_data.get_data_all_list({
+        data = get_stock_data_all_list(self.stock_client, market=market, payload={
             "begin_date": rows[0]["stock_date"],
             # 区间查询窗取第 8 根（与既有调用方 limit>=100 的口径一致）；行数不足时取末根，避免 IndexError
             "end_time": rows[min(7, len(rows) - 1)]["stock_date"],
@@ -277,6 +276,8 @@ class KlineService:
             rows = sorted(rows, key=lambda x: x["stock_date"],reverse=True)[:30]
 
         # 创建异步任务
+        upsert = partial(upsert_stock_data, self.stock_client, market=market)
+
         async def write_one(row):
             data = {
                 "stock_code": stock_code,
@@ -292,7 +293,7 @@ class KlineService:
                 "stock_date": row.get("stock_date")
             }
             loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
+            res = await loop.run_in_executor(None, upsert, data)
             return res
 
         # 在 Flask 中获取当前事件循环
