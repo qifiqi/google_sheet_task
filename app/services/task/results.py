@@ -20,17 +20,8 @@ class TaskResultMixin:
         传入分页参数时返回分页结构，否则返回完整结果列表。
         """
         if page is not None and per_page is not None:
-            counts = task_result_repository.count_by_task_success(task_id)
-            page_data = task_result_repository.list_by_task_paginated(task_id, page, per_page)
-            return {
-                "items": page_data["items"],
-                "total": page_data["total"],
-                "pages": page_data["pages"],
-                "current_page": page_data["current_page"],
-                "per_page": page_data["per_page"],
-                "total_success": counts["total_success"],
-                "total_failed": counts["total_failed"],
-            }
+            # list_by_task_paginated 已含 total/success/failed 计数，不再重复聚合
+            return task_result_repository.list_by_task_paginated(task_id, page, per_page)
 
         return task_result_repository.list_by_task(task_id)
 
