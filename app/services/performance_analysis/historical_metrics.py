@@ -215,8 +215,12 @@ def resolve_preview_metrics(
 
     # 完整重算指标为当前 V1 口径；但保留历史指标中 V1 没有的业务字段。
     # 对于重算出的非有限值（如超额索提诺分母为零），保留原历史有限值。
+    # 注意 calculate_v1_metrics 出口已把 NaN/inf 转成 None（non_finite_to_none），
+    # 守卫必须同时挡 None，否则重算失败的空值会覆盖历史有限值。
     merged = dict(metrics)
     for key, value in recalculated.items():
+        if value is None:
+            continue
         if isinstance(value, float) and not math.isfinite(value):
             continue
         merged[key] = value

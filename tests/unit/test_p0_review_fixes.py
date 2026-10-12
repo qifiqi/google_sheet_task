@@ -158,3 +158,31 @@ def test_ding_talk_error_redacts_credentials():
     assert "xyz789" not in redacted
     assert "access_token=***" in redacted
     assert "sign=***" in redacted
+
+
+def test_preview_metrics_recalc_none_does_not_override_legacy(monkeypatch):
+    """重算出的 None（V1 出口已 NaN→None）不得覆盖历史有限指标。
+
+    resolve_preview_metrics 的守卫只挡 float 非有限值时，None 会覆盖
+    历史值（如 legacy excess_sharp 升级来的 excess_sharpe=3.92）。
+    """
+    from app.services.performance_analysis import historical_metrics
+
+    legacy_core = {"calculate_metrics": {"excess_sharp": 3.92}}
+
+    def fake_recalc(_rows):
+        return SimpleNamespace(metrics={"excess_sharpe": None, "excess_sortino": 33.44})
+
+    monkeypatch.setattr(
+        "app.services.performance_analysis.facade.calculate_v1_metrics", fake_recalc
+    )
+    merged = historical_metrics.resolve_preview_metrics(
+        legacy_core,
+        return_rows=[
+            {"date": "2025-01-01", "index_return": 0.0, "start_return": 0.0},
+            {"date": "2025-01-02", "index_return": -0.02, "start_return": -0.01},
+        ],
+    )
+
+    assert merged["excess_sharpe"] == 3.92
+    assert merged["excess_sortino"] == 33.44
