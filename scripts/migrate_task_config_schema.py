@@ -78,7 +78,7 @@ def _build_single_sheet(source: dict[str, Any]) -> dict[str, Any] | None:
 def migrate_config(task_type: str | None, config: Any) -> tuple[dict[str, Any] | None, str]:
     """把单条 config 迁移到统一形态。返回 (新config或None, 状态)。
 
-    状态：migrated（形态变形）/ normalized（仅模型收口）/ unchanged（已符合）/
+    状态：migrated（形态变形或模型收口有变化）/ unchanged（已符合）/
     skipped:<原因>（无法安全迁移，保持原样）。
     """
     if not isinstance(config, dict):
@@ -149,7 +149,7 @@ def _infer_config_kind(config: dict[str, Any]) -> str | None:
 
 
 def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict[str, int]:
-    stats = {"total": 0, "migrated": 0, "normalized": 0, "unchanged": 0, "skipped": 0}
+    stats = {"total": 0, "migrated": 0, "unchanged": 0, "skipped": 0}
     for row in rows:
         stats["total"] += 1
         try:
@@ -173,7 +173,7 @@ def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict
             logger.warning("[%s] %s %s", label, row.id, status)
             continue
 
-        if status == "migrated" or status == "normalized":
+        if status == "migrated":
             stats[status] += 1
             if verbose:
                 logger.info("[%s] %s %s", label, row.id, status)
@@ -202,7 +202,7 @@ def main() -> int:
         task_stats = _migrate_rows(
             session, _iter_tasks(session, args.task_id), "task", args.apply, args.verbose
         )
-        template_stats = {"total": 0, "migrated": 0, "normalized": 0, "unchanged": 0, "skipped": 0}
+        template_stats = {"total": 0, "migrated": 0, "unchanged": 0, "skipped": 0}
         if args.include_templates:
             template_stats = _migrate_rows(
                 session,

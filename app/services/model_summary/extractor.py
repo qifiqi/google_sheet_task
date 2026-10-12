@@ -503,8 +503,8 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
     return metrics
 
 
-def _firstparse_percent_like(*values: Any) -> float | None:
-    """处理_first_safe_number相关逻辑。"""
+def _first_parse_percent_like(*values: Any) -> float | None:
+    """依次解析并返回第一个可解析为数值的值；全部无效返回 None。"""
     for value in values:
         number = parse_percent_like(value)
         if number is not None:
@@ -580,11 +580,11 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         metrics.update({"return_beats": return_beats})
         metrics.update(_extract_return_analysis_metrics(raw_metrics))
         metrics.update({
-            "start_sharpe_ratio": _firstparse_percent_like(
+            "start_sharpe_ratio": _first_parse_percent_like(
                 start_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("start_sharpe_ratio"),
             ),
-            "index_sharpe_ratio": _firstparse_percent_like(
+            "index_sharpe_ratio": _first_parse_percent_like(
                 index_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("index_sharpe_ratio"),
             ),

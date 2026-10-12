@@ -494,7 +494,8 @@ def _add_word_export_preview_task(task_id):
         name="C7 回测",
         task_type="google_sheet_C7",
         status="completed",
-        config='{"sheet":{"title":"C7.0.3"},"price_mode":"sp_price"}',
+        # 统一 sheets[] 形态（读取端无 sheet{} 回退，未迁移行会静默丢型号元数据）
+        config='{"sheets":[{"title":"C7.0.3"}],"price_mode":"sp_price"}',
     )
     db.session.add(task)
     db.session.flush()

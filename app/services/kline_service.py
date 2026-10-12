@@ -88,15 +88,16 @@ _AGGREGATE_DAILY_FACTOR = {KLINE_TYPE_WEEK: 7, KLINE_TYPE_MONTH: 31}
 def _resolve_stock_base_url() -> str | None:
     """STOCK_BASE_URL 单一来源：应用配置（由 config.py 从环境变量镜像）。
 
-    未配置时返回 None，交由 StockClient 使用 SDK 自身默认地址；
-    业务层不再硬编码兜底地址。
+    未配置（或纯空白）时返回 None，交由 StockClient 使用 SDK 自身默认地址；
+    业务层不再硬编码兜底地址。strip 语义与 stock_api_base.resolve_stock_base_url
+    对齐：空白串不得当作基地址下发。
     """
     try:
         from flask import current_app
         configured = current_app.config.get("STOCK_BASE_URL", "")
     except RuntimeError:
         configured = ""
-    return configured or None
+    return (configured or "").strip() or None
 
 
 class KlineService:

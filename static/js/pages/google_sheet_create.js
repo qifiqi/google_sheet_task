@@ -57,10 +57,12 @@
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
+                // 统一 sheets[] 形态取首个 Sheet 引用（与 fillFormWithTemplate 同口径）
+                const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
                 if (firstSheet.spreadsheet_id || config.spreadsheet_id) {
                     loadGoogleSheets(firstSheet.spreadsheet_id || config.spreadsheet_id);
                 }
-                
+
                 // 填充参数配置
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {

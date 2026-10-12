@@ -630,15 +630,15 @@ class TaskCreationMixin:
             if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(effective_config)
             old_config = task["config"] or {}
-            old_google_sheet_id = (
-                old_config.get("google_sheet_id") if isinstance(old_config, dict) else None
-            )
-            new_google_sheet_id = effective_config.get("google_sheet_id")
+            # sheets[] 形态下顶层无 google_sheet_id，占用迁移对比走配置收集
+            # （sheets[].google_sheet_id，缺登记时回退 spreadsheet_id 反查）。
+            old_sheet_ids = sorted(self._collect_google_sheet_ids(old_config))
+            new_sheet_ids = sorted(self._collect_google_sheet_ids(effective_config))
 
-            if old_google_sheet_id != new_google_sheet_id:
-                if old_google_sheet_id:
+            if old_sheet_ids != new_sheet_ids:
+                if old_sheet_ids:
                     self.release_google_sheet_occupancy(task_id)
-                if new_google_sheet_id:
+                if new_sheet_ids:
                     self.ensure_google_sheet_occupancy(task_id, effective_config)
 
             fields = {"config": json.dumps(effective_config)}

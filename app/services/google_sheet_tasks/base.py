@@ -430,10 +430,11 @@ class BaseGoogleSheetService:
             random_group_count=batch["random_group_count"],
         )
 
-    def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool):
+    def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool = True):
         """custom K线模式的固定双参数组合（原 C5/C7 各持一份，仅去重差异经参数表达）。
 
         C5 传入 deduplicate=True（组合对 K线窗口去重）；C7 传 False 保持原行为。
+        基类 get_bdl 调用不显式传 deduplicate，默认 True（窗口去重为安全缺省）。
         """
         data = []
         for v1 in parameters[1]:
