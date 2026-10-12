@@ -34,6 +34,11 @@ def get_stock_data_all_list(client: Any, *, market: str, payload: dict[str, Any]
     return _market_api(client, market).get_data_all_list(payload)
 
 
-def upsert_stock_data(client: Any, *, market: str, payload: dict[str, Any]):
-    """单行写入/更新内置K线库（SDK modify_or_add 语义）。"""
+def upsert_stock_data(client: Any, payload: dict[str, Any], *, market: str):
+    """单行写入/更新内置K线库（SDK modify_or_add 语义）。
+
+    payload 为位置参数：kline_service 经 ``partial(upsert_stock_data, client,
+    market=...)`` 构造单参任务后由 run_in_executor 以位置实参逐行提交，
+    keyword-only 会让绑定直接 TypeError。
+    """
     return _market_api(client, market).modify_or_add(payload)

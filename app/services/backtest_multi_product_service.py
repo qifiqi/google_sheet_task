@@ -26,7 +26,7 @@ from app.services.task.error_handling import (
 )
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
+from app.utils.formatting import max_yearly_repair_days, parse_lenient_json, sanitize_json_value
 from app.utils.return_series import parse_return_series_fields
 from app.utils.market import (
     infer_market_type,
@@ -690,7 +690,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             batch_id,
             cache_key,
             {
-                "result_json": json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
+                "result_json": json.dumps(sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
                 "returns_json": _build_returns_json(return_date or []) if return_date else None,
                 "source_task_id": self.task_id,
                 "source_step_index": step_index,
@@ -1004,7 +1004,7 @@ class BacktestMultiProductService(BacktestTrainingService):
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
         # C7.0.3 模板执行时写回 OHLC 四价列并校验四价字段（_execute_parameter_combination），
         # K线投影必须带 OHLC；价格模式强制与单品回测 get_bdl 的行为保持一致。
-        is_c7_0_3 = self._is_c7_0_3({"sheet": product.get("sheet") or {}})
+        is_c7_0_3 = self._is_c7_0_3({"sheets": [product.get("sheet") or {}]})
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],

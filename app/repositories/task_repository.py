@@ -250,6 +250,10 @@ class TaskRepository(BaseRepository):
             .all()
         ]
 
+    def count_by_status(self, status):
+        """按状态计数（ding_stream_service 批量重启指令的总量展示用）。"""
+        return Task.query.filter_by(status=status).count()
+
     def list_by_name(self, name, limit=2):
         """按名称取任务（updated/created desc，钉钉命令解析用）。"""
         return [

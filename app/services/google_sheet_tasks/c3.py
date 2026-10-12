@@ -16,6 +16,7 @@ from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
@@ -84,7 +85,7 @@ class C3Service(BaseGoogleSheetService):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
@@ -117,7 +118,7 @@ class C3Service(BaseGoogleSheetService):
                 if key in flat_result
             }
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
