@@ -2,6 +2,7 @@ from datetime import datetime
 import base64
 import hashlib
 import hmac
+import re
 import time
 import urllib.parse
 from collections.abc import Iterable
@@ -17,6 +18,14 @@ logger = get_logger(__name__)
 
 
 Field = tuple[str, object]
+
+# webhook URL 查询串里的凭据参数，异常消息落日志前打码
+_CREDENTIAL_URL_PARAMS = re.compile(r"(access_token|sign)=[^&\s'\"]+", re.IGNORECASE)
+
+
+def _redact_credentials(text: str) -> str:
+    """打码文本中内嵌的钉钉 webhook 凭据（access_token/sign）。"""
+    return _CREDENTIAL_URL_PARAMS.sub(r"\1=***", str(text or ""))
 
 
 def build_markdown_message(
@@ -101,7 +110,6 @@ class DingTalkNotifier:
         if len(raw) <= 7:
             return raw
         return f"{raw[:3]}****{raw[-4:]}"
-
     def _task_detail_url(self, task_id, detail_url=None):
         if detail_url:
             return detail_url
@@ -252,5 +260,6 @@ class DingTalkNotifier:
 
             return result
         except Exception as e:
-            logger.error(f"发送钉钉消息失败: {str(e)}", exc_info=True)
-            return {"error": str(e)}
+            # requests 异常消息会内嵌完整请求 URL（含 access_token/sign），落日志前必须打码
+            logger.error("发送钉钉消息失败: %s", _redact_credentials(str(e)))
+            return {"error": _redact_credentials(str(e))}

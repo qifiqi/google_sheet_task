@@ -81,10 +81,14 @@
         const value = document.getElementById('edit-config-value').value;
         const description = document.getElementById('edit-config-description').value;
 
-        ajaxRequest(`/api/system-configs/${encodeURIComponent(key)}`, 'PUT', {
-            value: value,
-            description: description
-        }, function(err, data) {
+        // 敏感配置列表返回的是脱敏值（***），回传会被服务端当"未修改"跳过；
+        // 仅当用户输入了非掩码值才提交 value，避免掩码字面量覆盖真实值。
+        const payload = { description: description };
+        if (value && value !== '***') {
+            payload.value = value;
+        }
+
+        ajaxRequest(`/api/system-configs/${encodeURIComponent(key)}`, 'PUT', payload, function(err, data) {
             if (!err && data && data.status === 'success') {
                 bootstrap.Modal.getOrCreateInstance(document.getElementById('editConfigModal')).hide();
                 showNotification('\u914d\u7f6e\u66f4\u65b0\u6210\u529f', 'success');

@@ -48,6 +48,20 @@ def mask_config_value(key: str, value: Any) -> Any:
     return _mask_config_value(key, value)
 
 
+def _is_masked_echo(key: str, value: Any) -> bool:
+    """识别管理端"脱敏回显被原样提交回写"：敏感键 + 掩码字面量 `***`。
+
+    管理端列表/编辑弹窗以脱敏值预填表单，用户只改描述等元数据时会把掩码
+    字面量原样回传；若照单写库，真实值会被 `***` 静默覆盖。此类提交一律
+    视为"未修改 value"处理。
+    """
+    return (
+        any(hint in str(key).lower() for hint in _SENSITIVE_KEY_HINTS)
+        and isinstance(value, str)
+        and value == '***'
+    )
+
+
 def _serialize_config_value(value: Any) -> str:
     """配置值入库序列化。
 
@@ -221,10 +235,16 @@ class ConfigManager:
         """单条配置行更新 + 缓存刷新（/system-configs PUT 语义）；不存在返回 None。
 
         行级写入走 repository，缓存/负缓存刷新留在本层（数据层分层规则）。
-        受保护键拒绝更新 value（description 等元数据修订不受限）。
+        受保护键拒绝更新 value（description 等元数据修订不受限）；
+        敏感键的掩码回显（`***`）视为未修改，跳过 value 写入。
         """
         if 'value' in fields:
             assert_keys_writable([key])
+            if _is_masked_echo(key, fields['value']):
+                fields = {k: v for k, v in fields.items() if k != 'value'}
+                logger.info(f"配置 {key} 提交值为脱敏回显，跳过 value 更新")
+        if not fields:
+            return system_config_repository.get_row(key)
         updated = system_config_repository.update(key, fields)
         if updated is None:
             return None
@@ -284,10 +304,20 @@ class ConfigManager:
             return False
 
     def update_configs(self, configs: Dict[str, Any]) -> bool:
-        """批量更新配置（/api/config POST 语义；受保护键直接拒绝）"""
+        """批量更新配置（/api/config POST 语义；受保护键直接拒绝）
+
+        敏感键的掩码回显（`***`）视为未修改，跳过该键的 value 写入。
+        """
         assert_keys_writable(configs.keys())
         try:
-            for key, value in configs.items():
+            skipped_echo = [key for key, value in configs.items() if _is_masked_echo(key, value)]
+            if skipped_echo:
+                logger.info(f"以下配置提交值为脱敏回显，跳过更新: {', '.join(skipped_echo)}")
+            pending = {k: v for k, v in configs.items() if k not in skipped_echo}
+            if not pending:
+                logger.info("批量更新请求全部为脱敏回显，无实际变更")
+                return True
+            for key, value in pending.items():
                 success = self.set_config(key, value)
                 if not success:
                     logger.error(f"更新配置失败: {key}")
