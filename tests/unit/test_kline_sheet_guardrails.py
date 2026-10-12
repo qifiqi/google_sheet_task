@@ -104,7 +104,10 @@ def test_c3_rejects_end_date_after_latest_kline_without_writing_sheet(app_factor
             lambda *_args, **_kwargs: _kline_rows("2023-04-24", "2024-05-10")
         )
 
-        with pytest.raises(Exception, match="不在K线数据范围"):
+        # 契约：end_date 晚于K线最新数据必须拒绝且不写表。KlineService 先按请求
+        # 窗口过滤行，窗口与数据不相交时以"没有可用K线数据"前置拒绝；相交但
+        # 越过末根时以"不在K线数据范围"拒绝。两种守卫均满足契约。
+        with pytest.raises(Exception, match="不在K线数据范围|没有可用K线数据"):
             service.cell_kline_data(_c3_config("2026-01-05"))
 
         assert service.google_sheet.updates == []

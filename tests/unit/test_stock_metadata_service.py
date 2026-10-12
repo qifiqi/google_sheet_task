@@ -89,7 +89,7 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
                 }
             ]
 
-        def get_stock_kline_data(self, stock_code, market, limit, adjust_type=None):
+        def get_stock_kline_data(self, stock_code, market, limit, adjust_type=None, **_kwargs):
             start = date(2024, 1, 1)
             return [
                 {
@@ -102,6 +102,11 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
 
     app = app_factory
     monkeypatch.setattr("app.services.google_sheet_tasks.c4.DFCJStockApi", FakeDfcfApi)
+    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    monkeypatch.setattr(
+        "app.services.kline_service.KlineService.read_internal_kline_data",
+        lambda self, **_kwargs: [],
+    )
     with app.app_context():
         combinations, _column_a_length = C4GoogleSheetService._get_all_parameters(
             "600519",

@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
@@ -103,12 +104,17 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
                 "period": period,
                 "adjust_type": adjust_type,
             }
+            # 请求窗口内需满足 require_kline_rows 的最少 30 根守卫
             return [
                 {"stock_date": f"2023-12-{day:02d}", "close": 9, "open": 8}
                 for day in range(1, 31)
             ] + [
-                {"stock_date": "2024-01-01", "close": 10, "open": 9},
-                {"stock_date": "2024-01-02", "close": 11, "open": 10},
+                {
+                    "stock_date": (date(2024, 1, 1) + timedelta(days=offset)).isoformat(),
+                    "close": 10 + offset,
+                    "open": 9 + offset,
+                }
+                for offset in range(46)
             ]
 
     class FakeDFCFApi:
@@ -122,11 +128,16 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
 
     monkeypatch.setattr(google_sheet_service_C4, "YFApi", FakeYFApi)
     monkeypatch.setattr(google_sheet_service_C4, "DFCJStockApi", FakeDFCFApi)
+    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    monkeypatch.setattr(
+        "app.services.kline_service.KlineService.read_internal_kline_data",
+        lambda self, **_kwargs: [],
+    )
 
     data, _column_a_length = C4GoogleSheetService._get_all_parameters(
         "AAPL",
         "total",
-        "2024-01-02",
+        "2024-02-15",
         "2024-01-01",
         "us",
         [],
@@ -140,10 +151,11 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
     }
     assert "dfcf_search" not in calls
     assert "dfcf_kline" not in calls
-    assert data[0]["kline"] == [
-        {"stock_date": "2024-01-01", "stock_val": 10},
-        {"stock_date": "2024-01-02", "stock_val": 11},
-    ]
+    # 窗口加宽以满足最少 30 根守卫；投影按收盘价（us 固定），首尾抽样断言
+    projected = data[0]["kline"]
+    assert projected[0] == {"stock_date": "2024-01-01", "stock_val": 10}
+    assert projected[-1] == {"stock_date": "2024-02-15", "stock_val": 55}
+    assert len(projected) == 46
 
 
 def test_yahoo_forward_adjustment_uses_adj_close_as_close():

@@ -67,7 +67,8 @@ def test_parse_date_supports_iso_shapes():
     assert parse_date("2026-08-29") == date(2026, 8, 29)
     assert parse_date("2026-08-29T10:00:00") == date(2026, 8, 29)
     assert parse_date(datetime(2026, 8, 29, 10, 0)) == date(2026, 8, 29)
-    assert parse_date("2026/08/29") is None
+    # 实现经 dateutil 放宽为多格式解析（docstring：YYYY-MM-DD、YYYY/MM/DD、MM/DD/YYYY 等）
+    assert parse_date("2026/08/29") == date(2026, 8, 29)
     assert parse_date("not-a-date") is None
     assert parse_date("", default=date(1970, 1, 1)) == date(1970, 1, 1)
 

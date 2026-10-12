@@ -170,6 +170,9 @@ def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
     service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Yahoo should not be used for vwap_price")
     )
+    # 内置K线库不桩会真实请求内网服务
+    service.kline_service.read_internal_kline_data = lambda **_kwargs: []
+    service.kline_service.write_internal_kline_data = lambda rows, **_kwargs: []
     search_calls = []
     service.dfcf_api.get_search_list_by_stock_code = lambda *args, **_kwargs: (
         search_calls.append(args[0]) or [{"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares"}]
