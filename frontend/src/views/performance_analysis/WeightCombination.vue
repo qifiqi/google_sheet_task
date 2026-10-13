@@ -6,7 +6,7 @@
       description="按步长穷举组合权重，流式接收每个组合的年化收益、最大回撤指标。"
     >
       <template #actions>
-        <el-button class="page-back-button" @click="$router.push('/performance_analysis')">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </template>
     </PageToolbar>
 
@@ -28,6 +28,16 @@
         <el-form-item label="单股上限(%)">
           <el-input-number v-model="form.singleCap" :min="1" :max="100" :step="1" />
         </el-form-item>
+        <el-form-item label="组合产品数">
+          <el-input-number
+            v-model="form.numProducts"
+            :min="0"
+            :max="100"
+            :step="1"
+            placeholder="不限"
+            class="weight-combination-page__num-products-input"
+          />
+        </el-form-item>
         <el-form-item label=" ">
           <el-button type="primary" :loading="analyzing" @click="handleAnalyze">开始分析</el-button>
           <el-button v-if="analyzing" type="danger" @click="handleCancel">取消</el-button>
@@ -43,6 +53,12 @@
             <el-button
               size="small"
               :disabled="productsLoading || analyzing"
+              title="把已勾选产品的单股范围固定为配置比例（按步长向下取整），组合权重不再按步长漫游"
+              @click="pinProductRatios"
+            >固定为配置比例</el-button>
+            <el-button
+              size="small"
+              :disabled="productsLoading || analyzing"
               title="按任务配置的比例重新生成 0 ~ 比例 的默认范围"
               @click="resetProductRanges"
             >重置范围</el-button>
@@ -53,6 +69,9 @@
           勾选本次参与组合的产品，并设置单股权重范围（默认 0 ~ 任务配置比例，按步长
           {{ readStep() }}% 向下取整；配置比例为 0 的产品默认不勾选）；
           范围须为步长整数倍，启用单股范围后上方「单股上限」不再生效。
+          「固定为配置比例」把勾选产品的权重钉死为配置比例；钉死权重的产品在
+          "不持仓 / 恰好该权重"之间二选一，勾「必选」则恒定持仓
+          （必选产品不计入「组合产品数」，其余恰按该数量选取）。
         </div>
         <el-alert v-if="productsError" :title="productsError" type="error" :closable="false" />
         <el-table
@@ -67,6 +86,14 @@
           @selection-change="onProductsSelectionChange"
         >
           <el-table-column type="selection" width="46" :selectable="isProductSelectable" align="center" />
+          <el-table-column label="必选" width="56" align="center">
+            <template #header>
+              <span title="勾选后恒定持仓，不计入组合产品数">必选</span>
+            </template>
+            <template #default="{ row }">
+              <el-checkbox v-model="row.fixed" :disabled="analyzing || !row.usable || !row.checked" />
+            </template>
+          </el-table-column>
           <el-table-column label="产品名称" min-width="180">
             <template #default="{ row }">
               <span :title="row.usable ? undefined : '该产品没有可用的收益序列，无法参与组合'">
@@ -189,9 +216,11 @@ import { ElMessage } from 'element-plus'
 import { Filter } from '@element-plus/icons-vue'
 import PageToolbar from '@/components/PageToolbar.vue'
 import { analyzeWeightCombinationStream, getWeightCombinationProducts } from '@/api/performance_analysis'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
+const goBack = useBackNavigation('/performance_analysis')
 
 const form = reactive({
   taskId: '',
@@ -199,6 +228,8 @@ const form = reactive({
   maxWeight: 100,
   minWeight: 50,
   singleCap: 30,
+  // 组合产品数（不含单股下限>0 的固定产品）；null = 不限
+  numProducts: null,
 })
 
 const analyzing = ref(false)
@@ -349,6 +380,21 @@ function resetProductRanges() {
   })
 }
 
+// 把已勾选且配置比例>0 的产品固定为配置比例（按步长向下取整）：min=max ⇒
+// 权重恒定、不按步长漫游，且下限>0 使其成为"固定产品"（不计入组合产品数）。
+// 其余产品保持 0 ~ 上限，继续参与"组合产品数"的子集枚举。
+function pinProductRatios() {
+  const step = readStep()
+  products.value.forEach((product) => {
+    if (!product.usable || !product.checked) return
+    if (product.ratioNum === null || product.ratioNum === undefined) return
+    const pinned = Math.floor(Math.max(0, Math.min(product.ratioNum, 100)) / step) * step
+    if (pinned <= 0) return
+    product.min = pinned
+    product.max = pinned
+  })
+}
+
 const productsSummary = computed(() => {
   const usable = products.value.filter((product) => product.usable)
   const selected = usable.filter((product) => product.checked)
@@ -370,9 +416,11 @@ function isProductSelectable(row) {
 }
 
 function onProductsSelectionChange(selectedRows) {
-  // 勾选态同步回行数据：摘要、置灰与提交载荷都读 row.checked
+  // 勾选态同步回行数据：摘要、置灰与提交载荷都读 row.checked；
+  // 行取消勾选时连带取消必选，避免残留不可达的必选标记
   products.value.forEach((product) => {
     product.checked = selectedRows.includes(product)
+    if (!product.checked) product.fixed = false
   })
 }
 
@@ -424,6 +472,8 @@ async function loadProducts(taskId, { force = false } = {}) {
         usable: !!item.has_returns,
         // 已配置比例为 0 的产品在组合里本就不参与，默认不勾选（可手动勾选后改上限）
         checked: !!item.has_returns && ratioNum !== 0,
+        // 必选：恒定持仓，不计入组合产品数
+        fixed: false,
         min: 0,
         max: 0,
       }
@@ -481,6 +531,9 @@ function collectProductSelection() {
     if (product.min % step !== 0 || product.max % step !== 0) {
       return invalid(`的单股范围必须是步长 ${step}% 的整数倍（可点「重置范围」按配置比例重算）`)
     }
+    if (product.fixed && product.max <= 0) {
+      return invalid('勾了必选，单股上限必须大于 0（持仓 = 权重 > 0）')
+    }
     ranges.push({
       result_id: product.result_id,
       min_weight: product.min,
@@ -488,13 +541,25 @@ function collectProductSelection() {
     })
   }
 
-  return {
-    error: null,
-    payload: {
-      result_ids: selected.map((product) => product.result_id),
-      stock_ranges: ranges,
-    },
+  const payload = {
+    result_ids: selected.map((product) => product.result_id),
+    stock_ranges: ranges,
   }
+
+  // 必选产品：恒定持仓，不计入组合产品数
+  const fixedIds = selected.filter((product) => product.fixed).map((product) => product.result_id)
+  if (fixedIds.length) payload.fixed_result_ids = fixedIds
+
+  // 组合产品数（不含必选产品）；留空（null）表示不限
+  if (form.numProducts !== null && form.numProducts !== undefined) {
+    const freeCount = selected.length - fixedIds.length
+    if (form.numProducts > freeCount) {
+      return { error: `组合产品数不能超过可变产品数 ${freeCount}（必选产品不计入）` }
+    }
+    payload.num_products = form.numProducts
+  }
+
+  return { error: null, payload }
 }
 
 function validateBaseParams() {
@@ -690,6 +755,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .weight-combination-page__task-id-input {
   width: 220px;
+}
+
+.weight-combination-page__num-products-input {
+  width: 130px;
 }
 
 .weight-combination-page__section {
