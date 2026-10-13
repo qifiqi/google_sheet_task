@@ -6,7 +6,7 @@
         <h2 class="page-title">V1：Google Sheet 分析</h2>
       </div>
       <div class="page-toolbar__actions">
-      <el-button @click="$router.push('/performance_analysis')">返回</el-button>
+      <el-button @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -364,6 +364,9 @@ import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { analyzePerformanceAnalysisV1, exportPerformanceAnalysisResult } from '@/api/performance_analysis'
+import { useBackNavigation } from '@/utils/navigation'
+
+const goBack = useBackNavigation('/performance_analysis')
 
 // ── 阈值 runtime_params（与 V2.vue 共用同一 localStorage 键，两页互通）───
 const RUNTIME_PARAMS_STORAGE_KEY = 'v2_runtime_params'

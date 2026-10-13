@@ -7,7 +7,7 @@
         <p class="page-description">按股票代码、参数组合和多组 Sheet 配置批量创建子任务，适合批量回放与拆分执行。</p>
       </div>
       <div class="page-toolbar__actions">
-        <el-button class="page-back-button" @click="$router.back()">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -258,9 +258,11 @@ import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { getEnums } from '@/api/meta'
 import { useResponsive } from '@/composables/useResponsive'
 import { formatDate, previousWeekday } from '@/utils/tradingDate'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
+const goBack = useBackNavigation('/task/list?version=c3')
 const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
@@ -665,7 +667,7 @@ async function submit() {
     ElMessage.success(`批量任务创建成功，共 ${res.total_created || 0} 个子任务`)
     clearSaved()
     // C31 子任务是 google_sheet(C3) 类型，回 C3 列表才能看到（与静态版一致）
-    setTimeout(() => router.push('/task/list?version=c3'), 800)
+    setTimeout(() => router.replace('/task/list?version=c3'), 800)
   } catch (e) {
     ElMessage.error(e?.message || '创建批量任务失败')
   } finally {

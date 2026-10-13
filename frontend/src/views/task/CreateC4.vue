@@ -9,7 +9,7 @@
         </p>
       </div>
       <div class="page-toolbar__actions">
-        <el-button class="page-back-button" @click="$router.back()">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -354,9 +354,11 @@ import { createTask, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
 import { defaultDateRange, formatDate } from '@/utils/tradingDate'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
+const goBack = useBackNavigation('/task/list?version=c4')
 const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
@@ -784,7 +786,7 @@ async function submit() {
 
     ElMessage.success('任务创建成功，正在跳转...')
     clearSaved()
-    setTimeout(() => router.push(`/task/${res.task_id}`), 800)
+    setTimeout(() => router.replace(`/task/${res.task_id}`), 800)
   } catch {
     ElMessage.error('创建任务失败')
   } finally {

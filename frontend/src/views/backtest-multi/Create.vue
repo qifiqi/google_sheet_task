@@ -905,7 +905,7 @@ async function createTask() {
         }
       })
     }
-    router.push('/backtest-multi/list')
+    router.replace('/backtest-multi/list')
   } catch (error) {
     createStatus.value = { text: error.message || '任务创建失败', type: 'danger' }
     ElMessage.error(error.message || '任务创建失败')

@@ -36,7 +36,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button class="page-back-button" @click="$router.back()">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </template>
     </PageToolbar>
 
@@ -550,6 +550,7 @@ import {
 import { formatDateTime } from '@/utils/format'
 import { useChartJs } from '@/composables/useChartJs'
 import { useResponsive } from '@/composables/useResponsive'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -597,6 +598,8 @@ const versionKind = computed(() => {
   return null
 })
 const isVersionTask = computed(() => !!versionKind.value)
+// 返回兜底按任务版本落对应列表（C3 及兜底默认 c3 列表，与列表页缺省 version 一致）。
+const goBack = useBackNavigation(() => `/task/list?version=${versionKind.value || 'c3'}`)
 
 // 重启下拉显示条件（对齐静态版状态枚举：pending/completed/error/cancelled）
 const canRestart = computed(() =>

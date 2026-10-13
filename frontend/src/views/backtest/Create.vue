@@ -1176,7 +1176,7 @@ async function submit() {
       throw new Error('任务创建失败')
     }
     ElMessage.success('任务创建成功')
-    router.push('/backtest/list')
+    router.replace('/backtest/list')
   } catch (error) {
     ElMessage.error(error.message || '任务创建失败')
   } finally {
