@@ -25,9 +25,7 @@ class StockAPIClient:
             base_url: API基础URL；为空时按 应用配置 STOCK_BASE_URL > 历史默认地址 解析。
             timeout: 请求超时时间（秒）
         """
-        self.base_url = resolve_stock_base_url(
-            base_url, fallback='http://stockapi.stplan.cn'
-        ).rstrip('/')
+        self.base_url = resolve_stock_base_url(base_url).rstrip('/')
         self.timeout = timeout
         self.session = requests.Session()
 

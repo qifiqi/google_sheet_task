@@ -29,6 +29,7 @@ from app.utils.market import (
     supports_internal_kline,
     to_yahoo_ticker,
 )
+from app.utils.stock_api_base import resolve_stock_base_url
 
 logger = get_logger(__name__)
 
@@ -85,28 +86,15 @@ _NATIVE_PERIOD_SOURCES = {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}
 _AGGREGATE_DAILY_FACTOR = {KLINE_TYPE_WEEK: 7, KLINE_TYPE_MONTH: 31}
 
 
-def _resolve_stock_base_url() -> str | None:
-    """STOCK_BASE_URL 单一来源：应用配置（由 config.py 从环境变量镜像）。
-
-    未配置（或纯空白）时返回 None，交由 StockClient 使用 SDK 自身默认地址；
-    业务层不再硬编码兜底地址。strip 语义与 stock_api_base.resolve_stock_base_url
-    对齐：空白串不得当作基地址下发。
-    """
-    try:
-        from flask import current_app
-        configured = current_app.config.get("STOCK_BASE_URL", "")
-    except RuntimeError:
-        configured = ""
-    return (configured or "").strip() or None
-
-
 class KlineService:
     """按统一格式读取、标准化并可回填 K 线数据。"""
 
     def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None):
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
-        stock_base_url = _resolve_stock_base_url()
+        # 基地址经 stock_api_base 统一解析；未配置（或纯空白）时传 None，
+        # 交由 StockClient 使用 SDK 自身默认地址，业务层不硬编码兜底地址。
+        stock_base_url = resolve_stock_base_url(fallback='') or None
         self.stock_client = create_stock_client(stock_base_url)
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api

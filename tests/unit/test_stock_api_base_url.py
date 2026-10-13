@@ -6,7 +6,7 @@ from flask import Flask
 
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.proxy_manager import SmartProxyManager
-from app.utils.stock_api_base import resolve_stock_base_url
+from app.utils.stock_api_base import DEFAULT_STOCK_BASE_URL, resolve_stock_base_url
 
 HISTORY_DEFAULT = 'http://stockapi.stplan.cn'
 
@@ -30,6 +30,12 @@ def test_config_value_used_when_no_explicit_param(stock_app):
 def test_fallback_without_app_context():
     # 无应用上下文（独立脚本/单测）时回退调用方历史默认地址。
     assert resolve_stock_base_url('', fallback=HISTORY_DEFAULT) == HISTORY_DEFAULT
+
+
+def test_default_fallback_is_module_constant():
+    # 历史默认地址常量只在 stock_api_base 定义，不传 fallback 时作为兜底。
+    assert DEFAULT_STOCK_BASE_URL == HISTORY_DEFAULT
+    assert resolve_stock_base_url('') == HISTORY_DEFAULT
 
 
 def test_stock_api_client_resolves_base_url_from_config(stock_app):
