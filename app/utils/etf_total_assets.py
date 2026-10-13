@@ -3,8 +3,10 @@
 按市场分发到各数据源适配文件，调用方只认本模块：
 - 海外市场：yf_api（Yahoo totalAssets，未披露时回退 marketCap 总市值，
   基金计价货币原值，不做汇率归一）；
-- A股：dfcf_api（东方财富延迟行情 f116 总市值：场内基金（ETF/LOF）为
-  最新价×总份额，即基金规模量级；个股即总市值。单位元，不做汇率归一）。
+- A股：tencent_api（腾讯财经 qt.gtimg.cn 公开行情总市值：场内基金
+  （ETF/LOF）为最新价×总份额，即基金规模量级；个股即总市值），解析
+  失败或契约不符时回退 dfcf_api（东方财富延迟行情 f116 同口径）。
+  单位元，不做汇率归一。
 
 取不到值（非 ETF / 数据源缺失 / 网络失败）一律返回 None，
 由展示层渲染 "-"，本模块不携带展示语义。
@@ -74,8 +76,15 @@ def get_etf_total_assets_detail(
 def _fetch_total_assets_detail(code: str, market: str, exchange_market: Any) -> tuple[float | None, bool | None]:
     try:
         if market == "cn":
-            # A股：东方财富延迟行情 f116，场内基金（ETF/LOF）≈规模、个股=总市值；
-            # is_etf 由代码前缀判定（沪 5 / 深 15-16 开头为场内基金）。
+            # A股：腾讯财经 qt.gtimg.cn 总市值主源（直连、无 WAF），腾讯契约
+            # 不符或异常时回退东财 push2delay f116；场内基金（ETF/LOF）≈规模、
+            # 个股=总市值；is_etf 由代码前缀判定（沪 5 / 深 15-16 开头为场内
+            # 基金），两源同规则。
+            from app.utils.tencent_api import TencentStockApi
+
+            detail = TencentStockApi().get_total_assets_with_source(code)
+            if detail[0] is not None:
+                return detail
             from app.utils.dfcf_api import DFCJStockApi
 
             return DFCJStockApi().get_total_assets_with_source(code)
