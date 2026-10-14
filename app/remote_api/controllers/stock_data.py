@@ -21,7 +21,7 @@ class StockDataApi(ControllerApi):
         按主键删除K线记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/Delete' \
+              'http://stockapi.jaspil.cn/api/StockData/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class StockDataApi(ControllerApi):
         按主键查询K线记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetById' \
+              'http://stockapi.jaspil.cn/api/StockData/GetById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -45,7 +45,7 @@ class StockDataApi(ControllerApi):
         按条件查询K线全量数据（无分页）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetDataAllList' \
+              'http://stockapi.jaspil.cn/api/StockData/GetDataAllList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"begin_date": "2024-01-01", "stock_code": "600000.SH"}'
@@ -57,7 +57,7 @@ class StockDataApi(ControllerApi):
         分页查询K线数据（支持 stock_code/行业/日期区间等过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/StockData/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "begin_date": "2024-01-01", "page_index": 1, "page_size": 200}'
@@ -71,7 +71,7 @@ class StockDataApi(ControllerApi):
         按日期分页查询历史K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetListHisPage' \
+              'http://stockapi.jaspil.cn/api/StockData/GetListHisPage' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_date": "2024-01-01", "page_index": 1, "page_size": 200}'
@@ -85,7 +85,7 @@ class StockDataApi(ControllerApi):
         分页查询K线（支持系数/概念/等级过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetListPage' \
+              'http://stockapi.jaspil.cn/api/StockData/GetListPage' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "page_index": 1, "page_size": 200}'
@@ -99,7 +99,7 @@ class StockDataApi(ControllerApi):
         按成交量条件查询K线（多条件动态拼接）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetListVolume' \
+              'http://stockapi.jaspil.cn/api/StockData/GetListVolume' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "coefficient": 1.0}'
@@ -111,7 +111,7 @@ class StockDataApi(ControllerApi):
         按代码与日期区间查询K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetStockListByCode' \
+              'http://stockapi.jaspil.cn/api/StockData/GetStockListByCode' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "begin_date": "2024-01-01", "end_time": "2024-01-31"}'
@@ -123,7 +123,7 @@ class StockDataApi(ControllerApi):
         按代码或日期查询K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/GetStockListByCodeOrDate' \
+              'http://stockapi.jaspil.cn/api/StockData/GetStockListByCodeOrDate' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "begin_date": "2024-01-01", "end_time": "2024-01-31"}'
@@ -135,7 +135,7 @@ class StockDataApi(ControllerApi):
         写入/更新一行K线（wire 字段 stock_open/stock_max/...）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockData/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/StockData/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "stock_date": "2024-01-01", "stock_open": 10.0, "stock_max": 11.0, "stock_min": 9.8, "stock_close": 10.5}'

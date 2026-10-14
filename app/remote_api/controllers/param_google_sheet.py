@@ -21,7 +21,7 @@ class ParamGoogleSheetApi(ControllerApi):
         按主键删除 Sheet 参数记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheet/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheet/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamGoogleSheetApi(ControllerApi):
         分页查询 Sheet 参数记录（支持 spreadsheet_id/task_type 等过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheet/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheet/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamGoogleSheetApi(ControllerApi):
         按主键查询 Sheet 参数详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheet/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheet/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamGoogleSheetApi(ControllerApi):
         新增/更新 Sheet 参数记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheet/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheet/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "spreadsheet_id": "..."}'

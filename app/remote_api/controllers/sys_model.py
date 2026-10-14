@@ -21,7 +21,7 @@ class SysModelApi(ControllerApi):
         按主键删除系统模型
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysModel/Delete' \
+              'http://stockapi.jaspil.cn/api/SysModel/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class SysModelApi(ControllerApi):
         按主键查询系统模型详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysModel/GetById' \
+              'http://stockapi.jaspil.cn/api/SysModel/GetById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -45,7 +45,7 @@ class SysModelApi(ControllerApi):
         分页查询系统模型（支持 model_name/parent_model_name 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysModel/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/SysModel/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -59,7 +59,7 @@ class SysModelApi(ControllerApi):
         查询顶层模型列表
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysModel/GetTopModelList' \
+              'http://stockapi.jaspil.cn/api/SysModel/GetTopModelList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{}'
@@ -71,7 +71,7 @@ class SysModelApi(ControllerApi):
         新增/更新系统模型
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysModel/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/SysModel/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"model_name": "...", "model_code": "...", "order_num": 1}'

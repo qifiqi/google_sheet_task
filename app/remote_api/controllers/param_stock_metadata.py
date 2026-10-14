@@ -21,7 +21,7 @@ class ParamStockMetadataApi(ControllerApi):
         按主键删除股票元数据
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamStockMetadata/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamStockMetadata/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamStockMetadataApi(ControllerApi):
         分页查询股票元数据（支持 stock_code 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamStockMetadata/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamStockMetadata/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamStockMetadataApi(ControllerApi):
         按主键查询股票元数据详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamStockMetadata/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamStockMetadata/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamStockMetadataApi(ControllerApi):
         新增/更新股票元数据
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamStockMetadata/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamStockMetadata/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "600000.SH", "stock_name": "浦发银行"}'

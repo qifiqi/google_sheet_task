@@ -26,7 +26,7 @@ class SysUserApi(ControllerApi):
         读取当前登录用户（请求体恒为空对象，凭据只走 Token 请求头）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/Get' \
+              'http://stockapi.jaspil.cn/api/SysUser/Get' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -H 'Token: <token>' \
@@ -39,7 +39,7 @@ class SysUserApi(ControllerApi):
         按主键查询用户详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/GetById' \
+              'http://stockapi.jaspil.cn/api/SysUser/GetById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -51,7 +51,7 @@ class SysUserApi(ControllerApi):
         分页查询用户（支持 username/role_name 等过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/SysUser/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -65,7 +65,7 @@ class SysUserApi(ControllerApi):
         查询用户下拉选项列表（请求体恒为空对象）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/GetListForSelect' \
+              'http://stockapi.jaspil.cn/api/SysUser/GetListForSelect' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{}'
@@ -77,7 +77,7 @@ class SysUserApi(ControllerApi):
         用请求头 Token 校验身份并返回用户信息（请求体恒为空对象）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/GetUserInfo' \
+              'http://stockapi.jaspil.cn/api/SysUser/GetUserInfo' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -H 'Token: <token>' \
@@ -90,7 +90,7 @@ class SysUserApi(ControllerApi):
         用请求头 Token 读取用户可访问模型/路由表（请求体恒为空对象）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/GetUserRoleList' \
+              'http://stockapi.jaspil.cn/api/SysUser/GetUserRoleList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -H 'Token: <token>' \
@@ -103,7 +103,7 @@ class SysUserApi(ControllerApi):
         账号密码登录，颁发用户 Token
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/Login' \
+              'http://stockapi.jaspil.cn/api/SysUser/Login' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"user_name": "...", "user_password": "..."}'
@@ -115,7 +115,7 @@ class SysUserApi(ControllerApi):
         管理员重置用户密码
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/PwdReset' \
+              'http://stockapi.jaspil.cn/api/SysUser/PwdReset' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -127,7 +127,7 @@ class SysUserApi(ControllerApi):
         注册新用户
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/Register' \
+              'http://stockapi.jaspil.cn/api/SysUser/Register' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"user_name": "...", "user_password": "..."}'
@@ -139,7 +139,7 @@ class SysUserApi(ControllerApi):
         用户修改自身密码
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/UpdatePwd' \
+              'http://stockapi.jaspil.cn/api/SysUser/UpdatePwd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"old_password": "...", "new_password": "..."}'
@@ -151,7 +151,7 @@ class SysUserApi(ControllerApi):
         更新用户角色
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/UpdateUserRole' \
+              'http://stockapi.jaspil.cn/api/SysUser/UpdateUserRole' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"userid": 1, "role_id": 1}'
@@ -163,7 +163,7 @@ class SysUserApi(ControllerApi):
         启用/停用用户
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysUser/UserEnableOrUnEnable' \
+              'http://stockapi.jaspil.cn/api/SysUser/UserEnableOrUnEnable' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "state": 1}'

@@ -21,7 +21,7 @@ class ParamTaskResultsApi(ControllerApi):
         按主键删除任务结果
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResults/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResults/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamTaskResultsApi(ControllerApi):
         分页查询任务结果（支持 task_ids[]/success 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResults/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResults/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_ids": ["..."], "page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamTaskResultsApi(ControllerApi):
         按主键查询任务结果详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResults/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResults/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamTaskResultsApi(ControllerApi):
         新增/更新任务结果
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResults/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResults/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "step_index": 0, "success": 1}'

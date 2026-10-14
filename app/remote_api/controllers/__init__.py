@@ -20,6 +20,8 @@ from app.remote_api.controllers.param_tasks import ParamTasksApi
 from app.remote_api.controllers.param_xpl_analysis_jobs import ParamXplAnalysisJobsApi
 from app.remote_api.controllers.stock_data import StockDataApi
 from app.remote_api.controllers.stock_data_us import StockDataUsApi
+from app.remote_api.controllers.stock_dic import StockDicApi
+from app.remote_api.controllers.stock_param_result import StockParamResultApi
 from app.remote_api.controllers.sys_model import SysModelApi
 from app.remote_api.controllers.sys_role import SysRoleApi
 from app.remote_api.controllers.sys_user import SysUserApi
@@ -41,6 +43,8 @@ __all__ = [
     "ParamXplAnalysisJobsApi",
     "StockDataApi",
     "StockDataUsApi",
+    "StockDicApi",
+    "StockParamResultApi",
     "SysModelApi",
     "SysRoleApi",
     "SysUserApi",
@@ -66,6 +70,8 @@ def bind_controllers(client: Any) -> None:
     client.param_xpl_analysis_jobs = ParamXplAnalysisJobsApi(client)
     client.stock_data = StockDataApi(client)
     client.stock_data_us = StockDataUsApi(client)
+    client.stock_dic = StockDicApi(client)
+    client.stock_param_result = StockParamResultApi(client)
     client.sys_model = SysModelApi(client)
     client.sys_role = SysRoleApi(client)
     client.sys_user = SysUserApi(client)

@@ -21,7 +21,7 @@ class StockDataUsApi(ControllerApi):
         按主键删除美股K线记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/Delete' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class StockDataUsApi(ControllerApi):
         按主键查询美股K线记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/GetById' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/GetById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -45,7 +45,7 @@ class StockDataUsApi(ControllerApi):
         按条件查询美股K线全量数据（无分页）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/GetDataAllList' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/GetDataAllList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"begin_date": "2024-01-01", "stock_code": "AAPL"}'
@@ -57,7 +57,7 @@ class StockDataUsApi(ControllerApi):
         分页查询美股K线数据
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "AAPL", "page_index": 1, "page_size": 200}'
@@ -71,7 +71,7 @@ class StockDataUsApi(ControllerApi):
         按日期分页查询美股历史K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/GetListHisPage' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/GetListHisPage' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_date": "2024-01-01", "page_index": 1, "page_size": 200}'
@@ -85,7 +85,7 @@ class StockDataUsApi(ControllerApi):
         分页查询美股K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/GetListPage' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/GetListPage' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "AAPL", "page_index": 1, "page_size": 200}'
@@ -99,7 +99,7 @@ class StockDataUsApi(ControllerApi):
         写入/更新一行美股K线
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/StockDataUs/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/StockDataUs/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"stock_code": "AAPL", "stock_date": "2024-01-01", "stock_open": 180.0, "stock_close": 182.5}'

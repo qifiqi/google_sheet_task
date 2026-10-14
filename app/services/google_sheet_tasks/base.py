@@ -16,7 +16,7 @@ from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.db_retry import safe_db_operation
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_stock_api import StockAPIClient
+from app.remote_api import stock_api
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.formatting import sanitize_json_value
@@ -72,7 +72,6 @@ class BaseGoogleSheetService:
         self.task_name = ''
         self.task = None
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
-        self.api_client = StockAPIClient()
 
     def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
         """Ensure persisted result parameters always contain stock_code."""
@@ -1094,7 +1093,8 @@ class BaseGoogleSheetService:
     )
     def send_stock_param_result_data(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            result = self.api_client.add_or_modify_stock_param_result(payload) or {}
+            # 主站调用统一出口（app/remote_api）：结果回推走 stock_param_result 控制器
+            result = stock_api.stock_param_result.add_or_modify(payload) or {}
             return result
         except Exception as err:
             self._log_api_error("发送StockParamResult数据", str(err))

@@ -21,7 +21,7 @@ class ParamTaskResultsReturnApi(ControllerApi):
         按主键删除收益序列
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultsReturn/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultsReturn/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamTaskResultsReturnApi(ControllerApi):
         分页查询收益序列（支持 task_id/stock_code/日期区间过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultsReturn/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultsReturn/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "page_index": 1, "page_size": 200}'
@@ -47,7 +47,7 @@ class ParamTaskResultsReturnApi(ControllerApi):
         按主键查询收益序列详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultsReturn/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultsReturn/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamTaskResultsReturnApi(ControllerApi):
         新增/更新收益序列
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultsReturn/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultsReturn/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "stock_code": "...", "return_series": "..."}'

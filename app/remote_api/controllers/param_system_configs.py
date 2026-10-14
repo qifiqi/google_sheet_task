@@ -21,7 +21,7 @@ class ParamSystemConfigsApi(ControllerApi):
         按主键删除系统配置
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamSystemConfigs/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamSystemConfigs/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamSystemConfigsApi(ControllerApi):
         分页查询系统配置
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamSystemConfigs/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamSystemConfigs/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamSystemConfigsApi(ControllerApi):
         按主键查询系统配置详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamSystemConfigs/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamSystemConfigs/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamSystemConfigsApi(ControllerApi):
         新增/更新系统配置（config_key 唯一）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamSystemConfigs/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamSystemConfigs/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"config_key": "...", "config_value": "..."}'

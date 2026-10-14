@@ -104,7 +104,8 @@ class BaseConfig:
     # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
     # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
     SSO_ENABLED = True
-    SSO_MAIN_VERIFY_URL = 'https://stockapi.stplan.cn/api/SysUser/GetUserInfo'
+    # 主站域名已由 stockapi.stplan.cn 迁移至 stockapi.jaspil.cn（2026-10）。
+    SSO_MAIN_VERIFY_URL = 'https://stockapi.jaspil.cn/api/SysUser/GetUserInfo'
     # 校验接口超时（秒）；换票是低频入口操作，短超时快速失败。
     SSO_MAIN_VERIFY_TIMEOUT = 5
     # 单个任务最长执行时间，单位：秒。
@@ -150,7 +151,7 @@ class BaseConfig:
         cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)
         cls.SSO_MAIN_VERIFY_URL = os.environ.get(
             'SSO_MAIN_VERIFY_URL',
-            'https://stockapi.stplan.cn/api/SysUser/GetUserInfo',
+            'https://stockapi.jaspil.cn/api/SysUser/GetUserInfo',
         )
         cls.SSO_MAIN_VERIFY_TIMEOUT = _get_int('SSO_MAIN_VERIFY_TIMEOUT', 5)
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)

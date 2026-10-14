@@ -21,7 +21,7 @@ class SysRoleApi(ControllerApi):
         按主键删除角色
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/Delete' \
+              'http://stockapi.jaspil.cn/api/SysRole/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class SysRoleApi(ControllerApi):
         按主键查询角色详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/GetById' \
+              'http://stockapi.jaspil.cn/api/SysRole/GetById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -45,7 +45,7 @@ class SysRoleApi(ControllerApi):
         分页查询角色（支持 role_name 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/SysRole/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -59,7 +59,7 @@ class SysRoleApi(ControllerApi):
         查询角色下拉选项列表
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/GetRoleListForSelect' \
+              'http://stockapi.jaspil.cn/api/SysRole/GetRoleListForSelect' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{}'
@@ -71,7 +71,7 @@ class SysRoleApi(ControllerApi):
         校验模型（菜单）名称是否已分配角色
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/IsRole' \
+              'http://stockapi.jaspil.cn/api/SysRole/IsRole' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"model_name": "..."}'
@@ -83,7 +83,7 @@ class SysRoleApi(ControllerApi):
         新增/更新角色
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/SysRole/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/SysRole/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"role_name": "...", "model_ids": "1,2,3"}'

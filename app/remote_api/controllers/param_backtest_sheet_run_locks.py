@@ -21,7 +21,7 @@ class ParamBacktestSheetRunLocksApi(ControllerApi):
         按主键删除运行锁
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestSheetRunLocks/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestSheetRunLocks/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamBacktestSheetRunLocksApi(ControllerApi):
         分页查询运行锁（支持 spreadsheet_id 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestSheetRunLocks/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestSheetRunLocks/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"spreadsheet_id": "...", "page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamBacktestSheetRunLocksApi(ControllerApi):
         按主键查询运行锁详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestSheetRunLocks/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestSheetRunLocks/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamBacktestSheetRunLocksApi(ControllerApi):
         新增/更新运行锁（spreadsheet_id 唯一约束兜底并发）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestSheetRunLocks/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestSheetRunLocks/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"spreadsheet_id": "...", "task_id": "...", "task_type": "..."}'

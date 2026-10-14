@@ -21,7 +21,7 @@ class ParamTaskResultSummaryIndexApi(ControllerApi):
         按主键删除汇总索引行
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultSummaryIndex/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultSummaryIndex/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamTaskResultSummaryIndexApi(ControllerApi):
         分页查询汇总索引（支持 task_id/task_type/stock_keyword 等过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultSummaryIndex/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultSummaryIndex/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamTaskResultSummaryIndexApi(ControllerApi):
         查询汇总统计数据
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultSummaryIndex/GetDataSummary' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultSummaryIndex/GetDataSummary' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{}'
@@ -59,7 +59,7 @@ class ParamTaskResultSummaryIndexApi(ControllerApi):
         按主键查询汇总索引详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultSummaryIndex/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultSummaryIndex/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -71,7 +71,7 @@ class ParamTaskResultSummaryIndexApi(ControllerApi):
         新增/更新汇总索引行
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskResultSummaryIndex/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTaskResultSummaryIndex/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "task_result_id": 1, "is_best": 1}'

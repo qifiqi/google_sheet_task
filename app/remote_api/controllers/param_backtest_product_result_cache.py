@@ -21,7 +21,7 @@ class ParamBacktestProductResultCacheApi(ControllerApi):
         按主键删除缓存记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestProductResultCache/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestProductResultCache/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamBacktestProductResultCacheApi(ControllerApi):
         分页查询缓存记录（远端无业务过滤字段，全量分页）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestProductResultCache/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestProductResultCache/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamBacktestProductResultCacheApi(ControllerApi):
         按主键查询缓存详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestProductResultCache/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestProductResultCache/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamBacktestProductResultCacheApi(ControllerApi):
         新增/更新缓存记录（存在 id 则更新，否则新增）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamBacktestProductResultCache/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamBacktestProductResultCache/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"batch_id": "...", "cache_key": "...", "payload": "..."}'

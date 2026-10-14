@@ -21,7 +21,7 @@ class ParamTasksApi(ControllerApi):
         按主键删除任务
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTasks/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTasks/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": "..."}'
@@ -33,7 +33,7 @@ class ParamTasksApi(ControllerApi):
         分页查询任务（支持 task_types/statuses/keyword/created_from 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTasks/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTasks/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_types": ["backtest_training"], "page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamTasksApi(ControllerApi):
         按主键查询任务详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTasks/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTasks/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": "..."}'
@@ -59,7 +59,7 @@ class ParamTasksApi(ControllerApi):
         新增/更新任务（存在 id 则更新，否则新增）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTasks/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTasks/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": "...", "task_type": "backtest_training", "status": "pending"}'

@@ -21,7 +21,7 @@ class ParamTaskTemplatesApi(ControllerApi):
         按主键删除任务模板
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskTemplates/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTaskTemplates/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamTaskTemplatesApi(ControllerApi):
         分页查询任务模板
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskTemplates/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTaskTemplates/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamTaskTemplatesApi(ControllerApi):
         按主键查询任务模板详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskTemplates/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTaskTemplates/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamTaskTemplatesApi(ControllerApi):
         新增/更新任务模板
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskTemplates/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTaskTemplates/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "name": "..."}'

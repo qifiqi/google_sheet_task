@@ -2,23 +2,19 @@ import threading
 import time
 from typing import Any
 
-import requests
+from app.remote_api import stock_api
 
 
 class SmartProxyManager:
     """Manage a short-lived proxy pool for DFCF requests."""
 
-    def __init__(self, logger=None, base_url: str = "http://stockapi.stplan.cn/"):
+    def __init__(self, logger=None):
         self.lock = threading.Lock()
         self.proxy_size = 0
         self.logger = logger
         self.max_proxy_size = 50
         self.proxy = {}
         self.proxy_time = time.time()
-        self.base_url = base_url.strip("/")
-        self.proxy_config = {
-            "url": f"{self.base_url}/api/StockDic/GetProxyListByOne",
-        }
 
     @staticmethod
     def _redact_proxy(proxy: dict[str, str] | dict[Any, Any]):
@@ -34,14 +30,9 @@ class SmartProxyManager:
         return redacted
 
     def _get_proxy(self) -> dict[str, str]:
-        response = requests.post(
-            self.proxy_config["url"],
-            headers={"accept": "text/plain"},
-            data="",
-            timeout=20,
-        )
-        response.raise_for_status()
-        proxy = response.json()["ret_obj"]
+        # 主站调用统一出口（app/remote_api）：代理获取走 stock_dic 控制器，
+        # 返回值已是统一信封解包后的 ret_obj。
+        proxy = stock_api.stock_dic.get_proxy_list_by_one()
         proxy_url = "http://%(username)s:%(password)s@%(url)s:%(port)s" % {
             "username": proxy["username"],
             "password": proxy["password"],

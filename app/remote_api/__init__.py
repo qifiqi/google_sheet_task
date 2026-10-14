@@ -9,12 +9,14 @@
   端点一个命名函数（docstring 含 curl 示例）；
 - ``exceptions.py`` 远程访问异常体系。
 
-Repository 与 KlineService 统一经模块级单例 ``stock_api`` 调用，例如::
+Repository、KlineService、C 系任务骨架（结果回推）与代理池统一经
+模块级单例 ``stock_api`` 调用，例如::
 
     from app.remote_api import stock_api
 
     rows = stock_api.stock_data.get_data_all_list({"stock_code": "600000.SH"})
     stock_api.param_tasks.modify_or_add({"id": task_id, ...})
+    stock_api.stock_param_result.add_or_modify(payload)
 
 测试可注入独立 ``StockApiClient()`` 或替身对象。
 """

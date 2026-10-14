@@ -21,7 +21,7 @@ class ParamGoogleSheetTokensApi(ControllerApi):
         按主键删除 Token 凭据记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheetTokens/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheetTokens/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamGoogleSheetTokensApi(ControllerApi):
         分页查询 Token 凭据记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheetTokens/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheetTokens/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamGoogleSheetTokensApi(ControllerApi):
         按主键查询 Token 凭据详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheetTokens/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheetTokens/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamGoogleSheetTokensApi(ControllerApi):
         新增/更新 Token 凭据记录
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamGoogleSheetTokens/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamGoogleSheetTokens/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "name": "...", "is_active": 1}'

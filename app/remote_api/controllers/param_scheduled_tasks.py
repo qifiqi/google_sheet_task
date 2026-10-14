@@ -21,7 +21,7 @@ class ParamScheduledTasksApi(ControllerApi):
         按主键删除计划任务
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamScheduledTasks/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamScheduledTasks/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamScheduledTasksApi(ControllerApi):
         分页查询计划任务
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamScheduledTasks/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamScheduledTasks/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamScheduledTasksApi(ControllerApi):
         按主键查询计划任务详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamScheduledTasks/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamScheduledTasks/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamScheduledTasksApi(ControllerApi):
         新增/更新计划任务
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamScheduledTasks/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamScheduledTasks/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "name": "..."}'

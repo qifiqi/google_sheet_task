@@ -21,7 +21,7 @@ class ParamXplAnalysisJobsApi(ControllerApi):
         按主键删除分析作业
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamXplAnalysisJobs/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamXplAnalysisJobs/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamXplAnalysisJobsApi(ControllerApi):
         分页查询分析作业（远端无业务过滤字段，全量分页）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamXplAnalysisJobs/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamXplAnalysisJobs/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"page_index": 1, "page_size": 20}'
@@ -47,7 +47,7 @@ class ParamXplAnalysisJobsApi(ControllerApi):
         按主键查询分析作业详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamXplAnalysisJobs/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamXplAnalysisJobs/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamXplAnalysisJobsApi(ControllerApi):
         新增/更新分析作业
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamXplAnalysisJobs/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamXplAnalysisJobs/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "task_result_id": 1}'

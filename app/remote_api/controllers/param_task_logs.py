@@ -21,7 +21,7 @@ class ParamTaskLogsApi(ControllerApi):
         按主键删除任务日志
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskLogs/Delete' \
+              'http://stockapi.jaspil.cn/api/ParamTaskLogs/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -33,7 +33,7 @@ class ParamTaskLogsApi(ControllerApi):
         分页查询任务日志（支持 task_id 过滤）
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskLogs/GetDataByPageList' \
+              'http://stockapi.jaspil.cn/api/ParamTaskLogs/GetDataByPageList' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "page_index": 1, "page_size": 50}'
@@ -47,7 +47,7 @@ class ParamTaskLogsApi(ControllerApi):
         按主键查询任务日志详情
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskLogs/GetInfoById' \
+              'http://stockapi.jaspil.cn/api/ParamTaskLogs/GetInfoById' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"id": 1}'
@@ -59,7 +59,7 @@ class ParamTaskLogsApi(ControllerApi):
         写入任务日志
 
             curl -X 'POST' \
-              'http://stockapi.stplan.cn/api/ParamTaskLogs/ModifyOrAdd' \
+              'http://stockapi.jaspil.cn/api/ParamTaskLogs/ModifyOrAdd' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "message": "..."}'
