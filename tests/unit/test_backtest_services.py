@@ -16,6 +16,11 @@ from app.services.backtest_multi_product_service import (
 )
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.performance_analysis.analyzer import PerformanceAnalyzer
+from app.services.task.creation import TaskCreationMixin
+
+
+class _TaskCreation(TaskCreationMixin):
+    pass
 
 
 def _kline_rows(start_date, end_date):
@@ -440,6 +445,58 @@ def test_multi_product_normalize_rejects_parameter_count_mismatch():
                 _product(2, parameters=[["a"]]),
             ],
         })
+
+
+def test_multi_product_normalize_validates_product_data_source():
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_product(1, ), _product(2, )],
+    }
+    config["products"][0]["kline_data_source"] = "yahoo"
+    config["products"][1]["kline_data_source"] = "not-a-source"
+
+    with pytest.raises(ValueError, match="kline_data_source"):
+        normalize_multi_product_config(config)
+
+
+def test_multi_product_normalize_keeps_product_source_without_top_level_synth():
+    """产品级数据源保留原值；顶层不再合成 kline_data_source/price_mode 假配置。"""
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_product(1), _product(2)],
+    }
+    config["products"][0]["kline_data_source"] = "yahoo"
+    config["products"][1]["kline_data_source"] = "dfcf"
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [p["kline_data_source"] for p in normalized["products"]] == ["yahoo", "dfcf"]
+
+
+def test_multi_product_creation_normalize_no_top_level_kline_synth():
+    """creation 层归一后多品顶层不出现合成的 kline_data_source/price_mode（生效值在 products[]）。"""
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "token_id": 5,
+        "token_type": "file",
+        "weighting_mode": "daily_compound",
+        "products": [
+            {**_product(1), "kline_data_source": "yahoo"},
+            {**_product(2), "kline_data_source": "yahoo"},
+        ],
+    }
+
+    normalized = _TaskCreation()._normalize_task_config_for_type(
+        "backtest_multi_product", config
+    )
+
+    assert "kline_data_source" not in normalized
+    assert "price_mode" not in normalized
+    assert normalized["token_task_type"] == "backtest_training"
+    assert [p["kline_data_source"] for p in normalized["products"]] == ["yahoo", "yahoo"]
 
 
 def test_multi_product_fixed_cache_exists_and_gets_cached_payload(app_factory):

@@ -652,6 +652,14 @@ function formatC3MetricValue(metricDef, row) {
 
 // ---------- 任务配置结构化展示（翻译自静态 renderTaskConfig 的 18 项字段） ----------
 const KLINE_ADJUSTMENT_LABELS = { forward: '前复权', back: '后复权', none: '不复权' }
+const KLINE_DATA_SOURCE_LABELS = {
+  akshare: 'AKShare',
+  dfcf: '东方财富',
+  qq: '腾讯',
+  yahoo: 'Yahoo',
+  tdx: '通达信',
+  database: '内置K线库',
+}
 const PRICE_MODE_LABELS = {
   vwap_price: '加权平均价',
   kp_price: '开盘价',
@@ -695,7 +703,7 @@ const configDisplayItems = computed(() => {
     { label: '市场类型', value: MARKET_LABELS[marketType] || config.market_type },
     { label: 'K线复权', value: KLINE_ADJUSTMENT_LABELS[config.kline_adjustment] || config.kline_adjustment },
     { label: '价格模式', value: PRICE_MODE_LABELS[config.price_mode] || config.price_mode },
-    { label: 'K线数据源', value: config.kline_data_source },
+    { label: 'K线数据源', value: KLINE_DATA_SOURCE_LABELS[config.kline_data_source] || config.kline_data_source },
     { label: 'K线截至日期', value: config.end_date },
     { label: 'Spreadsheet ID', value: sheet.spreadsheet_id },
     { label: '工作表名称', value: sheet.sheet_name },

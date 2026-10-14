@@ -227,6 +227,7 @@
                   <div class="backtest-multi-detail-page__sheet-card-meta">{{ card.stockMarket }} · {{ card.ratio }}</div>
                   <div class="backtest-multi-detail-page__sheet-card-sheet" :title="card.sheetTitle">{{ card.sheetTitle }}</div>
                   <div class="backtest-multi-detail-page__sheet-card-sub">工作表：{{ card.sheetName }}</div>
+                  <div v-if="card.klineSettingText" class="backtest-multi-detail-page__sheet-card-sub">{{ card.klineSettingText }}</div>
                   <div
                     class="backtest-multi-detail-page__sheet-card-cta"
                     :class="{ 'backtest-multi-detail-page__sheet-card-cta--empty': !card.url }"
@@ -317,6 +318,44 @@ const canStop = computed(() => {
 })
 
 // ===== 任务运行配置（静态版 renderTaskConfig 字段翻译） =====
+// 数据源/取价/复权为逐产品生效值（products[]），顶层同名字段不读（多品任务无顶层权威值）。
+const klineDataSourceLabels = {
+  akshare: 'AKShare',
+  dfcf: '东方财富',
+  qq: '腾讯',
+  yahoo: 'Yahoo',
+  tdx: '通达信',
+  database: '内置K线库'
+}
+const priceModeLabels = {
+  vwap_price: '加权平均价',
+  kp_price: '开盘价',
+  sp_price: '收盘价',
+  ohlc_price: 'OHLC（开高低收）'
+}
+const klineAdjustmentLabels = {
+  forward: '前复权',
+  back: '后复权',
+  none: '不复权'
+}
+const tokenTypeLabels = {
+  file: '文件',
+  json: 'JSON'
+}
+
+// 逐产品字段聚合展示：去重后按产品顺序以「、」连接，空值不计入
+function summarizeProductField(products, field, labels) {
+  const values = []
+  const seen = new Set()
+  products.forEach((product) => {
+    const raw = String(product?.[field] ?? '').trim()
+    if (!raw || seen.has(raw)) return
+    seen.add(raw)
+    values.push(labels[raw] || raw)
+  })
+  return values.length ? values.join('、') : null
+}
+
 const taskConfigItems = computed(() => {
   const config = task.value?.config || {}
   const products = Array.isArray(config.products) ? config.products : []
@@ -336,17 +375,23 @@ const taskConfigItems = computed(() => {
   const marketText = markets.length
     ? markets.map((market) => marketLabels[market] || market).join('、')
     : null
+  const dataSourceText = summarizeProductField(products, 'kline_data_source', klineDataSourceLabels)
+    || (config.kline_data_source ? (klineDataSourceLabels[config.kline_data_source] || config.kline_data_source) : null)
+  const priceModeText = summarizeProductField(products, 'price_mode', priceModeLabels)
+  const adjustmentText = summarizeProductField(products, 'kline_adjustment', klineAdjustmentLabels)
   const items = [
     { label: 'K线开始日期', value: config.start_date },
     { label: 'K线结束日期', value: config.end_date },
     { label: '产品数量', value: products.length },
     { label: '市场', value: marketText },
     { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
-    { label: 'K线数据源', value: config.kline_data_source },
+    { label: 'K线数据源', value: dataSourceText },
+    { label: '取价模式', value: priceModeText },
+    { label: 'K线复权', value: adjustmentText },
     { label: '固定产品批次', value: config.fixed_product_batch_id },
     { label: 'Token ID', value: config.token_id },
     { label: 'Token 名称', value: config.token_name },
-    { label: 'Token 类型', value: config.token_type },
+    { label: 'Token 类型', value: config.token_type ? (tokenTypeLabels[config.token_type] || config.token_type) : null },
     { label: 'Token 任务类型', value: config.token_task_type },
     { label: 'Token 文件', value: config.token_file },
   ]
@@ -437,6 +482,12 @@ function buildGoogleSheetUrl(spreadsheetId) {
 const sheetCards = computed(() => configProducts.value.map((product, index) => {
   const sheet = product.sheet || {}
   const spreadsheetId = sheet.spreadsheet_id || ''
+  // 每品 K线取数配置（数据源/取价/复权均为产品级生效值）
+  const klineSettingParts = [
+    product.kline_data_source ? (klineDataSourceLabels[product.kline_data_source] || product.kline_data_source) : '',
+    product.price_mode ? (priceModeLabels[product.price_mode] || product.price_mode) : '',
+    product.kline_adjustment ? (klineAdjustmentLabels[product.kline_adjustment] || product.kline_adjustment) : ''
+  ].filter(Boolean)
   return {
     index,
     name: product.product_name || product.name || `产品 ${index + 1}`,
@@ -445,6 +496,7 @@ const sheetCards = computed(() => configProducts.value.map((product, index) => {
     ratio: product.ratio !== undefined && product.ratio !== null && product.ratio !== '' ? `${product.ratio}%` : '-',
     sheetTitle: sheet.title || sheet.sheet_name || spreadsheetId || '-',
     sheetName: sheet.sheet_name || '-',
+    klineSettingText: klineSettingParts.join(' · '),
     url: spreadsheetId ? buildGoogleSheetUrl(spreadsheetId) : '',
   }
 }))

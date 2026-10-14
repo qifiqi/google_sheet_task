@@ -94,12 +94,11 @@ class TestMigrateConfig:
         }
         migrated, status = migrate_config("google_sheet", legacy)
         assert status == "migrated"
+        # exclude_none 收口：未提供的可空键（google_sheet_id/c7_model_version）不再落 null
         assert migrated["sheets"] == [{
             "spreadsheet_id": "abc",
             "sheet_name": "Sheet1",
             "title": "策略A-1y-3]",
-            "google_sheet_id": None,
-            "c7_model_version": None,
         }]
         # 旧键从顶层移除（读取端不再容忍）
         assert "spreadsheet_id" not in migrated

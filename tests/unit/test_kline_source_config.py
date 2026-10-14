@@ -49,12 +49,13 @@ def test_c5_custom_kline_config_normalizes_disabled_options():
     assert normalized["kline_source"] == "custom"
     assert normalized["count_mode"] == "total"
     assert normalized["market_type"] == "custom"
-    assert normalized["price_mode"] is None
-    assert normalized["kline_adjustment"] is None
+    # exclude_none 收口：可空键未提供时直接缺省（缺键即 None）
+    assert "price_mode" not in normalized
+    assert "kline_adjustment" not in normalized
     assert normalized["date_range_mode"] == []
     assert normalized["exclude_recent_years"] == []
-    assert normalized["start_date"] is None
-    assert normalized["end_date"] is None
+    assert "start_date" not in normalized
+    assert "end_date" not in normalized
     assert normalized["token_task_type"] == GoogleSheetTokenTaskType.GOOGLE_SHEET.value
 
 

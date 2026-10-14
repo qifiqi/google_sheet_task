@@ -257,7 +257,7 @@
                       <el-descriptions-item label="市场类型">
                         {{ versionConfigSummary.marketType }}
                       </el-descriptions-item>
-                      <el-descriptions-item label="市场代码">
+                      <el-descriptions-item v-if="versionConfigSummary.marketCode" label="市场代码">
                         {{ versionConfigSummary.marketCode }}
                       </el-descriptions-item>
                       <el-descriptions-item label="时间范围类型">
@@ -543,6 +543,7 @@ import {
   formatDateRangeMode,
   formatExcludedYears,
   formatExecutionDuration,
+  formatKlineDataSource,
   formatMarketType,
   formatPriceMode,
   formatTokenType
@@ -725,7 +726,7 @@ const taskConfigSummary = computed(() => {
         : config.token_selection_mode || '-',
     proxy: config.proxy_url || '-',
     endDate: config.end_date || '-',
-    klineDataSource: config.kline_data_source || config.data_source || '-',
+    klineDataSource: formatKlineDataSource(config.kline_data_source || config.data_source),
     parameterGroups: parameters.length || 0,
     positionSummary: `参数 ${parameterPositions.length} / 检查 ${checkPositions.length} / 结果 ${resultPositions.length}`,
     extraSummary:
@@ -742,13 +743,17 @@ const taskConfigSummary = computed(() => {
 // C4/C5/C7 版本配置摘要（对齐各版本 loadTaskConfig configItems 的取值口径）
 const versionConfigSummary = computed(() => {
   const config = parsedTaskConfig.value
+  const hasDateRange = Boolean(config.start_date || config.end_date)
   return {
     countMode: formatCountMode(config.count_mode || 'total'),
     priceMode: formatPriceMode(config.price_mode || 'vwap_price'),
     marketType: formatMarketType(config.market_type || 'cn'),
-    marketCode: config.exchange_market || config.market || '-',
+    // C 系创建链路不写 exchange_market，无值时整行隐藏（避免恒 '-' 死行）
+    marketCode: config.exchange_market || config.market || '',
     dateRangeMode: formatDateRangeMode(config.date_range_mode || 'full'),
-    dateRange: `${config.start_date || '-'} ~ ${config.end_date || '-'}`,
+    dateRange: hasDateRange
+      ? `${config.start_date || '-'} ~ ${config.end_date || '-'}`
+      : '未指定（按整年展开）',
     excludedYears: formatExcludedYears(config.exclude_recent_years),
     tokenType: formatTokenType(config.token_type || 'file'),
     tokenFile: config.token_file || '-'
@@ -1408,9 +1413,12 @@ async function saveTaskConfig() {
     return
   }
 
-  // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态
+  // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态；
+  // 首表附加键（google_sheet_id 等）随行保留，仅覆盖三个可编辑字段
+  const originalFirstSheet = (Array.isArray(parsedTaskConfig.value.sheets) && parsedTaskConfig.value.sheets[0]) || {}
   const config = {
     sheets: [{
+      ...originalFirstSheet,
       spreadsheet_id: spreadsheetId,
       sheet_name: editForm.sheet_name.trim(),
       title: editForm.title.trim() || ''

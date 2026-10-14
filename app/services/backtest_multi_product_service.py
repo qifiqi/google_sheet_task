@@ -19,6 +19,7 @@ from app.repositories import backtest_repository, task_repository, task_result_r
 from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
+from app.services.kline_service import KlineService
 from app.services.task.error_handling import (
     format_task_error_message,
     record_task_exception,
@@ -239,6 +240,12 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
                 )
             price_mode = "ohlc_price"
 
+        # 产品级数据源过白名单归一（非法值创建期即 400，不留给执行期取数失败）；
+        # 兜底顺序 产品级 → 顶层遗留值 → akshare，与执行器 _build_product_kline 一致。
+        product_data_source = KlineService.normalize_data_source(
+            product.get("kline_data_source") or config.get("kline_data_source") or "akshare"
+        )
+
         normalized_products.append({
             **product,
             "product_index": index - 1,
@@ -247,7 +254,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "market_type": market_type,
             "price_mode": price_mode,
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
-            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
+            "kline_data_source": product_data_source,
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
             "sheet": sheet,

@@ -197,14 +197,17 @@ class TaskCreationMixin:
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
             )
             normalized.pop("token_file", None)
-            normalized["price_mode"] = (
-                normalized.get("price_mode")
-                if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
-                else "vwap_price"
-            )
-            normalized["kline_data_source"] = KlineService.normalize_data_source(
-                normalized.get("kline_data_source", normalized.get("data_source"))
-            )
+            # 顶层 price_mode/kline_data_source 仅单品回测是生效值；多品生效值在
+            # products[]（执行器产品级优先），顶层不合成默认值，避免详情页读到假配置。
+            if task_type == "backtest_training":
+                normalized["price_mode"] = (
+                    normalized.get("price_mode")
+                    if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
+                    else "vwap_price"
+                )
+                normalized["kline_data_source"] = KlineService.normalize_data_source(
+                    normalized.get("kline_data_source", normalized.get("data_source"))
+                )
 
         if task_type == "backtest_multi_product":
             from app.services.backtest_multi_product_service import (

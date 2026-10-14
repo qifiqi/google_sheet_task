@@ -57,6 +57,10 @@
             <el-input v-model="sheet.spreadsheet_id" placeholder="spreadsheet_id" />
             <el-input v-model="sheet.title" placeholder="title" />
             <el-input v-model="sheet.sheet_name" placeholder="sheet_name" />
+            <!-- 逐表附加键（c7_model_version 等）不在本弹窗编辑，仅示意保留 -->
+            <el-tag v-if="sheet.c7_model_version" size="small" type="info" effect="plain">
+              {{ sheet.c7_model_version }}
+            </el-tag>
             <el-button
               type="danger"
               plain
@@ -148,7 +152,7 @@
               <el-form-item label="完整参数结构">
                 <el-input :model-value="parametersRaw" type="textarea" :rows="4" readonly />
                 <div class="panel-note">
-                  这里展示完整的 config.parameters JSON，仅供参考，真正提交时将以上方产品代码为准构造 parameters[0]。
+                  这里展示完整的 config.parameters JSON。保存时以上方产品代码覆盖 parameters[0]，其余参数组（parameters[1..]）原样保留。
                 </div>
               </el-form-item>
             </el-col>
@@ -189,7 +193,7 @@ const form = reactive({
   description: '',
   productCodes: [],
   sheets: [],
-  countMode: 'n_plus_1',
+  countMode: 'total',
   dateRangeModes: ['full'],
   startDate: null,
   endDate: null,
@@ -199,6 +203,8 @@ const form = reactive({
   tokenFile: 'data/token.json',
   tokenJson: ''
 })
+// parameters[1..] 本弹窗不提供编辑，打开时暂存原值，保存时原样回写（防止整体覆盖缩水）
+let originalExtraParameters = []
 
 function parseConfig(config) {
   if (typeof config === 'string') {
@@ -253,15 +259,21 @@ function fillForm() {
   })
   form.productCodes = unique
 
-  // sheets 多行：无配置时保留一行空行（同 renderEditSheetsRows）
+  // parameters[1..] 原样暂存（如 C7 随机价格的参数2/3），保存时回写
+  originalExtraParameters = Array.isArray(config.parameters) ? config.parameters.slice(1) : []
+
+  // sheets 多行：无配置时保留一行空行（同 renderEditSheetsRows）；
+  // 逐表附加键（c7_model_version/google_sheet_id 等）随行携带，保存时回写不丢失
   const sheets = Array.isArray(config.sheets) ? config.sheets : []
   form.sheets = (sheets.length > 0 ? sheets : [{}]).map((s) => ({
+    ...s,
     spreadsheet_id: s?.spreadsheet_id || '',
     title: s?.title || '',
     sheet_name: s?.sheet_name || ''
   }))
 
-  form.countMode = config.count_mode || 'n_plus_1'
+  // 缺省对齐 C 系创建页/详情页口径（total）
+  form.countMode = config.count_mode || 'total'
 
   let drmList = []
   if (Array.isArray(config.date_range_mode)) {
@@ -327,7 +339,8 @@ async function handleSave() {
     return
   }
 
-  // sheets：收集非空行（全空行丢弃；title 有值才带上）
+  // sheets：收集非空行（全空行丢弃）；逐表附加键（c7_model_version/google_sheet_id）
+  // 随行回写，三个可编辑字段覆盖行内值，title 清空时显式移除
   const sheets = []
   form.sheets.forEach((sheet) => {
     const sid = (sheet.spreadsheet_id || '').trim()
@@ -335,10 +348,15 @@ async function handleSave() {
     const title = (sheet.title || '').trim()
     if (sid || sname || title) {
       const item = {
+        ...sheet,
         spreadsheet_id: sid || null,
         sheet_name: sname || null
       }
-      if (title) item.title = title
+      if (title) {
+        item.title = title
+      } else {
+        delete item.title
+      }
       sheets.push(item)
     }
   })
@@ -368,7 +386,8 @@ async function handleSave() {
     start_date: form.startDate || null,
     end_date: form.endDate || null,
     market_type: form.marketType.trim() || null,
-    parameters: [params0],
+    // parameters[0] 以产品代码为准；其余参数组原样保留（打开时暂存）
+    parameters: [params0, ...originalExtraParameters],
     sheets,
     proxy_url: form.proxyUrl.trim() || null,
     token_type: tokenType,

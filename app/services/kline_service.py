@@ -509,8 +509,11 @@ class KlineService:
                 request.get("market_type"),
                 request.get("exchange_market"),
             ),
+            # 未指定区间时保持 10 年窗口；有区间则由 start/end 精确拉取（如 1999 年起的美股回测）
             "10y",
             adjust_type=request.get("adjust_type"),
+            start_date=request.get("start_date"),
+            end_date=request.get("end_date"),
         )
 
     def _fetch_tdx(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:

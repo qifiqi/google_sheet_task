@@ -406,7 +406,20 @@ export function formatPriceMode(value) {
   return formatConfigDisplayValue(value, {
     kp_price: '开盘价',
     sp_price: '收盘价',
-    vwap_price: '加权平均价'
+    vwap_price: '加权平均价',
+    ohlc_price: 'OHLC（开高低收）'
+  })
+}
+
+// K线数据源标签（与创建页 KLINE_SOURCE_OPTIONS 口径一致，database 为内置K线库）
+export function formatKlineDataSource(value) {
+  return formatConfigDisplayValue(value, {
+    akshare: 'AKShare',
+    dfcf: '东方财富',
+    qq: '腾讯',
+    yahoo: 'Yahoo',
+    tdx: '通达信',
+    database: '内置K线库'
   })
 }
 
