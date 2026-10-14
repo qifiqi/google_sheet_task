@@ -9,14 +9,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
@@ -85,7 +85,7 @@ class C3Service(BaseGoogleSheetService):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
@@ -118,7 +118,7 @@ class C3Service(BaseGoogleSheetService):
                 if key in flat_result
             }
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
@@ -429,117 +429,9 @@ class C3Service(BaseGoogleSheetService):
         })
         return payload
 
-    @alert_on_failure(
-        result_predicate=should_alert_execute_task_result,
-        message_builder=build_execute_task_alert,
-    )
-    def execute_task(self):
-        """执行Google Sheet任务"""
-        try:
-
-            # 统一使用应用上下文
-            context_app = self.app or current_app
-            with context_app.app_context():
-                task = task_repository.get_entity(self.task_id)
-                self.task = task
-                if not task:
-                    self._log_error(f'任务 {self.task_id} 不存在')
-                    return 'error'
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-                if self._is_cancel_requested():
-                    self._log_info(f'task {self.task_id} cancellation requested')
-                    return 'cancelled'
-
-                # 解析配置
-                if isinstance(task.config, str):
-                    try:
-                        config_data = json.loads(task.config)
-                    except json.JSONDecodeError as e:
-                        self._log_error(f"配置解析失败: {str(e)}")
-                        return 'error'
-                else:
-                    config_data = task.config or {}
-
-                config_manager = get_config_manager()
-                config_data = {**config_manager.get_google_sheet_config(), **config_data}
-
-                # 推送任务开始日志
-                self._log_info('开始执行Google Sheet任务')
-
-                # 初始化Google Sheet连接
-                self._init_google_sheet(config_data)
-
-                # 获取参数列表
-                parameters = config_data.get('parameters', [])
-                if not parameters:
-                    self._log_error("没有参数配置")
-                    return 'error'
-
-                name = task.name
-                self.task_name = name
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-                if self._is_cancel_requested():
-                    self._log_info(f'task {self.task_id} cancellation requested')
-                    return 'cancelled'
-
-                # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
-                # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
-                self._log_info("开始执行参数批量处理（默认参数模式）")
-                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
-
-                # 根据任务状态决定返回结果
-                if task_status == 'cancelled':
-                    # 任务被取消，保持cancelled状态
-                    self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    return 'cancelled'
-                elif task_status == 'error':
-                    return 'error'
-
-                if success_count == 0 and failed_count == 0:
-                    self._log_error('任务执行失败')
-                    return 'error'
-
-                # 推送任务完成通知
-                self._refresh_model_summary_index()
-                self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
-                # 推送任务完成信息
-                completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
-                self._log_info(completion_msg)
-
-                return 'completed'
-
-        except Exception as e:
-            # 检查是否是任务被取消导致的异常
-            try:
-                task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
-                    self._log_info(f'任务已被取消: {str(e)}')
-                    return 'cancelled'
-            except Exception:  # best-effort 取消探测：失败不中断主流程
-                pass
-
-            # 其他异常情况
-            root, error_summary = summarize_task_exception(
-                self.task_id, e, "execute_task", self.app,
-                log_warning=logger.warning,
-            )
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
-            self._log_error(error_msg)
-            self._log_error(f"任务异常摘要: {error_summary}")
-            return 'error'
-
     def cell_kline_data(self,config_data):
         stock_code = config_data.get('stock_code', '')
         year_n = config_data.get('year_n', '1y')
-        # count_mode = config_data.get('count_mode', 'n_plus_1')
         price_mode = config_data.get('price_mode', 'vwap_price')
         end_date = config_data.get('end_date')
         market_type = config_data.get('market_type','cn')
@@ -644,9 +536,6 @@ class C3Service(BaseGoogleSheetService):
             cell_updates[cell_A] = stock_date
             cell_updates[cell_B] = stock_val
         self.google_sheet.update_jumped_cells(cell_updates)
-
-
-        pass
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""

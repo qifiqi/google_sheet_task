@@ -18,11 +18,6 @@ from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import extract_return_rows, parse_return_series_fields
 from app.utils.value_parser import coerce_bool
 
-_EMPTY_RESULT_DATA: Dict[str, Any] = {"results": [], "metrics": {}}
-
-# 公开出口（routes 只允许引用公开符号；2026-09 审计 B3）
-EMPTY_RESULT_DATA = _EMPTY_RESULT_DATA
-
 
 # 组合枚举的规模上限。
 # 单次请求实际会枚举的组合数超过此值时直接拒绝，避免 CPU 长时间占用。
@@ -63,21 +58,6 @@ def _normalize_result(result: Dict[str, Any], *, include_series: bool = False) -
         "message": result.get("message", ""),
         "data": data,
     }
-
-
-def get_index_annualized_rates(metrics: dict[str, Any]) -> list[dict[str, Any]]:
-    """提取组合的指数年化收益率。"""
-    value = metrics.get("index_annualized_rates")
-    return value if isinstance(value, list) else []
-
-
-def get_start_max_drawdown(metrics: dict[str, Any]) -> Any:
-    """提取组合策略的总最大回撤。"""
-    drawdown = metrics.get("start_maximum_drawdown")
-    if not isinstance(drawdown, dict):
-        return None
-    total = drawdown.get("total_maximum_drawdown")
-    return total.get("drawdown") if isinstance(total, dict) else None
 
 
 def _year_max_drawdown(metrics: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -330,6 +310,8 @@ class PerformanceAnalysisService:
            同步接口可扛；未提供逐产品范围时沿用 n <= 5 的硬限制。
         3. 全程流式 yield，不物化结果集，避免 OOM。
         4. 元信息（result_id/stock_code/stock_name）提前拆好，循环内只算 ratio。
+        5. fixed_result_ids 标记必选产品（恒定持仓、不计入组合产品数）；
+           num_products 统计必选之外实际持仓的产品数，支持"必选锚 + 其余 n 选 m"。
         """
         # ---------- 1. 参数解析 ----------
         # 注：这些字段已由 WeightCombinationSchema 校验过类型和范围，
@@ -341,6 +323,8 @@ class PerformanceAnalysisService:
         single_cap = payload.get("single_cap", 30)
         selected_ids = payload.get("result_ids")
         stock_ranges = payload.get("stock_ranges")
+        num_products = payload.get("num_products")
+        fixed_result_ids = payload.get("fixed_result_ids")
 
         # ---------- 2. 任务与产品加载 ----------
         task_repository.get_required(task_id)
@@ -386,15 +370,46 @@ class PerformanceAnalysisService:
                 )
             bounds = [(0, single_cap // step)] * n
 
-        # ---------- 5. 单元换算 ----------
-        # 所有重量换算成 "unit 数"，避免浮点和余数问题。
+        # ---------- 5. 必选产品解析 ----------
+        # 必选产品（fixed_result_ids）：任何组合里都恒定持仓，不计入组合产品数。
+        # 权重仍按其单股范围，但下限强制 ≥ 1 个步长（持仓 = 权重 > 0）。
+        fixed_set = {str(item) for item in (fixed_result_ids or [])}
+        known_ids = {str(product["result_id"]) for product in products}
+        unknown_fixed = sorted(fixed_set - known_ids)
+        if unknown_fixed:
+            raise ValidationError(f"必选产品不存在或未参与组合: {', '.join(unknown_fixed)}")
+        forced_flags = [str(product["result_id"]) in fixed_set for product in products]
+        bounds = [
+            (max(lo, 1), hi) if forced else (lo, hi)
+            for forced, (lo, hi) in zip(forced_flags, bounds)
+        ]
+        zero_cap_fixed = [
+            str(product["result_id"])
+            for forced, (_, hi), product in zip(forced_flags, bounds, products)
+            if forced and hi < 1
+        ]
+        if zero_cap_fixed:
+            raise ValidationError(f"必选产品的单股上限不能为 0: {', '.join(zero_cap_fixed)}")
+
+        # ---------- 6. 逐产品候选取值 ----------
+        # 所有重量换算成 "unit 数"（unit = step%），避免浮点和余数问题。
+        # 非必选且权重钉死（下限=上限>0）的产品在"不持仓 / 恰好钉死权重"之间二选一；
+        # 其余产品取自身区间内的全部单元数（必选产品下限已强制 ≥ 1）。
+        candidates = []
+        for index, (lo, hi) in enumerate(bounds):
+            if forced_flags[index]:
+                candidates.append(list(range(max(lo, 1), hi + 1)))
+            elif 0 < lo == hi:
+                candidates.append([0, hi])
+            else:
+                candidates.append(list(range(lo, hi + 1)))
+
         # total_units：总权重上限对应的单元数
         # min_units：  总权重下限对应的单元数（向上取整，保证 >= min_weight）
-        # min_units_list / max_units_list：逐产品范围对应的单元数
         total_units = max_weight // step
         min_units = -(-min_weight // step)
-        min_units_list = [item[0] for item in bounds]
-        max_units_list = [item[1] for item in bounds]
+        min_units_list = [min(choices) for choices in candidates]
+        max_units_list = [max(choices) for choices in candidates]
 
         # 无解剪枝：跑之前先确认区间非空，避免空递归白跑一趟。
         if sum(max_units_list) == 0:
@@ -410,13 +425,30 @@ class PerformanceAnalysisService:
                 f"超过组合总权重上限 {max_weight}%"
             )
 
+        # ---------- 组合产品数约束 ----------
+        # num_products 统计必选产品之外实际持仓的产品个数，与前端面板语义一致。
+        free_total = forced_flags.count(False)
+        if num_products is not None:
+            if num_products > free_total:
+                raise ValidationError(
+                    f"组合产品数 {num_products} 超过可变产品数 {free_total}（必选产品不计入）"
+                )
+            selectable_free = sum(
+                1 for forced, hi in zip(forced_flags, max_units_list) if not forced and hi >= 1
+            )
+            if num_products > selectable_free:
+                raise ValidationError(
+                    f"组合产品数 {num_products} 超过可持仓的可变产品数 {selectable_free}"
+                    f"（部分可变产品的单股上限为 0，无法进入组合）"
+                )
+
         # ---------- 笛卡尔积规模保护（关键） ----------
-        # 实际枚举规模受逐产品取值区间共同影响，用"各产品区间长度的乘积"作为组合数上界，
-        # 该上界 >= 实际组合数（实际还受总和 ∈ [min_units, total_units] 约束），
+        # 实际枚举规模受逐产品候选取值共同影响，用"各产品候选数的乘积"作为组合数上界，
+        # 该上界 >= 实际组合数（实际还受总和 ∈ [min_units, total_units] 与组合产品数约束），
         # 因此保守但安全：宁可提前拒绝，也不让请求跑太久。
         estimated_size = 1
-        for lo_units, hi_units in bounds:
-            estimated_size *= hi_units - lo_units + 1
+        for choices in candidates:
+            estimated_size *= len(choices)
         if estimated_size > MAX_CARTESIAN_SIZE:
             raise ValidationError(
                 f"组合规模过大（估算上界 {estimated_size}，"
@@ -424,39 +456,56 @@ class PerformanceAnalysisService:
                 f"请增大 step、缩小单股范围或减少参与产品数"
             )
 
-        # ---------- 6. 组合枚举 ----------
+        # ---------- 7. 组合枚举 ----------
         # 后缀和：回溯时用于判断"剩余产品能否吃完剩余单元"（逐产品区间下无法再用 n*cap 估算）。
         suffix_min = [0] * (n + 1)
         suffix_max = [0] * (n + 1)
+        suffix_free = [0] * (n + 1)   # 后缀中可变产品个数，供组合产品数剪枝
         for index in range(n - 1, -1, -1):
             suffix_min[index] = suffix_min[index + 1] + min_units_list[index]
             suffix_max[index] = suffix_max[index + 1] + max_units_list[index]
+            suffix_free[index] = suffix_free[index + 1] + (0 if forced_flags[index] else 1)
 
-        def gen_combinations(index, remaining_units, prefix):
-            """生成第 index..n-1 只股票、总和恰好 = remaining_units、每只落在自身区间内的组合。
+        def gen_combinations(index, remaining_units, prefix, free_active):
+            """生成第 index..n-1 只股票、总和恰好 = remaining_units、每只落在自身候选值内的组合。
 
             返回的元素是 tuple（已拷贝），调用方无需再拷贝。
             使用回溯 + 边界剪枝，避免产生非法中间态：
-            - lo/hi 同时受"该产品自身范围"和"剩余产品能否吃完剩余单元"约束；
-            - 只在最后一只（index == n-1）产出，内部节点不 yield。
+            - 每只的取值从 candidates[index] 里逐个尝试，越过后缀和边界的直接跳过；
+            - 只在最后一只（index == n-1）产出，内部节点不 yield；
+            - free_active 是 prefix 中已持仓的可变产品数；num_products 约束其最终恰好等于该值
+              （必选产品必然持仓，不计入），None 表示不限制、跳过全部相关判断。
             """
+            if num_products is not None:
+                # 已持仓的可变产品超限，或剩余可变产品全部持仓也凑不够 ⇒ 剪枝
+                if free_active > num_products or free_active + suffix_free[index] < num_products:
+                    return
+
             if index == n - 1:
-                # 最后一只：剩余单元必须落在它自己的范围内才是合法组合
-                if min_units_list[index] <= remaining_units <= max_units_list[index]:
+                # 最后一只：剩余单元必须恰好落在它的候选值集合里（候选可能非连续）
+                if remaining_units in candidates[index]:
+                    if num_products is not None:
+                        gained = 0 if forced_flags[index] or not remaining_units else 1
+                        if free_active + gained != num_products:
+                            return
                     prefix.append(remaining_units)
                     yield tuple(prefix)   # 拷贝一份，避免暴露内部可变 list
                     prefix.pop()
                 return
 
             # 为第 index 只分配 u 个单元，剩余 n-1-index 只分 remaining_units - u 个。
-            # 下界：剩余单元不能超过后面各只的上限之和，否则后面装不下；
-            # 上界：不能少于后面各只的下限之和，否则后面会低于自己的下限。
-            lo = max(min_units_list[index], remaining_units - suffix_max[index + 1])
-            hi = min(max_units_list[index], remaining_units - suffix_min[index + 1])
-
-            for u in range(lo, hi + 1):
+            # 剩余单元不能超出后面各只候选值的和的上下界，否则后面装不下/会低于下限。
+            for u in candidates[index]:
+                rest = remaining_units - u
+                if rest < suffix_min[index + 1] or rest > suffix_max[index + 1]:
+                    continue
                 prefix.append(u)
-                yield from gen_combinations(index + 1, remaining_units - u, prefix)
+                yield from gen_combinations(
+                    index + 1,
+                    rest,
+                    prefix,
+                    free_active + (0 if forced_flags[index] or not u else 1),
+                )
                 prefix.pop()   # 回溯：恢复现场
 
         def gen_all(lo_units, hi_units):
@@ -467,9 +516,9 @@ class PerformanceAnalysisService:
             调用方无需再做总和校验。
             """
             for target in range(lo_units, hi_units + 1):
-                yield from gen_combinations(0, target, [])
+                yield from gen_combinations(0, target, [], 0)
 
-        # ---------- 7. 预拆元信息 ----------
+        # ---------- 8. 预拆元信息 ----------
         # 每个产品的 result_id/stock_code/stock_name 是恒定的，
         # 只有 ratio 随组合变化。提前拆成元组列表，循环内少做字典查找。
         product_meta = [
@@ -477,7 +526,7 @@ class PerformanceAnalysisService:
             for p in products
         ]
 
-        # ---------- 8. 组合遍历 ----------
+        # ---------- 9. 组合遍历 ----------
         # 流式迭代，不物化，避免 OOM。
         # 由 gen_all 的范围保证：sum(weights) 天然落在 [min_weight, max_weight]，
         # 且 sum(units) >= min_units，所以只有 min_weight=0 时才可能出现全零组合。
@@ -510,7 +559,7 @@ class PerformanceAnalysisService:
             if len(returns) < 2:
                 continue
 
-            # ---------- 9. 指标计算 ----------
+            # ---------- 10. 指标计算 ----------
             metrics = performance_analyzer._weight_combination_v1(returns)
             index_annualized_rates = metrics['index_annualized_rates']
             start_annualized_rates = metrics['start_annualized_rates']
@@ -524,7 +573,7 @@ class PerformanceAnalysisService:
                 "total_maximum_drawdown", {}
             ).get("drawdown")
 
-            # ---------- 10. 组装输出 ----------
+            # ---------- 11. 组装输出 ----------
             # stocks 用 product_meta 预拆字段 + 当前组合的 ratio 拼装，
             # 避免在循环内反复做 product["xxx"] 字典查找。
             stocks = [

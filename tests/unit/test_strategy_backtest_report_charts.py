@@ -433,16 +433,31 @@ def test_generate_report_charts_expands_series_per_benchmark(tmp_path: Path):
         "累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布",
         "月度超额分布（QQQ.US）", "月度超额分布（SOXX.US）",
     }
-    for path in paths.values():
+    # 3 序列图（净值/回撤/分年度）走外置 Legend 加高版式（3.6×240=864）；
+    # ≤2 序列图保持历史 3.17 高度（760）。
+    expected_heights = {
+        "累计净值曲线": 864,
+        "最大回撤曲线": 864,
+        "超额收益曲线": 760,
+        "分年度收益": 864,
+        "日收益分布": 760,
+        "月度超额分布（QQQ.US）": 760,
+        "月度超额分布（SOXX.US）": 760,
+    }
+    for name, path in paths.items():
         image = mpimg.imread(path)
-        assert image.shape[:2] == (760, 1440)
+        assert image.shape[:2] == (expected_heights[name], 1440)
 
 
 def test_nav_and_drawdown_legends_order_benchmarks_before_strategy(monkeypatch, tmp_path: Path):
     captured = {}
 
     def capture_figure(figure, path):
+        # ≥3 序列走图片顶部外置 Legend（figure.legend），轴内读不到；
+        # 兼容两种布局取图例文本。
         legend = figure.axes[0].get_legend()
+        if legend is None and figure.legends:
+            legend = figure.legends[0]
         captured[path.stem] = [text.get_text() for text in legend.get_texts()]
         captured[f"{path.stem}-first-color"] = figure.axes[0].lines[0].get_color()
 

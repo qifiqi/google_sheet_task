@@ -21,9 +21,9 @@ from app.services.backtest_multi_product_service import BacktestMultiProductServ
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_tasks.c3 import C3Service
-from app.services.google_sheet_tasks.c4 import C4Service as C4Service
+from app.services.google_sheet_tasks.c4 import C4Service
 from app.services.google_sheet_tasks.c5 import C5Service
-from app.services.google_sheet_tasks.c7 import C7Service as C7Service
+from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
@@ -43,13 +43,11 @@ class TaskRuntimeMixin:
         if not isinstance(config, dict):
             return ""
 
-        sheet_config = config.get("sheet")
-        if isinstance(sheet_config, dict):
-            spreadsheet_id = str(sheet_config.get("spreadsheet_id") or "").strip()
-            if spreadsheet_id:
-                return spreadsheet_id
+        sheets = config.get("sheets")
+        if isinstance(sheets, list) and sheets and isinstance(sheets[0], dict):
+            return str(sheets[0].get("spreadsheet_id") or "").strip()
 
-        return str(config.get("spreadsheet_id") or "").strip()
+        return ""
 
     def _extract_backtest_spreadsheet_ids(self, config: dict[str, Any] | None) -> list[str]:
         """Extract all spreadsheet IDs touched by a backtest task."""
@@ -427,22 +425,6 @@ class TaskRuntimeMixin:
             return False
 
         config_data = self._get_task_config_dict(task)
-        if self._is_backtest_task_type(task.task_type):
-            with self.backtest_sheet_start_lock:
-                spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
-                running_backtest = self._find_running_backtest_task_for_spreadsheets(
-                    spreadsheet_ids,
-                    exclude_task_id=task_id,
-                )
-                if running_backtest:
-                    error_msg = (
-                        "同一个 Google Sheet 已有回测任务正在运行，"
-                        f"当前任务保持待执行: {running_backtest.id}"
-                    )
-                    self.start_errors[task_id] = error_msg
-                    task_logger.info(error_msg)
-                    self.add_task_log(task_id, "info", error_msg)
-                    return False
 
         max_concurrent = int(self._get_config("max_concurrent_tasks", 20))
         if len(self.running_tasks) >= max_concurrent:

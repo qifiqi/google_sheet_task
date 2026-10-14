@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+
+from app.utils.value_parser import _convert_pandas_to_native
 
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 
@@ -59,3 +62,20 @@ def parse_lenient_json(raw: Any, default: Any) -> Any:
         return json.loads(raw) if raw else default
     except (TypeError, json.JSONDecodeError):
         return default
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """递归转为严格 JSON 安全形态。
+
+    全库唯一的 NaN/inf→None 清洗出口（收敛此前 base/backtest_api/
+    text_analysis/backfill 四份拷贝）：dict / list,tuple,set / datetime→ISO /
+    numpy·pandas 标量与帧 → 原生类型，叶子浮点经
+    ``value_parser._convert_pandas_to_native(non_finite_to_none=True)`` 处理。
+    """
+    if isinstance(value, dict):
+        return {key: sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_json_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return _convert_pandas_to_native(value, non_finite_to_none=True)

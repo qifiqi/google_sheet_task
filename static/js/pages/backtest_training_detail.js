@@ -224,8 +224,18 @@
         return escapeHtml(value);
     }
 
+    function firstSheetRef(config) {
+        const sheets = config && Array.isArray(config.sheets) ? config.sheets : [];
+        if (sheets.length && sheets[0] && typeof sheets[0] === 'object') {
+            return sheets[0];
+        }
+        // 未迁移旧数据回退
+        return config && config.sheet && typeof config.sheet === 'object' ? config.sheet : {};
+    }
+
     function inferModelVersion(config) {
-        const sheet = config && config.sheet ? config.sheet : {};
+        // 统一 sheets[1] 形态；旧 sheet{} 仅作未迁移数据回退
+        const sheet = firstSheetRef(config);
         const text = [
             config && config.model_version,
             config && config.task_name,
@@ -304,7 +314,7 @@
             return;
         }
 
-        const sheet = config && typeof config.sheet === 'object' ? config.sheet : {};
+        const sheet = firstSheetRef(config);
         const klineAdjustmentLabels = { forward: '前复权', back: '后复权', none: '不复权' };
         const priceModeLabels = {
             vwap_price: '加权平均价',

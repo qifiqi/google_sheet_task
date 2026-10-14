@@ -6,6 +6,9 @@
 // 引入顺序：template-auth.js → navbar.js → api.js → utils.js → 页面 JS。
 // D7 修订（docs/design/mobile-adaptation-audit-2026-09）：admin 族侧栏改 Offcanvas +
 // 移动端顶栏（<768px 原先无导航入口）；google-sheet 族顶栏加 sticky-top。
+// D8 修订：admin 族前缀补旧书签路径 /backtest、/backtest-multi（app/routes/pages/
+// backtest_training.py、backtest_multi_product.py 的 legacy 蓝图与正式路径渲染同一组
+// 模板，此前匹配不到族 → 挂载点被移除，整页无导航）。
 'use strict';
 
 (function () {
@@ -164,7 +167,12 @@
         // admin 基座族：挂载点本身就是 <nav class="sidebar ...">，渲染时整组替换为
         // Offcanvas 类（02 §3.7 等价红线由本次 D7 行为修订解除，见文件头注释）。
         {
-            prefixes: ['/admin', '/performance-analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
+            prefixes: [
+                '/admin', '/performance-analysis', '/backtest-training', '/backtest-multi-product',
+                // legacy 蓝图旧书签路径（D8）：与正式路径同模板，须同族渲染导航
+                '/backtest-multi', '/backtest',
+                '/global-preview',
+            ],
             build: adminSidebar,
             classes: 'offcanvas offcanvas-start sidebar',
             mountId: 'templateSidebar',

@@ -51,13 +51,8 @@ class GoogleSheet:
                 raise RetryableNetworkTaskError(f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}") from e
             raise
 
-    def _connect_and_select_worksheet(self):
-        creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
-        self.client = gspread.authorize(credentials=creds)
-
-        self._apply_proxy_settings()
-
-        self._apply_default_timeout()
+    def _open_sheet_and_select_worksheet(self):
+        """打开电子表格并选定工作表；大小写不匹配时模糊回退，仍无则报错。"""
         self.sheet = self.client.open_by_key(self.spreadsheet_id)
         self.title = self.sheet.title
 
@@ -87,6 +82,15 @@ class GoogleSheet:
                 return
 
             raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
+
+    def _connect_and_select_worksheet(self):
+        creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
+        self.client = gspread.authorize(credentials=creds)
+
+        self._apply_proxy_settings()
+
+        self._apply_default_timeout()
+        self._open_sheet_and_select_worksheet()
 
     def _log_ctx(self) -> str:
         parts = []
@@ -506,28 +510,8 @@ class GoogleSheet:
             self._apply_proxy_settings()
 
             self._apply_default_timeout()
-            # 重新打开电子表格
-            self.sheet = self.client.open_by_key(self.spreadsheet_id)
-            self.title = self.sheet.title
-
-            # 重新选择工作表
-            if self._sheet_name:
-                try:
-                    self.worksheet = self.sheet.worksheet(self._sheet_name)
-                except Exception:
-                    worksheets = self.sheet.worksheets()
-                    titles = [ws.title for ws in worksheets]
-                    target_lower = str(self._sheet_name).strip().lower()
-                    matched_title = None
-                    for t in titles:
-                        if str(t).strip().lower() == target_lower:
-                            matched_title = t
-                            break
-                    if matched_title:
-                        self.worksheet = self.sheet.worksheet(matched_title)
-                        self._sheet_name = matched_title
-                    else:
-                        raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
+            # 重新打开电子表格并选定工作表
+            self._open_sheet_and_select_worksheet()
             logger.info(f"{self._log_ctx()}Google Sheet重新连接成功")
             return True
         except Exception as e:

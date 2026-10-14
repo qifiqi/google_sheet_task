@@ -90,24 +90,7 @@ def _loads(text):
 
 
 MULTI_EXPECTED = _loads(
-    '{"annualized_return_diff": 0.13, "avg_monthly_excess_return": 0.011666666666666665,'
-    ' "excess_drawdown_winning_rate": 0.7, "excess_maximum_number_of_backtest_repair_days": 8,'
-    ' "excess_sharpe": 0.9, "excess_sortino": 1.4, "index_annualized_return": 0.08,'
-    ' "index_avg_monthly_return": 0.02, "index_kama_ratio": 0.4,'
-    ' "index_max_drawdown": -0.12,'
-    ' "index_maximum_number_of_backtest_repair_days": 9,'
-    ' "index_monthly_return_volatility": 0.03, "index_profit_annual": 0.6,'
-    ' "index_profit_monthly_percentage": 0.55, "index_sharpe_ratio": 0.8,'
-    ' "index_sortino_ratio": 1.2, "index_year_max_repair_days": 9,'
-    ' "monthly_excess_return_percentage": 0.66,'
-    ' "monthly_excess_volatility": 0.02, "outperform_year": 3,'
-    ' "start_annualized_return": 0.21, "start_avg_monthly_return": 0.03,'
-    ' "start_kama_ratio": 0.5, "start_max_drawdown": -0.3,'
-    ' "start_maximum_number_of_backtest_repair_days": 12,'
-    ' "start_monthly_return_volatility": 0.045, "start_profit_annual": 0.75,'
-    ' "start_profit_monthly_percentage": 0.62, "start_sharpe_ratio": 1.1,'
-    ' "start_sortino_ratio": 1.6, "start_year_max_repair_days": 20,'
-    ' "year_max_excess_drawdown": -0.15}'
+    '{"annualized_return_diff": 0.13, "avg_monthly_excess_return": 0.011666666666666667, "excess_drawdown_winning_rate": 0.7, "excess_maximum_number_of_backtest_repair_days": 8, "excess_sharpe": 0.9, "excess_sortino": 1.4, "index_annualized_return": 0.08, "index_avg_monthly_return": 0.02, "index_kama_ratio": 0.4, "index_max_drawdown": -0.12, "index_maximum_number_of_backtest_repair_days": 9, "index_monthly_return_volatility": 0.03, "index_profit_annual": 0.6, "index_profit_monthly_percentage": 0.55, "index_sharpe_ratio": 0.8, "index_sortino_ratio": 1.2, "index_year_max_repair_days": 9, "monthly_excess_return_percentage": 0.66, "monthly_excess_volatility": 0.02, "outperform_year": 3, "start_annualized_return": 0.21, "start_avg_monthly_return": 0.03, "start_kama_ratio": 0.5, "start_max_drawdown": -0.3, "start_maximum_number_of_backtest_repair_days": 12, "start_monthly_return_volatility": 0.045, "start_profit_annual": 0.75, "start_profit_monthly_percentage": 0.62, "start_sharpe_ratio": 1.1, "start_sortino_ratio": 1.6, "start_year_max_repair_days": 20, "year_max_excess_drawdown": -0.15}'
 )
 
 RQ_EXPECTED = _loads(
@@ -181,20 +164,7 @@ EXPORTER_BLOCKS_EXPECTED = _loads(
 )
 
 MAPPER_FLAT_EXPECTED = _loads(
-    '{"annualized_return_diff": 0.6337651014226299, "avg_monthly_excess_returns": 0.023,'
-    ' "excess_drawdown_winning_rate": 1.0, "excess_maximum_number_of_backtest_repair_days": 0,'
-    ' "excess_sharpe": 0, "excess_sortino": 0, "index_annual_std_dev": 0,'
-    ' "index_annualized_return": -0.9348279291813669, "index_avg_monthly_return": 0,'
-    ' "index_avg_monthly_return_common": 0, "index_kama_ratio": -55.649756725384854,'
-    ' "index_monthly_return_volatility": 0, "index_monthly_std_dev": 0, "index_profit_annual": 0.0,'
-    ' "index_profit_monthly_percentage": 0.0, "index_sharpe_ratio": 0, "index_sortino_ratio": 0,'
-    ' "max_drawdown": -0.009969150679649205, "monthly_excess_return_percentage_last_return": 1.0,'
-    ' "monthly_excess_volatility": 0, "outperform_year": 1.0, "start_annual_std_dev": 0,'
-    ' "start_annualized_return": -0.30106282775873705, "start_avg_monthly_return": 0,'
-    ' "start_avg_monthly_return_common": 0, "start_drawdown": 0.006829268292682825,'
-    ' "start_kama_ratio": -44.08419977895858, "start_maximum_number_of_backtest_repair_days": 0,'
-    ' "start_monthly_return_volatility": 0, "start_monthly_std_dev": 0, "start_profit_annual": 0.0,'
-    ' "start_profit_monthly_percentage": 1.0, "start_sharpe_ratio": 0, "start_sortino_ratio": 0}'
+    '{"annualized_return_diff": 0.633765, "avg_monthly_excess_returns": 0.023, "excess_drawdown_winning_rate": 1.0, "excess_maximum_number_of_backtest_repair_days": 0, "excess_sharpe": 0, "excess_sortino": 0, "index_annual_std_dev": 0, "index_annualized_return": -0.934828, "index_avg_monthly_return": 0, "index_avg_monthly_return_common": 0, "index_kama_ratio": -55.649757, "index_monthly_return_volatility": 0, "index_monthly_std_dev": 0, "index_profit_annual": 0.0, "index_profit_monthly_percentage": 0.0, "index_sharpe_ratio": 0, "index_sortino_ratio": 0, "max_drawdown": -0.009969, "monthly_excess_return_percentage_last_return": 1.0, "monthly_excess_volatility": 0, "outperform_year": 1.0, "start_annual_std_dev": 0, "start_annualized_return": -0.301063, "start_avg_monthly_return": 0, "start_avg_monthly_return_common": 0, "start_drawdown": 0.006829, "start_kama_ratio": -44.0842, "start_maximum_number_of_backtest_repair_days": 0, "start_monthly_return_volatility": 0, "start_monthly_std_dev": 0, "start_profit_annual": 0.0, "start_profit_monthly_percentage": 1.0, "start_sharpe_ratio": 0, "start_sortino_ratio": 0}'
 )
 
 
@@ -204,7 +174,7 @@ def test_golden_multi_derive_metrics():
 
 def test_golden_report_query_extract_summary_rows():
     assert list(_extract_summary_rows(
-        json.loads(json.dumps(CALCULATE_METRICS)), "vTest")) == RQ_EXPECTED
+        json.loads(json.dumps(CALCULATE_METRICS)))) == RQ_EXPECTED
 
 
 def test_golden_extractor_backtest_summary_rows():

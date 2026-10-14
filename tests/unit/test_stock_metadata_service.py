@@ -38,7 +38,12 @@ def test_create_task_hydrates_stock_name_from_metadata(app_factory, monkeypatch)
             "task",
             "",
             "google_sheet_C5",
-            {"stock_code": "600519", "market_type": "cn", "parameters": []},
+            {
+                "sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data", "title": ""}],
+                "stock_code": "600519",
+                "market_type": "cn",
+                "parameters": [],
+            },
         )
 
         task = db.session.get(Task, task_id)

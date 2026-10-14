@@ -67,6 +67,18 @@ class WeightCombinationSchema(BaseModel):
     # 逐产品权重范围（%）；提供时必须覆盖全部参与组合的产品，缺省表示沿用 single_cap 语义。
     stock_ranges: list[WeightCombinationRangeItem] | None = None
 
+    # 组合产品数：除必选产品外，组合中实际持仓的产品个数。
+    # 必选产品（fixed_result_ids）恒定持仓，不计入该数量。
+    # 例：必选科创50，其余 5 只权重钉死 15%，num_products=2 表示
+    # "科创50 + 其余 5 只中恰选 2 只（各 15%）"的组合；0 表示只要必选产品自身。
+    # 缺省 None 表示不限制持仓产品数。
+    num_products: int | None = Field(None, ge=0, le=100)
+
+    # 必选产品（TaskResult 主键）：任何组合里都恒定持仓——权重仍按其单股范围，
+    # 但下限强制 ≥ 1 个步长（持仓 = 权重 > 0）。不计入 num_products 统计。
+    # 未必选且权重钉死（下限=上限>0）的产品在"不持仓 / 恰好该权重"之间二选一。
+    fixed_result_ids: list[str | int] | None = None
+
     @model_validator(mode="after")
     def _check(self):
         # 先取默认值，避免后续到处写 `or 默认值`
@@ -126,5 +138,14 @@ class WeightCombinationSchema(BaseModel):
                     raise ValueError(f"单股范围下限不能大于上限（result_id={item_id}）")
                 if item.min_weight % step or item.max_weight % step:
                     raise ValueError(f"单股范围必须是 step 的整数倍（result_id={item_id}）")
+
+        # 必选产品按 result_id 去重（1 与 "1" 指向同一 TaskResult）。
+        if self.fixed_result_ids is not None:
+            seen_fixed = set()
+            for item_id in self.fixed_result_ids:
+                item_id = str(item_id)
+                if item_id in seen_fixed:
+                    raise ValueError(f"必选产品存在重复: {item_id}")
+                seen_fixed.add(item_id)
 
         return self

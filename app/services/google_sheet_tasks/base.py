@@ -1,9 +1,7 @@
 import calendar
 import json
-import math
 import random
 import time
-from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 from flask import current_app, has_app_context
@@ -17,9 +15,11 @@ from app.services.google_sheet_tasks.kline_prep import project_and_validate_writ
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.db_retry import safe_db_operation
+from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
+from app.utils.formatting import sanitize_json_value
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import (
@@ -74,46 +74,9 @@ class BaseGoogleSheetService:
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
         self.api_client = StockAPIClient()
 
-    @classmethod
-    def _sanitize_json_value(cls, value: Any):
-        """Recursively convert values into strict JSON-safe Python objects."""
-        if isinstance(value, dict):
-            return {
-                key: cls._sanitize_json_value(item)
-                for key, item in value.items()
-            }
-
-        if isinstance(value, (list, tuple, set)):
-            return [cls._sanitize_json_value(item) for item in value]
-
-        if isinstance(value, (datetime, date)):
-            return value.isoformat()
-
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-
-        if value is None or isinstance(value, (str, int, bool)):
-            return value
-
-        tolist_method = getattr(value, "tolist", None)
-        if callable(tolist_method):
-            try:
-                return cls._sanitize_json_value(tolist_method())
-            except Exception:
-                pass
-
-        item_method = getattr(value, "item", None)
-        if callable(item_method):
-            try:
-                return cls._sanitize_json_value(item_method())
-            except Exception:
-                pass
-
-        return value
-
     def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
         """Ensure persisted result parameters always contain stock_code."""
-        safe = self._sanitize_json_value(parameters)
+        safe = sanitize_json_value(parameters)
         normalized = dict(safe) if isinstance(safe, dict) else {"parameters": safe}
         stock_code = (
             normalized.get("stock_code")
@@ -269,14 +232,6 @@ class BaseGoogleSheetService:
             step = kwargs.get('step', 0)
             total = kwargs.get('total', 0)
             return f"[Step {step}/{total}] {message}"
-        if log_type == 'progress':
-            percentage = kwargs.get('percentage', 0)
-            return f"[Progress {percentage:.1f}%] {message}"
-        if log_type == 'api':
-            action = kwargs.get('action', '')
-            details = kwargs.get('details', '')
-            base_msg = f"[API] {action}"
-            return f"{base_msg} - {details}" if details else base_msg
         if log_type == 'api_error':
             action = kwargs.get('action', '')
             error = kwargs.get('error', '')
@@ -325,7 +280,7 @@ class BaseGoogleSheetService:
             else:
                 summary[key] = value
         return json.dumps(
-            self._sanitize_json_value(summary),
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )[:1000]
@@ -423,6 +378,13 @@ class BaseGoogleSheetService:
     # 外层异常是否打 [NETWORK_RETRYABLE] 标记（C7 = True；C5 默认无）。
     _retryable_outer = False
 
+    def _load_custom_kline_map(self, config_data: dict) -> dict:
+        """custom K线读取钩子（C5 默认：固定 c5 A/B 输入列；C7 覆盖为布局驱动）。"""
+        c5_input_column_a = config_data.get('c5_input_column_a').upper()
+        c5_input_column_b = config_data.get('c5_input_column_b').upper()
+        custom_kline = self._get_custom_kline_data(c5_input_column_a, c5_input_column_b)
+        return {'custom': custom_kline}
+
     def _prepare_batch(self, config_data: dict) -> dict:
         """从任务配置提取批量执行所需的标量与自定义K线映射（C5 默认实现）。"""
         kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
@@ -430,10 +392,7 @@ class BaseGoogleSheetService:
             raise ValueError("kline_source 仅支持 auto 或 custom")
         custom_kline_map = None
         if kline_source == 'custom':
-            c5_input_column_a = config_data.get('c5_input_column_a').upper()
-            c5_input_column_b = config_data.get('c5_input_column_b').upper()
-            custom_kline = self._get_custom_kline_data(c5_input_column_a, c5_input_column_b)
-            custom_kline_map = {'custom': custom_kline}
+            custom_kline_map = self._load_custom_kline_map(config_data)
         return {
             "kline_source": kline_source,
             "count_mode": config_data.get('count_mode', 'n_plus_1'),
@@ -470,6 +429,30 @@ class BaseGoogleSheetService:
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
         )
+
+    def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool = True):
+        """custom K线模式的固定双参数组合（原 C5/C7 各持一份，仅去重差异经参数表达）。
+
+        C5 传入 deduplicate=True（组合对 K线窗口去重）；C7 传 False 保持原行为。
+        基类 get_bdl 调用不显式传 deduplicate，默认 True（窗口去重为安全缺省）。
+        """
+        data = []
+        for v1 in parameters[1]:
+            for v2 in parameters[2]:
+                data.append({
+                    "stock_code": parameter,
+                    "A1": v1,
+                    "B1": v2,
+                    "year": "custom",
+                    "Kline_key": "custom",
+                })
+
+        if not data:
+            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
+
+        if deduplicate:
+            data = self._deduplicate_parameter_combinations(data, custom_kline_map)
+        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
     def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
         """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。"""
@@ -524,7 +507,8 @@ class BaseGoogleSheetService:
         此前 c5.py / c7.py 各持有一份 ~155 行拷贝；差异经参数表达：
         - include_ohlc：C7 写回需要 OHLC 列；random_price 展开强制开启；
         - random_price_range / random_group_count：随机价格分组（C5 已同步该能力）；
-        - recent 模式统一包含近半年（0.5）区间。
+        - recent 模式统一包含近半年（0.5）区间；
+        - count_mode=N+1 时同样生成全区间组合（"+1"），与窗口重合时由组合去重合并。
         custom K线分支仍留在各自 service（_get_custom_parameters），不进本骨架。
         """
         # random_price 分组展开前先按收盘价占位取价；分组随机取价在 _expand_random_price_groups 里做
@@ -537,6 +521,9 @@ class BaseGoogleSheetService:
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
+        # 近年区间总数按用户配置区间的起点年份计算；下方K线首日截断会改写
+        # _start_date，但那只收缩单个区间内的实际数据，不应减少区间数量。
+        _config_start_year = _start_date
         limit = (_end_year - _start_date + 1) * 300
 
         klines = self.kline_service.get_kline_data(
@@ -613,18 +600,19 @@ class BaseGoogleSheetService:
         data = []
 
         kline_data_map = {}
-        if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
-            for i, v1 in enumerate(parameters[1]):
-                for j, v2 in enumerate(parameters[2]):
-                    Kline_key = f'{_end_year_1}-{_start_date}'
-                    # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
-                    d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
-                    if stock_name:
-                        d['stock_name'] = stock_name
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = all_kline
+        # N+1 与 total 都保留全区间组合（N+1 的"+1"）：整年模式 = 各年份 + 全区间，
+        # 近年模式 = 各近年窗口 + 全区间；窗口与全区间完全重合时由组合去重合并。
+        for i, v1 in enumerate(parameters[1]):
+            for j, v2 in enumerate(parameters[2]):
+                Kline_key = f'{_end_year_1}-{_start_date}'
+                # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
+                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                if stock_name:
+                    d['stock_name'] = stock_name
+                if Kline_key not in kline_data_map:
+                    kline_data_map[Kline_key] = all_kline
 
-                    data.append(d)
+                data.append(d)
 
         if count_mode != 'n_plus_1':
             data, kline_data_map = self._expand_random_price_groups(
@@ -636,7 +624,9 @@ class BaseGoogleSheetService:
         if 'recent' in date_range_mode:
             # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
             # 应生成近 1 年到近 5 年，不能额外生成近 6 年的区间。
-            total_years = max(0, _end_year_1 - _start_date)
+            # 用配置起点年份而非K线截断后的 _start_date，否则数据首日
+            # 截断会把近3年/近5年整段区间悄悄丢掉。
+            total_years = max(0, _end_year_1 - _config_start_year)
             # 近半年（0.5）排在最前，开始日期 = 结束日期往前推 6 个月
             recent_spans = [(0.5, _shift_date_months(end_date, -6))]
             recent_spans.extend(
@@ -658,6 +648,19 @@ class BaseGoogleSheetService:
                 if not kline:
                     continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                existing = kline_data_map.get(Kline_key)
+                if existing is not None and (
+                    existing[0]['stock_date'] != kline[0]['stock_date']
+                    or existing[-1]['stock_date'] != kline[-1]['stock_date']
+                    or len(existing) != len(kline)
+                ):
+                    # 键标签相同但窗口不同（同年配置下近半年 vs 全区间）：
+                    # kline_data_map 按键只能存一份，后者让位，避免组合取到错误窗口。
+                    self._log_info(
+                        f"股票{parameter} 近年窗口 {Kline_key} 与已注册窗口区间不同，"
+                        f"跳过该窗口（{kline[0]['stock_date']}~{kline[-1]['stock_date']}）"
+                    )
+                    continue
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
@@ -879,11 +882,15 @@ class BaseGoogleSheetService:
             self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
+    @alert_on_failure(
+        result_predicate=should_alert_execute_task_result,
+        message_builder=build_execute_task_alert,
+    )
     def execute_task(self):
-        """执行任务的模板方法（原 C4/C5/C7 逐字相同的 97 行骨架，C1 收敛为基类唯一实现）。
+        """执行任务的模板方法（C3~C7 统一骨架，C1 收敛为基类唯一实现）。
 
         子类通过覆盖 get_bdl / _init_google_sheet 钩子体现任务差异；
-        C3 因头部取消检查/多重收益收尾差异保留自己的 execute_task 覆盖。
+        取消检查点统一含 stop_event（_is_cancel_requested）与库状态两种信号。
         """
         try:
 
@@ -899,6 +906,9 @@ class BaseGoogleSheetService:
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
+                    return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
                 # 解析配置
@@ -932,7 +942,13 @@ class BaseGoogleSheetService:
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
+                    return 'cancelled'
 
+                # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
+                # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
+                self._log_info("开始执行参数批量处理（默认参数模式）")
                 success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
 
                 # 根据任务状态决定返回结果
@@ -984,7 +1000,7 @@ class BaseGoogleSheetService:
         """
         def save_result_operation():
             safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(
+            safe_result = sanitize_json_value(
                 self._prepare_result_for_persistence(
                     self._build_task_result_persistence_payload(safe_parameters, result, return_date)
                 )
@@ -1090,7 +1106,6 @@ class BaseGoogleSheetService:
         task_index: int,
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        # stock_code = (
         stock_code = str(task_name or "").strip()
 
         return {
@@ -1158,72 +1173,42 @@ class BaseGoogleSheetService:
         }
 
     def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化 Google Sheet 连接，兼容单表、多表和嵌套 sheet 配置。"""
+        """初始化 Google Sheet 连接（唯一形态：config_data['sheets']）。"""
         try:
             self._log_info("开始初始化Google Sheet连接")
 
             token_file = config_data.get('token_file', 'data/token.json')
             proxy_url = config_data.get('proxy_url')
 
-            if 'sheets' in config_data:
-                sheets = config_data.get('sheets') or []
-                if not sheets:
-                    error_msg = "缺少spreadsheet_id配置"
-                    self._log_error(error_msg)
-                    raise ValueError(error_msg)
-
-                self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
-                if proxy_url:
-                    self._log_info(f"使用代理: {proxy_url}")
-
-                connected_sheets = []
-                for sheet in sheets:
-                    spreadsheet_id = sheet.get('spreadsheet_id')
-                    sheet_name = sheet.get('sheet_name', 'data')
-                    google_sheet = GoogleSheet(
-                        spreadsheet_id,
-                        sheet_name,
-                        token_file,
-                        proxy_url,
-                        task_id=self.task_id,
-                    )
-                    if not google_sheet.worksheet:
-                        raise Exception("请先选择工作表")
-                    connected_sheets.append(google_sheet)
-                    self._log_info(f"已连接工作表: {sheet}")
-
-                self.google_sheets = connected_sheets
-                self._log_info("Google Sheet连接初始化成功")
-                return
-
-            spreadsheet_id = config_data.get('spreadsheet_id')
-            sheet_name = config_data.get('sheet_name', 'data')
-            if isinstance(config_data.get('sheet'), dict):
-                sheet = config_data['sheet']
-                spreadsheet_id = sheet.get('spreadsheet_id', spreadsheet_id)
-                sheet_name = sheet.get('sheet_name', sheet_name)
-
-            if not spreadsheet_id:
+            sheets = config_data.get('sheets') or []
+            if not sheets:
                 error_msg = "缺少spreadsheet_id配置"
                 self._log_error(error_msg)
                 raise ValueError(error_msg)
 
-            self._log_info(
-                f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}"
-            )
+            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
             if proxy_url:
                 self._log_info(f"使用代理: {proxy_url}")
 
-            self.google_sheet = GoogleSheet(
-                spreadsheet_id,
-                sheet_name,
-                token_file,
-                proxy_url,
-                task_id=self.task_id,
-            )
-            if not self.google_sheet.worksheet:
-                raise Exception("请先选择工作表")
+            connected_sheets = []
+            for sheet in sheets:
+                spreadsheet_id = sheet.get('spreadsheet_id')
+                sheet_name = sheet.get('sheet_name', 'data')
+                google_sheet = GoogleSheet(
+                    spreadsheet_id,
+                    sheet_name,
+                    token_file,
+                    proxy_url,
+                    task_id=self.task_id,
+                )
+                if not google_sheet.worksheet:
+                    raise Exception("请先选择工作表")
+                connected_sheets.append(google_sheet)
+                self._log_info(f"已连接工作表: {sheet}")
 
+            self.google_sheets = connected_sheets
+            # 单表任务（C3/C31 子任务/单品回测）消费单对象引用
+            self.google_sheet = connected_sheets[0] if len(connected_sheets) == 1 else None
             self._log_info("Google Sheet连接初始化成功")
         except Exception as err:
             error_msg = f"初始化Google Sheet连接失败: {err}"

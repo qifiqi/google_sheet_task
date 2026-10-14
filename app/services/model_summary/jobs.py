@@ -15,6 +15,7 @@ from typing import Any
 from app.models import Task, TaskLog, TaskResultSummaryIndex
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.services.model_summary import extractor
+from app.utils.formatting import parse_lenient_json
 from app.utils.logger import get_logger
 
 
@@ -375,18 +376,6 @@ class SummaryJobMixin:
             commit=False,
         )
 
-    def _keep_only_best_for_task(self, task_id: str) -> None:
-        """处理_keep_only_best_for_task相关逻辑。"""
-        rows = backtest_repository.list_summary_index_entities_by_task_ordered(task_id)
-        seen_groups: set[str] = set()
-        for row in rows:
-            group_key = row.period_key or row.year_label or row.kline_range or ""
-            if group_key not in seen_groups and row.best_metric_value is not None:
-                seen_groups.add(group_key)
-                row.is_best = True
-                continue
-            backtest_repository.delete_entity(row)
-
     def _update_rebuild_task(
         self,
         task_id: str,
@@ -442,7 +431,7 @@ class SummaryJobMixin:
         task = task_repository.get_entity(task_id)
         if not task or task.task_type != extractor.MODEL_SUMMARY_REBUILD_TASK_TYPE:
             return None
-        config = extractor._parse_json(task.config, {})
+        config = parse_lenient_json(task.config, {})
         return {
             "job_id": task.id,
             "task_id": task.id,

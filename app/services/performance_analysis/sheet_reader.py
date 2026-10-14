@@ -24,8 +24,6 @@ class GoogleSheetAnalysisMixin:
 
         """
         try:
-            # from app.services.da import data
-            # parsed_data = self._parse_input_data(data)
             _data, _data_result, sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
             # 计算指标
             series = None

@@ -116,7 +116,7 @@ def test_global_preview_uses_largest_yearly_repair_days():
     _period_text, rows = _extract_summary_rows({
         "year_index_yearly_max_repair_days": {"2023": 4, "2024": 8},
         "year_start_yearly_max_repair_days": {"2023": 6, "2024": 10},
-    }, "C3")
+    })
 
     yearly_repair_days_row = next(
         row for row in rows if row["metric"] == "年最大回测修复天数"

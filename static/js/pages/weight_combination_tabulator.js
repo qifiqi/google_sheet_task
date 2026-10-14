@@ -307,6 +307,7 @@
     const maxWeightInput = document.getElementById('max-weight');
     const minWeightInput = document.getElementById('min-weight');
     const singleCapInput = document.getElementById('single-cap');
+    const numProductsInput = document.getElementById('num-products');
     const btnAnalyze = document.getElementById('btn-analyze');
     const btnCancel = document.getElementById('btn-cancel');
     const progressCard = document.getElementById('progress-card');
@@ -323,6 +324,7 @@
     const productsSelectAll = document.getElementById('products-select-all');
     const btnReloadProducts = document.getElementById('btn-reload-products');
     const btnResetRanges = document.getElementById('btn-reset-ranges');
+    const btnPinRatios = document.getElementById('btn-pin-ratios');
     const productsStepHint = document.getElementById('products-step-hint');
 
     // 面板状态：每项对应一个 TaskResult。多参数方案任务里同一股票会出现多次，
@@ -357,6 +359,10 @@
         });
         btnResetRanges.addEventListener('click', function() {
             applyDefaultRanges();
+            renderProducts();
+        });
+        btnPinRatios.addEventListener('click', function() {
+            pinProductRatios();
             renderProducts();
         });
     }
@@ -411,6 +417,21 @@
         });
     }
 
+    // 把已勾选且配置比例>0 的产品固定为配置比例（按步长向下取整）：min=max ⇒
+    // 权重恒定、不按步长漫游，且下限>0 使其成为"固定产品"（不计入组合产品数）。
+    // 其余产品保持 0 ~ 上限，继续参与"组合产品数"的子集枚举。
+    function pinProductRatios() {
+        const step = readStep();
+        products.forEach(function(product) {
+            if (!product.usable || !product.checked) return;
+            if (product.ratioNum === null || product.ratioNum === undefined) return;
+            const pinned = Math.floor(Math.max(0, Math.min(product.ratioNum, 100)) / step) * step;
+            if (pinned <= 0) return;
+            product.min = pinned;
+            product.max = pinned;
+        });
+    }
+
     function updateStepHint() {
         productsStepHint.textContent = String(readStep());
     }
@@ -448,6 +469,7 @@
         const enabled = product.usable && product.checked;
         if (product.minEl) product.minEl.disabled = !enabled;
         if (product.maxEl) product.maxEl.disabled = !enabled;
+        if (product.fixedEl) product.fixedEl.disabled = !enabled;
         if (product.rowEl) product.rowEl.classList.toggle('wc-products__row--off', !enabled);
     }
 
@@ -484,10 +506,28 @@
             }
             checkbox.addEventListener('change', function() {
                 product.checked = checkbox.checked;
+                // 行取消勾选时连带取消必选，避免残留不可达的必选标记
+                if (!product.checked) {
+                    product.fixed = false;
+                    if (product.fixedEl) product.fixedEl.checked = false;
+                }
                 updateProductRowState(product);
                 updateProductsSummary();
             });
             selectCell.appendChild(checkbox);
+
+            const fixedCell = document.createElement('td');
+            const fixedCheckbox = document.createElement('input');
+            fixedCheckbox.type = 'checkbox';
+            fixedCheckbox.className = 'form-check-input';
+            fixedCheckbox.checked = !!product.fixed;
+            fixedCheckbox.disabled = !product.usable || !product.checked;
+            fixedCheckbox.title = '勾选后恒定持仓，不计入组合产品数';
+            fixedCheckbox.setAttribute('aria-label', '必选 ' + productLabel(product));
+            fixedCheckbox.addEventListener('change', function() {
+                product.fixed = fixedCheckbox.checked;
+            });
+            fixedCell.appendChild(fixedCheckbox);
 
             const nameCell = document.createElement('td');
             const nameEl = document.createElement('div');
@@ -512,6 +552,7 @@
             maxCell.appendChild(maxInput);
 
             row.appendChild(selectCell);
+            row.appendChild(fixedCell);
             row.appendChild(nameCell);
             row.appendChild(ratioCell);
             row.appendChild(minCell);
@@ -521,6 +562,7 @@
             product.rowEl = row;
             product.minEl = minInput;
             product.maxEl = maxInput;
+            product.fixedEl = fixedCheckbox;
             updateProductRowState(product);
         });
         updateProductsSummary();
@@ -590,6 +632,8 @@
                     usable: !!item.has_returns,
                     // 已配置比例为 0 的产品在组合里本就不参与，默认不勾选（可手动勾选后改上限）
                     checked: !!item.has_returns && ratioNum !== 0,
+                    // 必选：恒定持仓，不计入组合产品数
+                    fixed: false,
                     min: 0,
                     max: 0
                 };
@@ -652,6 +696,9 @@
             if (product.min % step !== 0 || product.max % step !== 0) {
                 return invalid(`的单股范围必须是步长 ${step}% 的整数倍（可点「重置范围」按配置比例重算）`);
             }
+            if (product.fixed && product.max <= 0) {
+                return invalid('勾了必选，单股上限必须大于 0（持仓 = 权重 > 0）');
+            }
             ranges.push({
                 result_id: product.result_id,
                 min_weight: product.min,
@@ -659,13 +706,31 @@
             });
         }
 
-        return {
-            error: null,
-            payload: {
-                result_ids: selected.map(function(product) { return product.result_id; }),
-                stock_ranges: ranges
-            }
+        const payload = {
+            result_ids: selected.map(function(product) { return product.result_id; }),
+            stock_ranges: ranges
         };
+
+        // 必选产品：恒定持仓，不计入组合产品数
+        const fixedIds = selected
+            .filter(function(product) { return product.fixed; })
+            .map(function(product) { return product.result_id; });
+        if (fixedIds.length) payload.fixed_result_ids = fixedIds;
+
+        // 组合产品数（不含必选产品）；留空表示不限
+        const numProducts = parseInt(numProductsInput.value, 10);
+        if (Number.isInteger(numProducts)) {
+            if (numProducts < 0 || numProducts > 100) {
+                return { error: '组合产品数必须在 0-100 之间（留空表示不限）' };
+            }
+            const freeCount = selected.length - fixedIds.length;
+            if (numProducts > freeCount) {
+                return { error: `组合产品数不能超过可变产品数 ${freeCount}（必选产品不计入）` };
+            }
+            payload.num_products = numProducts;
+        }
+
+        return { error: null, payload: payload };
     }
 
     /**
@@ -679,6 +744,8 @@
             pagination: false,
             virtualDom: true,
             virtualDomBuffer: 300,
+            // 股票组合一行一只，行高随内容增长
+            variableHeight: true,
 
             columns: [
                 {
@@ -694,8 +761,7 @@
                     minWidth: 240,
                     headerSort: false,
                     formatter: 'textarea',
-                    tooltip: true,
-                    variableHeight: false
+                    tooltip: true
                 },
                 rangeColumn('年化收益率(指数)', 'index_rate_disp', { width: 185, digits: 2, suffix: '%' }),
                 rangeColumn('年化收益率(策略)', 'start_rate_disp', { width: 185, digits: 2, suffix: '%' }),
@@ -728,7 +794,7 @@
             updateStats();
         });
 
-        document.getElementById('export-csv-btn').onclick = exportCSV;
+        document.getElementById('export-excel-btn').onclick = exportExcel;
         document.getElementById('clear-filter-btn').onclick = function() {
             closeFilterPopup();
             Object.keys(headerFilterValues).forEach(k => delete headerFilterValues[k]);
@@ -960,10 +1026,11 @@
         item.index_dd_disp = indexDd != null ? Number(indexDd) * 100 : null;
         item.start_dd_disp = startDd != null ? Number(startDd) * 100 : null;
 
+        // 一行一只股票（textarea formatter 保留换行），替代挤成一团的长串
         item.stocks_display = item.stocks
             .filter(s => s.ratio > 0)
-            .map(s => `${s.stock_name || s.stock_code || 'N/A'} (${s.ratio}%)`)
-            .join(', ');
+            .map(s => `${s.stock_name || s.stock_code || 'N/A'} ${s.ratio}%`)
+            .join('\n');
 
         return item;
     }
@@ -1012,11 +1079,101 @@
         if (message) progressInfo.textContent = message;
     }
 
-    function exportCSV() {
-        table.download('csv', `weight_combination_${Date.now()}.csv`, {
-            bom: true,
-            delimiter: ','
-        });
+    // ============ 导出 Excel（SheetJS 懒加载复用 Biz.returnSeriesExport） ============
+    // 各股票权重拆列承载组合构成，不再导出「股票组合」文本列；
+    // 指标与权重均写入内置百分比数字格式（0.00% / 0%）——单元格仍是数值，可筛选可排序。
+    async function exportExcel() {
+        if (!allData.length) {
+            alert('暂无数据，请先进行分析');
+            return;
+        }
+        // 与页面筛选/排序保持一致：只导出当前 active 行
+        const rows = table.getData('active');
+        if (!rows.length) {
+            alert('当前筛选条件下没有可导出的数据');
+            return;
+        }
+
+        try {
+            await Biz.returnSeriesExport.ensureSheetJs();
+
+            // 股票拆列：按当前行序里首次出现的顺序，列头 = 股票名（缺省用代码）
+            const stockCols = [];
+            const seenKeys = new Set();
+            rows.forEach(function(row) {
+                (row.stocks || []).forEach(function(stock) {
+                    const key = stock.stock_code || stock.stock_name;
+                    if (!key || seenKeys.has(key)) return;
+                    seenKeys.add(key);
+                    stockCols.push({ key: key, label: stock.stock_name || stock.stock_code || 'N/A' });
+                });
+            });
+
+            // 百分比统一写成小数 + 数字格式，避免拼 "%" 字符串破坏数值类型
+            const frac = function(value, digits) {
+                return (value === null || value === undefined) ? '' : Number((value / 100).toFixed(digits));
+            };
+            const header = [
+                '#',
+                '年化收益率(指数)',
+                '年化收益率(策略)',
+                '最大回撤(指数)',
+                '最大回撤(策略)',
+                ...stockCols.map(function(col) { return col.label; }),
+                '权重和'
+            ];
+
+            const aoa = [header];
+            rows.forEach(function(row, index) {
+                const ratioByKey = {};
+                (row.stocks || []).forEach(function(stock) {
+                    const key = stock.stock_code || stock.stock_name;
+                    if (key && !(key in ratioByKey)) ratioByKey[key] = stock.ratio;
+                });
+                aoa.push([
+                    index + 1,
+                    frac(row.index_rate_disp, 4),
+                    frac(row.start_rate_disp, 4),
+                    frac(row.index_dd_disp, 4),
+                    frac(row.start_dd_disp, 4),
+                    ...stockCols.map(function(col) {
+                        const ratio = ratioByKey[col.key];
+                        return ratio > 0 ? Number((ratio / 100).toFixed(4)) : '';
+                    }),
+                    frac(row.weight_sum, 4)
+                ]);
+            });
+
+            const sheet = XLSX.utils.aoa_to_sheet(aoa);
+            // 列序：#(0)、指标(1-4)、各股票权重、权重和
+            const stockStart = 5;
+            const weightCol = stockStart + stockCols.length;
+            const setFormat = function(rowIdx, colIdx, fmt) {
+                const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+                const cell = sheet[addr];
+                if (cell && typeof cell.v === 'number') cell.z = fmt;
+            };
+            for (let r = 1; r < aoa.length; r++) {
+                for (let c = 1; c <= 4; c++) setFormat(r, c, '0.00%');
+                for (let c = stockStart; c < weightCol; c++) setFormat(r, c, '0%');
+                setFormat(r, weightCol, '0%');
+            }
+            sheet['!cols'] = [
+                { wch: 5 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 16 },
+                ...stockCols.map(function() { return { wch: 20 }; }),
+                { wch: 10 }
+            ];
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, sheet, '权重组合');
+            XLSX.writeFile(workbook, `weight_combination_${Date.now()}.xlsx`, { compression: true });
+        } catch (error) {
+            console.error('导出 Excel 失败:', error);
+            alert('导出 Excel 失败: ' + error.message);
+        }
     }
 
 })();

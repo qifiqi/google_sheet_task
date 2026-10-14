@@ -280,4 +280,15 @@ html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .t
     .wc-products__col-ratio,
     .wc-products__col-range { width: auto; min-width: 4.6rem; }
     .wc-products__input { min-width: 4.2rem; }
+    /* 范围筛选弹窗：236px 固定宽 + 双列 grid 在窄屏挤压溢出（label nowrap），
+       改为近全宽单列；横向越界由 positionFilterPopup 的视口收口兜底 */
+    .wc-filter-popup {
+        width: min(calc(100vw - 1.5rem), 20rem);
+    }
+    .wc-filter-popup__body {
+        grid-template-columns: 1fr;
+    }
+    .wc-filter-popup__field label {
+        white-space: normal;
+    }
 }

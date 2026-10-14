@@ -50,7 +50,7 @@ def test_xpl_v3_page_exposes_sections_and_sources(app_factory, monkeypatch):
         assert f'id="{canvas}"' in body
     # 直方图头部有对称分箱说明位
     assert 'id="v3-hist-limit"' in body
-    # 热力图容器 + 基准/策略/超额切换
+    # 热力图容器 + 指数/策略/超额切换
     assert 'id="v3-heatmap"' in body
     assert 'id="v3-heatmap-switch"' in body
     # 八章明细 tab + Sheet 结果 + 全量指标 + JSON
@@ -90,7 +90,7 @@ def test_xpl_v3_page_js_uses_registry_and_metric_names():
 
     with open('static/js/common/metric-names.js', encoding='utf-8') as f:
         names_js = f.read()
-    assert '基准累计回报率' in names_js
+    assert '指数累计回报率' in names_js
     assert '策略累计回报率' in names_js
     assert '累计超额收益' in names_js
     # v2 页面同步修复后的端点断言

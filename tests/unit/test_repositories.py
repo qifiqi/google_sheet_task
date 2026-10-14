@@ -59,12 +59,6 @@ class TestTaskRepository:
         assert updated["status"] == "running"
         assert task_repository.update_fields("missing", status="running") is None
 
-    def test_summary_counts_and_recent(self, app_factory, task_row):
-        task_repository.create({"id": "t-2", "name": "完成", "status": "completed"})
-        counts = task_repository.summary_counts()
-        assert counts == {"total": 2, "completed": 1, "running": 0, "error": 0}
-        assert [t["id"] for t in task_repository.list_recent(limit=1)] == ["t-2"]
-
     def test_distinct_task_types_and_list_by_ids(self, app_factory, task_row):
         assert task_repository.list_distinct_task_types() == ["google_sheet"]
         assert [t["id"] for t in task_repository.list_by_ids(["t-1", "missing"])] == ["t-1"]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import time
 from typing import Any
 
@@ -12,7 +11,7 @@ import dingtalk_stream
 import requests
 
 from ding_stream_service.message_format import build_markdown_message
-from ding_stream_service.task_commands import TaskCommandService
+from ding_stream_service.task_commands import TaskCommandService, _strip_bot_mentions
 
 
 logger = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ class DingStreamEventHandler(dingtalk_stream.EventHandler):
         sender_nick: str,
         conversation_id: str = "default",
     ) -> str:
-        text = re.sub(r"@[\u4e00-\u9fa5a-zA-Z0-9_]+", "", text).strip()
+        text = _strip_bot_mentions(text)
         logger.info("处理后消息: %s", text)
 
         if not text:

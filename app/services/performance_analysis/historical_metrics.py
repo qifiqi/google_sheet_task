@@ -33,6 +33,32 @@ def find_all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
     return {}
 
 
+def metric_year_key(value: Any) -> str:
+    """指标年度键归一（multi/report_query 两份拷贝收敛）：all→""，整型浮点转 int。"""
+    text = str(value if value is not None else "").strip()
+    if not text or text.lower() == "all":
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else text
+
+
+def avg_monthly_excess_return_diff(calculate_metrics: Any) -> float | None:
+    """月超额收益差（monthly_excess_return_diff）的算术均值；无有效月份返回 None。
+
+    multi/report_query/extractor 的同构拷贝收敛于此。
+    """
+    monthly_excess_returns = (calculate_metrics or {}).get("monthly_excess_returns") or []
+    values = [
+        item.get("monthly_excess_return_diff")
+        for item in monthly_excess_returns
+        if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
+    ]
+    return sum(values) / len(values) if values else None
+
+
 def collect_summary_all_entries(metrics: Any) -> dict[str, Any]:
     """一次收集汇总投影所需的全部 ``year=='all'`` 条目与 sharpe 'all' 表
     （ponytail 审计 B2：multi/report_query/extractor 三处查找管道收敛）。
@@ -189,8 +215,12 @@ def resolve_preview_metrics(
 
     # 完整重算指标为当前 V1 口径；但保留历史指标中 V1 没有的业务字段。
     # 对于重算出的非有限值（如超额索提诺分母为零），保留原历史有限值。
+    # 注意 calculate_v1_metrics 出口已把 NaN/inf 转成 None（non_finite_to_none），
+    # 守卫必须同时挡 None，否则重算失败的空值会覆盖历史有限值。
     merged = dict(metrics)
     for key, value in recalculated.items():
+        if value is None:
+            continue
         if isinstance(value, float) and not math.isfinite(value):
             continue
         merged[key] = value

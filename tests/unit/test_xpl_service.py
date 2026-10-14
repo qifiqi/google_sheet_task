@@ -5,6 +5,7 @@ import pytest
 
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import PerformanceAnalyzer
+from app.utils.formatting import sanitize_json_value
 from app.routes.backtest_api import _infer_product_export_model_name
 from app.services.backtest_report_query_service import _infer_backtest_export_model_name
 
@@ -31,7 +32,7 @@ def test_export_model_name_prefers_explicit_model_name():
 
 
 def test_single_backtest_result_uses_task_sheet_model_name():
-    assert _infer_backtest_export_model_name({"sheet": {"title": "C4 单品回测"}}) == "C4"
+    assert _infer_backtest_export_model_name({"sheets": [{"spreadsheet_id": "s", "title": "C4 单品回测"}]}) == "C4"
     assert _infer_backtest_export_model_name({"model_version": "c7"}) == "C7"
 
 
@@ -416,7 +417,7 @@ def test_export_file_handles_unavailable_sortino_ratios():
 
 
 def test_sanitize_for_json_replaces_numpy_and_python_non_finite_numbers():
-    sanitized = PerformanceAnalyzer._sanitize_for_json(
+    sanitized = sanitize_json_value(
         {
             "infinity": float("inf"),
             "nan": float("nan"),

@@ -75,22 +75,6 @@ FOUR_DECIMAL_COLUMN_NAMES = {
     "模型夏普",
 }
 
-# C3 参数列名 → 单元格映射（C3_PARAM_CELL_MAP/C3_PARAM_NAMES）与导出键序列
-# （C5_EXPORT_METRIC_KEYS）已收敛至 app/constants/c_template_layout。
-# C3_PARAM_COUNT 当前无引用，保留待审计结论处理。
-C3_PARAM_COUNT = len(C3_PARAM_NAMES)
-
-# C3 指标列名 → Google Sheet 单元格引用映射（与 SQL / _build_stock_param_result_payload 对应）
-C3_METRIC_CELL_MAP = [
-    ("annualized_rate",      "I16"),
-    ("index_annualized_rate","I19"),
-    ("maxdd",                "I17"),
-    ("max_index_dd",         "I20"),
-    ("fee_total",            "I21"),
-    ("fee_annualized",       "I22"),
-    ("year_rate",            "I23"),
-]
-
 # C3 导出列定义
 C3_EXPORT_COLUMNS = [
     "top choices",
@@ -185,28 +169,6 @@ C5_COLUMN_WIDTHS = {
     "指数年化标准差": 16,
     "指数夏普": 11,
     "模型夏普": 11,
-}
-
-METRIC_DISPLAY_NAME_MAP = {
-    "D2": "Return",
-    "D3": "Annualized",
-    "D4": "Max DD%",
-    "D5": "Index Return",
-    "D6": "Annualized",
-    "D7": "Index max dd",
-    "D8": "Fee total",
-    "D9": "Fee annualized",
-    "D10": "年换手率",
-    "D11": "ReturnBeats",
-    "D12": "ddBeats",
-    "D13": "max(1y beats%)",
-    "D14": "min(1y beats%)",
-    "D15": "最大理论杠杆率",
-    "D16": "平均理论杠杆率",
-    "D17": "单位理论杠杆率收益",
-    "D18": "最大实际杠杆率",
-    "D19": "平均实际杠杆率",
-    "D20": "单位实际杠杆率收益",
 }
 
 

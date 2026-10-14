@@ -26,7 +26,7 @@ from app.services.task.error_handling import (
 )
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
+from app.utils.formatting import max_yearly_repair_days, parse_lenient_json, sanitize_json_value
 from app.utils.return_series import parse_return_series_fields
 from app.utils.market import (
     infer_market_type,
@@ -42,6 +42,8 @@ from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DE
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,
+    avg_monthly_excess_return_diff,
+    metric_year_key,
     extract_core_metrics,
     extract_core_weighted_metrics,
     upgrade_historical_metrics,
@@ -228,7 +230,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         # 显式指定非 OHLC 直接拒绝（界面显示必须与实际生效一致），未指定时归一为 OHLC；
         # 混排的非 C7.0.3 产品不受影响。存量任务重启不走本校验（restart 不重跑 normalize），
         # 执行期强制继续兜底。
-        if BacktestTrainingService._is_c7_0_3({"sheet": sheet}):
+        if BacktestTrainingService._is_c7_0_3({"sheets": [sheet]}):
             explicit_price_mode = str(product.get("price_mode") or config.get("price_mode") or "").strip().lower()
             if explicit_price_mode and explicit_price_mode != "ohlc_price":
                 product_name = str(product.get("product_name") or product.get("name") or stock_code).strip()
@@ -261,12 +263,8 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_json(raw: Any, default: Any) -> Any:
-    return parse_lenient_json(raw, default)
-
-
 def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
-    payload = _parse_json(task_result.result, {})
+    payload = parse_lenient_json(task_result.result, {})
     if not isinstance(payload, dict) or not payload:
         return {}
 
@@ -335,23 +333,10 @@ def _safe_number(value: Any) -> float | None:
         return None
 
 
-def _year_key(value: Any) -> str:
-    text = str(value if value is not None else "").strip()
-    if not text or text.lower() == "all":
-        return ""
-    try:
-        number = float(text)
-    except ValueError:
-        return text
-    if number.is_integer():
-        return str(int(number))
-    return text
-
-
 def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
     """旧预览摘要契约：正值"跌幅优势"（index−start），共享实现见 historical_metrics。"""
     return derive_year_max_excess_drawdown(
-        calculate_metrics, _safe_number, _year_key, direction=1,
+        calculate_metrics, _safe_number, metric_year_key, direction=1,
     )
 
 
@@ -405,7 +390,7 @@ def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
 
 
 def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
-    payload = _parse_json(raw, {})
+    payload = parse_lenient_json(raw, {})
     if not isinstance(payload, dict):
         return []
     dates = payload.get("dates") or []
@@ -426,7 +411,7 @@ def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, 
         return_series = task_result_repository.get_return_entity(task_result.return_series_id)
         if return_series:
             return parse_return_series_fields(return_series)
-    return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
+    return _extract_return_date_from_result_payload(parse_lenient_json(task_result.result, {}))
 
 
 def _set_weighted_metrics_on_result_payload(
@@ -561,17 +546,7 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
     start_sortino_all = entries["start_sortino_all"]
     index_sharpe_all = entries["index_sharpe_all"]
     start_sharpe_all = entries["start_sharpe_all"]
-    monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-    monthly_excess_values = [
-        item.get("monthly_excess_return_diff")
-        for item in monthly_excess_returns
-        if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
-    ]
-    avg_monthly_excess_return = (
-        sum(monthly_excess_values) / len(monthly_excess_values)
-        if monthly_excess_values
-        else None
-    )
+    avg_monthly_excess_return = avg_monthly_excess_return_diff(calculate_metrics)
     total_max_drawdown = (
         (calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown")
         or {}
@@ -715,7 +690,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             batch_id,
             cache_key,
             {
-                "result_json": json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
+                "result_json": json.dumps(sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
                 "returns_json": _build_returns_json(return_date or []) if return_date else None,
                 "source_task_id": self.task_id,
                 "source_step_index": step_index,
@@ -762,7 +737,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         parameter: list[Any],
         cache_entry: dict[str, Any],
     ) -> None:
-        result_payload = _parse_json(cache_entry.get("result_json"), {})
+        result_payload = parse_lenient_json(cache_entry.get("result_json"), {})
         return_date = _parse_returns_json(cache_entry.get("returns_json"))
         parameters = self._build_cached_result_parameters(
             config_data,
@@ -815,7 +790,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     return "cancelled"
 
                 # 多品配置在执行前统一归一化，确保产品级字段和任务级默认值格式一致。
-                raw_config = _parse_json(task.config, {})
+                raw_config = parse_lenient_json(task.config, {})
                 config_data = {
                     **get_config_manager().get_google_sheet_config(),
                     **normalize_multi_product_config(raw_config),
@@ -1018,10 +993,8 @@ class BacktestMultiProductService(BacktestTrainingService):
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         product_config = dict(config_data)
         product_config.update({
-            "sheet": product["sheet"],
-            "spreadsheet_id": product["sheet"]["spreadsheet_id"],
-            "sheet_name": product["sheet"]["sheet_name"],
-            "title": product["sheet"].get("title") or "",
+            # 统一 Sheet 引用形态：单品执行配置 = sheets[1]
+            "sheets": [product["sheet"]],
             "stock_code": product["stock_code"],
             "market_type": product["market_type"],
             "kline_adjustment": product.get("kline_adjustment", "forward"),
@@ -1031,7 +1004,7 @@ class BacktestMultiProductService(BacktestTrainingService):
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
         # C7.0.3 模板执行时写回 OHLC 四价列并校验四价字段（_execute_parameter_combination），
         # K线投影必须带 OHLC；价格模式强制与单品回测 get_bdl 的行为保持一致。
-        is_c7_0_3 = self._is_c7_0_3({"sheet": product.get("sheet") or {}})
+        is_c7_0_3 = self._is_c7_0_3({"sheets": [product.get("sheet") or {}]})
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],

@@ -11,7 +11,7 @@
     <link href="/static/css/common/theme.css" rel="stylesheet">
     <link href="/static/css/components/sidebar.css" rel="stylesheet">
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-    <link href="/static/css/pages/performance_analysis_v3.css" rel="stylesheet">
+    <link href="/static/css/pages/performance_analysis_v3.css?v=20260930_3" rel="stylesheet">
 </head>
 <body class="template-auth-pending">
     <div class="template-auth-loading" id="templateAuthLoading">
@@ -30,7 +30,7 @@
     <h1 class="h2">V3：回测数据分析</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
-            <a class="btn btn-sm btn-outline-secondary" href="/performance-analysis/">
+            <a class="btn btn-sm btn-outline-secondary" href="/performance-analysis/" data-back-origin>
                 <i class="bi bi-arrow-left"></i> 返回
             </a>
         </div>
@@ -223,7 +223,7 @@
 </nav>
 
 <div class="v3-color-legend mb-3">
-    颜色约定：<span class="v3-swatch" style="background:var(--v3-bench)"></span>基准（指数）
+    颜色约定：<span class="v3-swatch" style="background:var(--v3-bench)"></span>指数
     <span class="v3-swatch" style="background:var(--v3-strat)"></span>策略
     <span class="v3-swatch" style="background:var(--v3-excess)"></span>超额
     ｜ 涨跌着色：<span class="v3-up fw-semibold">红=正/涨</span>、<span class="v3-down fw-semibold">绿=负/跌</span>
@@ -244,7 +244,7 @@
             <div class="col-12">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="card-title mb-0">策略净值曲线（含基准与超额）</h6>
+                        <h6 class="card-title mb-0">策略净值曲线（含指数与超额）</h6>
                         <div class="form-check form-switch mb-0">
                             <input class="form-check-input" type="checkbox" id="v3-nav-log-toggle">
                             <label class="form-check-label small" for="v3-nav-log-toggle">对数轴</label>
@@ -265,7 +265,7 @@
             </div>
             <div class="col-12">
                 <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header py-2"><h6 class="card-title mb-0">累计超额收益曲线（策略累计收益 - 基准累计收益）</h6></div>
+                    <div class="card-header py-2"><h6 class="card-title mb-0">累计超额收益曲线（策略累计收益 - 指数累计收益）</h6></div>
                     <div class="card-body p-2">
                         <div class="v3-chart-box"><canvas id="v3-chart-excess-line"></canvas></div>
                     </div>
@@ -293,13 +293,13 @@
         </div>
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100" id="v3-excess-annual-card">
-                <div class="card-header py-2"><h6 class="card-title mb-0">年超额收益（策略 - 基准）</h6></div>
+                <div class="card-header py-2"><h6 class="card-title mb-0">年超额收益（策略 - 指数）</h6></div>
                 <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-excess-annual"></canvas></div></div>
             </div>
         </div>
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100">
-                <div class="card-header py-2"><h6 class="card-title mb-0">风险调整指标雷达（归一化，越大越好）</h6></div>
+                    <div class="card-header py-2"><h6 class="card-title mb-0">风险调整指标雷达（逐轴比例缩放，越外越好；负值居圆心）</h6></div>
                 <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-radar"></canvas></div></div>
             </div>
         </div>
@@ -315,7 +315,7 @@
                 <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h6 class="card-title mb-0">月度收益热力图（红=正，绿=负）</h6>
                     <div class="btn-group btn-group-sm" role="group" id="v3-heatmap-switch">
-                        <button class="btn btn-outline-secondary active" data-view="index" type="button">基准</button>
+                        <button class="btn btn-outline-secondary active" data-view="index" type="button">指数</button>
                         <button class="btn btn-outline-secondary" data-view="start" type="button">策略</button>
                         <button class="btn btn-outline-secondary" data-view="excess" type="button">超额</button>
                     </div>
@@ -327,7 +327,7 @@
         </div>
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100" id="v3-monthly-excess-card">
-                <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（策略 - 基准）</h6></div>
+                <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（策略 - 指数）</h6></div>
                 <div class="card-body p-2"><div class="v3-chart-box tall"><canvas id="v3-chart-monthly-excess"></canvas></div></div>
             </div>
         </div>
@@ -339,7 +339,7 @@
         </div>
         <div class="col-12">
             <div class="card border-0 shadow-sm">
-                <div class="card-header py-2"><h6 class="card-title mb-0">月度收益散点（x=基准，y=策略，右上半区=跑赢）</h6></div>
+                <div class="card-header py-2"><h6 class="card-title mb-0">月度收益散点（x=指数，y=策略，右上半区=跑赢）</h6></div>
                 <div class="card-body p-2"><div class="v3-chart-box"><canvas id="v3-chart-scatter"></canvas></div></div>
             </div>
         </div>
@@ -458,32 +458,32 @@
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="tab-ret" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-core-returns"></tbody></table></div></div>
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准收益</th><th class="num">策略收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-annual-returns"></tbody></table></div></div>
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>滚动周期</th><th class="num">基准平均收益</th><th class="num">策略平均收益</th><th class="num">策略胜率</th></tr></thead><tbody id="tbl-v3-rolling"></tbody></table></div></div>
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准年化</th><th class="num">策略年化</th><th class="num">超额</th><th>区间</th></tr></thead><tbody id="tbl-v3-excess-returns"></tbody></table></div></div>
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年月</th><th class="num">基准月收益</th><th class="num">策略月收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-monthly-excess"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-core-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">指数收益</th><th class="num">策略收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-annual-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>滚动周期</th><th class="num">指数平均收益</th><th class="num">策略平均收益</th><th class="num">策略胜率</th></tr></thead><tbody id="tbl-v3-rolling"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">指数年化</th><th class="num">策略年化</th><th class="num">超额</th><th>区间</th></tr></thead><tbody id="tbl-v3-excess-returns"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年月</th><th class="num">指数月收益</th><th class="num">策略月收益</th><th class="num">超额</th></tr></thead><tbody id="tbl-v3-monthly-excess"></tbody></table></div></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="tab-risk" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-core"></tbody></table></div></div>
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">基准回撤</th><th class="num">策略回撤</th><th>日期(基准/策略)</th></tr></thead><tbody id="tbl-v3-annual-drawdown"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-core"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>年份</th><th class="num">指数回撤</th><th class="num">策略回撤</th><th>日期(指数/策略)</th></tr></thead><tbody id="tbl-v3-annual-drawdown"></tbody></table></div></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="tab-ra" role="tabpanel">
-                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-adjusted"></tbody></table></div>
+                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-risk-adjusted"></tbody></table></div>
                         </div>
                         <div class="tab-pane fade" id="tab-monthly" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-monthly-overview"></tbody></table></div></div>
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">基准月数</th><th class="num">基准占比</th><th class="num">策略月数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-monthly-dist"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-monthly-overview"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">指数月数</th><th class="num">指数占比</th><th class="num">策略月数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-monthly-dist"></tbody></table></div></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="tab-daily" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-overview"></tbody></table></div></div>
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">基准天数</th><th class="num">基准占比</th><th class="num">策略天数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-daily-dist"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-overview"></tbody></table></div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>收益区间</th><th class="num">指数天数</th><th class="num">指数占比</th><th class="num">策略天数</th><th class="num">策略占比</th></tr></thead><tbody id="tbl-v3-daily-dist"></tbody></table></div></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="tab-excess" role="tabpanel">
@@ -495,13 +495,13 @@
                         </div>
                         <div class="tab-pane fade" id="tab-extreme" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-downfall"></tbody></table></div><div class="small text-body-secondary mt-1">市场下跌阶段（指数月收益低于阈值）</div></div>
-                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-upward"></tbody></table></div><div class="small text-body-secondary mt-1">市场上涨阶段（指数月收益高于阈值）</div></div>
-                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-extreme"></tbody></table></div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-downfall"></tbody></table></div><div class="small text-body-secondary mt-1">市场下跌阶段（指数月收益低于阈值）</div></div>
+                                <div class="col-lg-6"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-upward"></tbody></table></div><div class="small text-body-secondary mt-1">市场上涨阶段（指数月收益高于阈值）</div></div>
+                                <div class="col-12"><div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-daily-extreme"></tbody></table></div></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="tab-capital" role="tabpanel">
-                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-capital"></tbody></table></div>
+                            <div class="table-responsive"><table class="table table-sm table-striped mb-0 v3-detail-table"><thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead><tbody id="tbl-v3-capital"></tbody></table></div>
                         </div>
                         <div class="tab-pane fade" id="tab-sheet" role="tabpanel">
                             <div class="small text-body-secondary mb-2">Google Sheet 模板自带的结果区键值（C 系列模板），仅 Sheet 来源分析时存在。</div>
@@ -592,9 +592,10 @@
     <script src="/static/js/trading-date.js"></script>
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
-    <script src="/static/js/common/metric-names.js"></script>
-    <script src="/static/js/chart.umd.min.js"></script>
+    <script src="/static/js/common/business/back-link.js"></script>
+    <script src="/static/js/common/metric-names.js?v=20260930_3"></script>
+    <script src="/static/js/chart.umd.min.js?v=20260930_3"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-    <script src="/static/js/pages/performance_analysis_v3.js"></script>
+    <script src="/static/js/pages/performance_analysis_v3.js?v=20260930_3"></script>
 </body>
 </html>

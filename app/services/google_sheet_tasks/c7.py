@@ -25,48 +25,28 @@ class C7Service(BaseGoogleSheetService):
 
     _retryable_outer = True  # 外层异常需打 [NETWORK_RETRYABLE] 供看门狗识别
 
+    def _load_custom_kline_map(self, config_data: dict) -> dict:
+        first_layout = self._get_c7_layout(config_data, self.google_sheets[0])
+        if first_layout["version"] == "c7_0_3":
+            custom_kline = self._get_custom_kline_data(
+                first_layout["date_column"],
+                first_layout["close_column"],
+                start_row=first_layout["start_row"],
+                ohlc_columns=first_layout,
+            )
+        else:
+            custom_kline = self._get_custom_kline_data(
+                first_layout["date_column"],
+                first_layout["value_column"],
+                start_row=first_layout["start_row"],
+            )
+        return {'custom': custom_kline}
+
     def _prepare_batch(self, config_data: dict) -> dict:
-        kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
-        if kline_source not in ('auto', 'custom'):
-            raise ValueError("kline_source 仅支持 auto 或 custom")
-        random_price_range = config_data.get('random_price_range', 'high_low')
-        random_group_count = int(config_data.get('random_group_count') or 1)
-        custom_kline_map = None
-        if kline_source == 'custom':
-            first_layout = self._get_c7_layout(config_data, self.google_sheets[0])
-            if first_layout["version"] == "c7_0_3":
-                custom_kline = self._get_custom_kline_data(
-                    first_layout["date_column"],
-                    first_layout["close_column"],
-                    start_row=first_layout["start_row"],
-                    ohlc_columns=first_layout,
-                )
-            else:
-                custom_kline = self._get_custom_kline_data(
-                    first_layout["date_column"],
-                    first_layout["value_column"],
-                    start_row=first_layout["start_row"],
-                )
-            custom_kline_map = {'custom': custom_kline}
-        return {
-            "kline_source": kline_source,
-            "count_mode": config_data.get('count_mode', 'n_plus_1'),
-            "price_mode": config_data.get('price_mode', 'vwap_price'),
-            "date_range_mode": config_data.get('date_range_mode', []),
-            "exclude_recent_years": config_data.get(
-                'exclude_recent_years',
-                config_data.get('exclude_years', []),
-            ),
-            "end_date": config_data.get('end_date'),
-            "start_date": config_data.get('start_date'),
-            "market_type": config_data.get('market_type'),
-            "adjust_type": config_data.get('kline_adjustment'),
-            "data_source": config_data.get("kline_data_source", "akshare"),
-            "custom_kline_map": custom_kline_map,
-            "random_price_range": random_price_range,
-            "random_group_count": random_group_count,
-            "_config_data": config_data,
-        }
+        batch = super()._prepare_batch(config_data)
+        # C7 执行链路（_attempt 等）需要原始配置取布局/版本
+        batch["_config_data"] = config_data
+        return batch
 
     def _expand_parameters(self, outer_param, parameters, batch):
         return self._get_all_parameters(
@@ -343,7 +323,6 @@ class C7Service(BaseGoogleSheetService):
                     layout = sheet_layouts[google_sheet.spreadsheet_id]
                     initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(
                         layout["output_range_1"],
-                        # value_render_option="UNFORMATTED_VALUE",
                     )
 
                 for google_sheet in self.google_sheets:
@@ -429,7 +408,6 @@ class C7Service(BaseGoogleSheetService):
                     _result = {}
                     batch_results = google_sheet.get_ranges(
                        [output_range_1, ":".join(check_positions)]
-                        # value_render_option="UNFORMATTED_VALUE",
                     )
 
                     if _validate_check_values(batch_results, google_sheet.spreadsheet_id, layout):
@@ -575,21 +553,7 @@ class C7Service(BaseGoogleSheetService):
         return validated
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
-        data = []
-        for v1 in parameters[1]:
-            for v2 in parameters[2]:
-                data.append({
-                    "stock_code": parameter,
-                    "A1": v1,
-                    "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
-                })
-
-        if not data:
-            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
-
-        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
+        return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=False)
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。"""

@@ -73,13 +73,6 @@ class TaskQueryService:
             return task_result["task_id"]
         return ""
 
-    def get_all_tasks(
-        self,
-        task_type: Optional[str] = None,
-        task_types: Optional[list[str]] = None,
-    ) -> list[dict[str, Any]]:
-        return task_repository.list_all(task_type=task_type, task_types=task_types)
-
     def get_tasks_paginated(
         self,
         page: int = 1,
@@ -210,16 +203,6 @@ class TaskQueryMixin:
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
         return TaskQueryService(self).get_task_status(task_id)
-
-    def get_all_tasks(
-        self,
-        task_type: Optional[str] = None,
-        task_types: Optional[list[str]] = None,
-    ) -> list[dict[str, Any]]:
-        return TaskQueryService(self).get_all_tasks(
-            task_type=task_type,
-            task_types=task_types,
-        )
 
     def get_tasks_paginated(
         self,

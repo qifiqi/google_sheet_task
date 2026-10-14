@@ -95,11 +95,12 @@ class TaskRuntimeViewService:
                         }
                     )
 
+        # 统一 sheets[] 形态：管理页摘要消费首个 Sheet 引用
+        sheets = config.get("sheets") if isinstance(config, dict) and isinstance(config.get("sheets"), list) else []
+        first_sheet = sheets[0] if sheets and isinstance(sheets[0], dict) else {}
         return {
-            "sheet_name": config.get("sheet_name") if isinstance(config, dict) else None,
-            "spreadsheet_id": (
-                config.get("spreadsheet_id") if isinstance(config, dict) else None
-            ),
+            "sheet_name": first_sheet.get("sheet_name"),
+            "spreadsheet_id": first_sheet.get("spreadsheet_id"),
             "token_id": config.get("token_id") if isinstance(config, dict) else None,
             "parameter_groups": parameter_groups,
             "parameter_sizes": parameter_sizes,

@@ -1124,7 +1124,7 @@ async function createTask() {
             sheetConfig.google_sheet_id = selectedGoogleSheetId;
         }
         const config = {
-            sheet: sheetConfig,
+            sheets: [sheetConfig],
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
             kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',

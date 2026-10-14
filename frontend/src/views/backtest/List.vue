@@ -202,9 +202,15 @@ function parseTaskConfig(task) {
   return {}
 }
 
+function firstSheetRef(config) {
+  const sheets = config && Array.isArray(config.sheets) ? config.sheets : []
+  if (sheets.length && sheets[0] && typeof sheets[0] === 'object') return sheets[0]
+  return config && config.sheet && typeof config.sheet === 'object' ? config.sheet : {}
+}
+
 function getSheetName(task) {
   const config = parseTaskConfig(task)
-  return config?.sheet?.sheet_name || '-'
+  return firstSheetRef(config)?.sheet_name || '-'
 }
 
 // 模型版本推断（翻译自静态 inferModelVersion：标题子版本号一并展示）
@@ -213,8 +219,8 @@ function inferModelVersion(task) {
     return String(task.model_version).toUpperCase()
   }
   const config = parseTaskConfig(task)
-  const sheet = config.sheet || {}
-  const title = String(sheet.title || config.title || task?.name || '').toUpperCase()
+  const sheet = firstSheetRef(config)
+  const title = String(sheet.title || task?.name || '').toUpperCase()
   if (title.includes('C7.0.3')) return 'C7.0.3'
   if (title.includes('C7')) return 'C7'
   if (title.includes('C5')) return 'C5'

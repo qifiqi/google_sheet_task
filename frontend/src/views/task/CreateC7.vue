@@ -9,7 +9,7 @@
         </p>
       </div>
       <div class="page-toolbar__actions">
-        <el-button class="page-back-button" @click="$router.back()">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -444,9 +444,11 @@ import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { getEnums } from '@/api/meta'
 import { useResponsive } from '@/composables/useResponsive'
 import { defaultDateRange, formatDate } from '@/utils/tradingDate'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
+const goBack = useBackNavigation('/task/list?version=c7')
 const { isMobile } = useResponsive()
 
 // C7 版本差异配置（对齐静态页 templates/google_sheet_c7/create.html 的 window.__CTASK_CONFIG）
@@ -1257,7 +1259,7 @@ async function submit() {
     ElMessage.success('任务创建成功，正在跳转到详情页面...')
     clearSaved()
     const taskId = res.task_id
-    setTimeout(() => router.push(`/task/${taskId}`), 1000)
+    setTimeout(() => router.replace(`/task/${taskId}`), 1000)
   } catch (err) {
     ElMessage.error('创建任务失败: ' + (err?.message || '未知错误'))
   } finally {

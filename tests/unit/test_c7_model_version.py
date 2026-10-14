@@ -248,6 +248,9 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
         "app.services.google_sheet_tasks.base.upsert_stock_metadata_in_session",
         lambda _payload: None,
     )
+    # 内置K线库不桩会真实请求内网服务
+    service.kline_service.read_internal_kline_data = lambda **_kwargs: []
+    service.kline_service.write_internal_kline_data = lambda rows, **_kwargs: []
     monkeypatch.setattr(
         service.dfcf_api,
         "get_search_list_by_stock_code",
@@ -362,6 +365,9 @@ def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(mon
         "app.services.google_sheet_tasks.base.upsert_stock_metadata_in_session",
         lambda _payload: None,
     )
+    # 内置K线库不桩会真实请求内网服务
+    service.kline_service.read_internal_kline_data = lambda **_kwargs: []
+    service.kline_service.write_internal_kline_data = lambda rows, **_kwargs: []
     monkeypatch.setattr(service, "_log_info", logs.append)
     monkeypatch.setattr(
         service.dfcf_api,

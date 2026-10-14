@@ -7,7 +7,7 @@
         <p class="page-description">配置 Google Sheet、Token 和参数组合，直接生成并执行批量任务。</p>
       </div>
       <div class="page-toolbar__actions">
-        <el-button class="page-back-button" @click="$router.back()">返回</el-button>
+        <el-button class="page-back-button" @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -187,9 +187,11 @@ import { getGoogleSheets, getWorksheets, getTokens, importToken as apiImportToke
 import { createTask, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { useBackNavigation } from '@/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
+const goBack = useBackNavigation('/task/list?version=c3')
 const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
@@ -358,6 +360,13 @@ function resolvePendingTokenSelection(config) {
   return ''
 }
 
+// 统一 sheets[1] 形态取首个 Sheet 引用；旧平铺键仅作未迁移数据回退
+function firstSheetRef(config) {
+  const sheets = config && Array.isArray(config.sheets) ? config.sheets : []
+  if (sheets.length && sheets[0] && typeof sheets[0] === 'object') return sheets[0]
+  return (config && config.sheet && typeof config.sheet === 'object') ? config.sheet : {}
+}
+
 async function applyTemplate(id) {
   if (!id) return
   try {
@@ -365,13 +374,14 @@ async function applyTemplate(id) {
     const config = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : (tpl.config || {})
     if (tpl.name) form.name = tpl.name
     if (tpl.description) form.description = tpl.description
-    if (config.spreadsheet_id) {
-      ensureSheetOption(config.spreadsheet_id, config.title || config.spreadsheet_title)
-      form.spreadsheet_id = config.spreadsheet_id
+    const firstSheet = firstSheetRef(config)
+    if (firstSheet.spreadsheet_id) {
+      ensureSheetOption(firstSheet.spreadsheet_id, firstSheet.title)
+      form.spreadsheet_id = firstSheet.spreadsheet_id
       await onSheetChange()
     }
-    if (config.title || config.spreadsheet_title) form.spreadsheet_title = config.title || config.spreadsheet_title
-    if (config.sheet_name) form.sheet_name = config.sheet_name
+    if (firstSheet.title) form.spreadsheet_title = firstSheet.title
+    if (firstSheet.sheet_name) form.sheet_name = firstSheet.sheet_name
     if (config.token_type) form.token_type = config.token_type
     if (config.token_id) {
       const matchedTokenId = resolvePendingTokenSelection(config)
@@ -396,13 +406,14 @@ async function loadRestartTask(taskId) {
     // 标题含原任务 ID（对齐静态版 loadRestartConfig 的“重启任务 (基于原任务: xxx)”）
     pageTitle.value = `重启任务 (基于原任务: ${taskId})`
     if (task.name) form.name = `${task.name} (重启)`
-    if (config.spreadsheet_id) {
-      ensureSheetOption(config.spreadsheet_id, config.title || config.spreadsheet_title)
-      form.spreadsheet_id = config.spreadsheet_id
+    const firstSheet = firstSheetRef(config)
+    if (firstSheet.spreadsheet_id) {
+      ensureSheetOption(firstSheet.spreadsheet_id, firstSheet.title)
+      form.spreadsheet_id = firstSheet.spreadsheet_id
       await onSheetChange()
     }
-    if (config.title || config.spreadsheet_title) form.spreadsheet_title = config.title || config.spreadsheet_title
-    if (config.sheet_name) form.sheet_name = config.sheet_name
+    if (firstSheet.title) form.spreadsheet_title = firstSheet.title
+    if (firstSheet.sheet_name) form.sheet_name = firstSheet.sheet_name
     if (config.token_type) form.token_type = config.token_type
     if (config.token_id) {
       const matchedTokenId = resolvePendingTokenSelection(config)
@@ -499,9 +510,11 @@ async function submit() {
       description: form.description || `批量执行 ${combinationCount.value} 个参数组合`,
       task_type: 'google_sheet',
       config: {
-        spreadsheet_id: form.spreadsheet_id,
-        title: form.spreadsheet_title || null,
-        sheet_name: form.sheet_name,
+        sheets: [{
+          spreadsheet_id: form.spreadsheet_id,
+          sheet_name: form.sheet_name,
+          title: form.spreadsheet_title || ''
+        }],
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_file: form.token_file,
@@ -514,7 +527,7 @@ async function submit() {
     })
     ElMessage.success('任务创建成功，正在跳转...')
     clearSaved()
-    setTimeout(() => router.push(`/task/${res.task_id}`), 800)
+    setTimeout(() => router.replace(`/task/${res.task_id}`), 800)
   } catch (e) { ElMessage.error(e?.message || '创建任务失败') }
   finally { submitting.value = false }
 }
@@ -540,9 +553,11 @@ async function doSaveTemplate() {
       // 静态版 getCurrentConfig 语义：模板 config 带 token_file 与 kline_data_source，参数固定组全量提交
       config: {
         task_type: 'google_sheet',
-        spreadsheet_id: form.spreadsheet_id,
-        title: form.spreadsheet_title || null,
-        sheet_name: form.sheet_name,
+        sheets: [{
+          spreadsheet_id: form.spreadsheet_id,
+          sheet_name: form.sheet_name,
+          title: form.spreadsheet_title || ''
+        }],
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_file: form.token_file,

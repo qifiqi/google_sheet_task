@@ -15,7 +15,7 @@ class _TaskCreation(TaskCreationMixin):
 def test_task_config_accepts_tdx_kline_source():
     normalized = _TaskCreation()._normalize_task_config_for_type(
         "google_sheet",
-        {"kline_data_source": "tdx"},
+        {"kline_data_source": "tdx", "sheets": [{"spreadsheet_id": "sheet-1"}]},
     )
 
     assert normalized["kline_data_source"] == "tdx"
@@ -69,7 +69,11 @@ def test_c7_rejects_invalid_kline_source():
 def test_c7_random_price_config_uses_defaults_and_validates_group_count():
     normalized = _TaskCreation()._normalize_task_config_for_type(
         "google_sheet_C7",
-        {"kline_source": "auto", "price_mode": "random_price"},
+        {
+            "kline_source": "auto",
+            "price_mode": "random_price",
+            "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
+        },
     )
 
     assert normalized["random_price_range"] == "high_low"
@@ -82,6 +86,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
                 "kline_source": "auto",
                 "price_mode": "random_price",
                 "random_group_count": 0,
+                "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
             },
         )
 
@@ -92,6 +97,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
                 "kline_source": "auto",
                 "price_mode": "random_price",
                 "random_group_count": 1.5,
+                "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
             },
         )
 

@@ -769,7 +769,8 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
             return;
         }
 
-        ajaxRequest(`/api/tasks/${taskId}/config`, 'PUT', { name, description, status, config }, function(err, data) {
+        // JSON 编辑器提交完整 config：merge=false 整体替换，支持删键
+        ajaxRequest(`/api/tasks/${taskId}/config`, 'PUT', { name, description, status, config, merge: false }, function(err, data) {
             if (!err && data && data.status === 'success') {
                 showNotification('任务已更新', 'success');
                 const shouldRefreshDetail = document.getElementById('taskDetailModal').classList.contains('show');

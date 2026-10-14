@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.utils import dfcf_api, yf_api
+from app.utils import dfcf_api, tencent_api, yf_api
 from app.utils.etf_total_assets import (
     clear_etf_total_assets_cache,
     get_etf_total_assets,
@@ -40,6 +40,22 @@ class _FakeYFApi:
 
 class _FakeDfcfApi:
     """记录调用并按预设返回/抛错的东财行情替身。"""
+
+    def __init__(self, value=None, is_etf=None, exc=None):
+        self.value = value
+        self.is_etf = is_etf
+        self.exc = exc
+        self.calls = []
+
+    def get_total_assets_with_source(self, code):
+        self.calls.append(code)
+        if self.exc is not None:
+            raise self.exc
+        return self.value, self.is_etf
+
+
+class _FakeTencentApi:
+    """记录调用并按预设返回/抛错的腾讯行情替身。"""
 
     def __init__(self, value=None, is_etf=None, exc=None):
         self.value = value
@@ -125,15 +141,67 @@ def test_empty_code_returns_none_without_dispatch(monkeypatch):
     assert fake.calls == []
 
 
+def test_cn_prefers_tencent_over_dfcf(monkeypatch):
+    """A股主源腾讯：命中后东财兜底不被触发，代码原样透传（后缀由适配侧剥离）。"""
+    fake_tencent = _FakeTencentApi(value=9.23e8, is_etf=True)
+    fake_dfcf = _FakeDfcfApi(value=1.0, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets_detail("159930.SZ", "cn") == (9.23e8, True)
+    assert fake_tencent.calls == ["159930.SZ"]
+    assert fake_dfcf.calls == []
+    # TTL 缓存命中不重复分发。
+    assert get_etf_total_assets("159930.SZ", "cn") == 9.23e8
+    assert fake_tencent.calls == ["159930.SZ"]
+
+
+def test_cn_falls_back_to_dfcf_when_tencent_misses(monkeypatch):
+    """腾讯取不到（(None, None)：取值失败/契约不符）时回退东财，结果取东财口径。"""
+    fake_tencent = _FakeTencentApi(value=None)
+    fake_dfcf = _FakeDfcfApi(value=107157284597.76, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets("510300.SH", "cn") == 107157284597.76
+    assert fake_tencent.calls == ["510300.SH"]
+    assert fake_dfcf.calls == ["510300.SH"]
+
+
+def test_cn_adapter_exception_absorbed_by_safety_net(monkeypatch):
+    """适配层漏抛异常由入口安全网捕获返回 None（不承诺二级兜底，与 yf 同约定）。"""
+    fake_tencent = _FakeTencentApi(exc=RuntimeError("network"))
+    fake_dfcf = _FakeDfcfApi(value=1.0, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets("510300.SH", "cn") is None
+    assert fake_tencent.calls == ["510300.SH"]
+    assert fake_dfcf.calls == []
+
+
+def test_cn_both_sources_miss_degrades_to_none(monkeypatch):
+    """两源都取不到才 (None, None)。"""
+    fake_tencent = _FakeTencentApi(value=None)
+    fake_dfcf = _FakeDfcfApi(value=None)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets_detail("159930", "cn") == (None, None)
+    assert fake_tencent.calls == ["159930"]
+    assert fake_dfcf.calls == ["159930"]
+
+
 def test_cn_dispatches_to_dfcf_with_is_etf_flag(monkeypatch):
-    # A股走东方财富行情：代码原样透传（后缀由 DFCJ 侧剥离）；无 market_type 的
-    # 纯数字代码同样路由到 cn。TTL 缓存命中不重复分发。
+    # 纯数字代码（无 market_type）同样路由到 cn；腾讯主源桩为取不到，代码
+    # 透传至东财兜底。缓存键含原始代码串："510300.SH" 二次调用命中缓存，
+    # 无后缀 "510300" 为新键重新分发。
+    fake_tencent = _FakeTencentApi(value=None)
     fake = _FakeDfcfApi(value=107157284597.76, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
     monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake)
     assert get_etf_total_assets("510300.SH", "cn") == 107157284597.76
     assert get_etf_total_assets_detail("510300.SH", "cn") == (107157284597.76, True)
+    assert fake_tencent.calls == ["510300.SH"]
     assert fake.calls == ["510300.SH"]
     assert get_etf_total_assets("510300") == 107157284597.76
+    assert fake_tencent.calls == ["510300.SH", "510300"]
     assert fake.calls == ["510300.SH", "510300"]
 
 

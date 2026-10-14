@@ -1095,7 +1095,7 @@ function buildPayload() {
   }
 
   const config = {
-    sheet: sheetConfig,
+    sheets: [sheetConfig],
     stock_code: stockCode.value.trim().toUpperCase(),
     market_type: normalizeMarketTypeValue(form.market_type),
     kline_adjustment: form.kline_adjustment || 'forward',
@@ -1176,7 +1176,7 @@ async function submit() {
       throw new Error('任务创建失败')
     }
     ElMessage.success('任务创建成功')
-    router.push('/backtest/list')
+    router.replace('/backtest/list')
   } catch (error) {
     ElMessage.error(error.message || '任务创建失败')
   } finally {

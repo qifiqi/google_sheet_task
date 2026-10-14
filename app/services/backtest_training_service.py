@@ -9,6 +9,7 @@ from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
+from app.utils.backtest_report_metadata import is_c7_0_3_config
 from app.utils.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.task.error_handling import (
     format_task_error_message,
@@ -54,10 +55,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _is_c7_0_3(config_data):
-        sheet = config_data.get('sheet') or {}
-        version = str(sheet.get('c7_model_version') or config_data.get('c7_model_version') or '').strip().lower()
-        title = str(sheet.get('title') or config_data.get('title') or '').upper()
-        return version == 'c7_0_3' or 'C7.0.3' in title
+        # 共享判定见 app.utils.backtest_report_metadata.is_c7_0_3_config（含 sheets[] 遍历超集）
+        return is_c7_0_3_config(config_data)
 
     @staticmethod
     def _calculate_c7_0_3_index_returns(kline):
@@ -203,8 +202,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if task_status == 'cancelled':
                     # 任务被取消，保持cancelled状态
                     self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    # # 推送任务取消通知
-                    # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
                     return 'error'
@@ -248,8 +245,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             value = config_data.get(key)
             return default if value is None else value
 
-        sheet = config_data.get('sheet') or {}
-        title = str(sheet.get('title') or config_data.get('title') or '').upper()
+        sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
+        title = str(sheet.get('title') or '').upper()
         if BacktestTrainingService._is_c7_0_3(config_data):
             c7_0_3_config = BacktestTrainingService._get_c7_0_3_sheet_config(config_data)
             return (
@@ -337,9 +334,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
 
-            total_combinations = 0
-            precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
-
             # 行情数据和参数组合在执行前一次性预计算，避免每个组合重复请求行情接口。
             combinations, column_A_length,kline_data_map = self._get_all_parameters(
                 full_years,
@@ -355,8 +349,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 include_ohlc=is_c7_0_3,
                 data_source=config_data.get("kline_data_source", "akshare"),
             )
-            precomputed_params.append((combinations, column_A_length,kline_data_map))
-            total_combinations += len(combinations)
+            total_combinations = len(combinations)
             # 更新任务总步数
             task.total_steps = total_combinations
             task_result_repository.commit_with_retry()
@@ -395,7 +388,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
-            for outer_idx, (combinations, column_A_length,kline_data_map) in enumerate(precomputed_params):
+            # 外层保留单元素循环结构以复用既有缩进块（历史上支持多段参数，现仅一段）
+            for combinations, column_A_length, kline_data_map in ((combinations, column_A_length, kline_data_map),):
                 for combination in combinations:
                     if self._is_cancel_requested():
                         return success_count, failed_count, 'cancelled'
@@ -648,8 +642,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 cell_k = output_range_1[0]
                 cell_v = 2
-                sheet = config_data.get('sheet') or {}
-                title = str(sheet.get('title') or config_data.get('title') or '').upper()
+                sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
+                title = str(sheet.get('title') or '').upper()
 
                 if "C7" in title or "C5" in title:
                     if "C7" in title and not is_c7_0_3:
@@ -906,11 +900,3 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     data.append(d)
 
         return data, len(all_kline) + 20,kline_data_map
-
-
-# soxx,qqq,spy
-# 权重不超过50，
-# 7.02-收盘价
-# return 22-25
-# 回撤 10% 以内
-# 20-25

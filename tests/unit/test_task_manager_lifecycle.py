@@ -56,8 +56,7 @@ def test_create_task_normalizes_c4_config_and_acquires_sheet(app_factory, monkey
             "google_sheet_C4",
             {
                 "google_sheet_id": sheet.id,
-                "spreadsheet_id": "legacy-id",
-                "sheet_name": "legacy-name",
+                "sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data"}],
                 "parameters": [["1"]],
             },
         )

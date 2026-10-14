@@ -1,6 +1,6 @@
 // V3 回测数据分析页（docs/design/performance-analysis-v3/01-设计方案.md）。
 // 分层：来源适配（buildXxxRequest）→ 数据集登记（DatasetStore）→ 渲染（renderXxx(datasets[])）。
-// 约定：红涨绿跌（.v3-up/.v3-down）；系列色只标识"是谁"（基准蓝/策略绿/超额橙），
+// 约定：红涨绿跌（.v3-up/.v3-down）；系列色只标识"是谁"（指数蓝/策略绿/超额橙），
 // 涨跌色只标识"方向"；指标名一律经 window.MetricNames 取中文（common/metric-names.js）。
 "use strict";
 
@@ -401,7 +401,7 @@ function renderAll() {
     const active = activeDataset() || datasets[0];
     const r = active.metrics || {};
 
-    // 对比模式下隐藏"仅单数据集"卡片（基准 vs 策略语义）
+    // 对比模式下隐藏"仅单数据集"卡片（指数 vs 策略语义）
     document.getElementById('v3-excess-annual-card')?.classList.toggle('d-none', !single);
     document.getElementById('v3-monthly-excess-card')?.classList.toggle('d-none', !single);
     document.getElementById('v3-dist-excess-card')?.classList.toggle('d-none', !single);
@@ -448,7 +448,7 @@ function renderSourceInfo(active, datasets) {
     });
     let note = '';
     if (datasets.length > 1) {
-        note = '（对比模式：曲线为各数据集策略净值，超额/散点等单视图图表展示当前选中数据集，各自基准独立）';
+        note = '（对比模式：曲线为各数据集策略净值，超额/散点等单视图图表展示当前选中数据集，各自指数独立）';
     }
     el.innerHTML = parts.join('　') + note;
 }
@@ -499,11 +499,11 @@ function renderKpi(datasets, single) {
         }).join('');
         container.innerHTML = `
             <div class="card border-0 shadow-sm">
-                <div class="card-header py-2"><h6 class="card-title mb-0">核心指标（基准 / 策略 / 超额）</h6></div>
+                <div class="card-header py-2"><h6 class="card-title mb-0">核心指标（指数 / 策略 / 超额）</h6></div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-sm mb-0 v3-kpi-table">
-                            <thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th><th class="num">超额</th></tr></thead>
+                            <thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th><th class="num">超额</th></tr></thead>
                             <tbody>${rows}</tbody>
                         </table>
                     </div>
@@ -516,7 +516,8 @@ function renderKpi(datasets, single) {
     const head = datasets.map((ds) => `<th class="num"><span class="v3-swatch" style="background:${ds.color}"></span> ${escapeHtml(ds.label)}</th>`).join('');
     const rows = kpiRows(datasets).map(([label, , stFn, , type, better]) => {
         const values = datasets.map((ds) => {
-            const v = stFn(ds.metrics || {});
+            // 对比模式按"策略口径"取值；仅超额口径存在的指标（月超额胜率等）回落到超额取值函数
+            const v = stFn(ds.metrics || {}) ?? exFn(ds.metrics || {});
             return isFiniteNum(v) ? Number(v) : null;
         });
         const finite = values.filter((v) => v !== null);
@@ -567,12 +568,12 @@ function renderNavCharts(datasets, single) {
     const navDatasets = [];
 
     if (single) {
-        navDatasets.push({label: '基准净值', data: first.series.index_nav, borderColor: V3_COLORS.bench, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0});
+        navDatasets.push({label: '指数净值', data: first.series.index_nav, borderColor: V3_COLORS.bench, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0});
         navDatasets.push({label: '策略净值', data: first.series.start_nav, borderColor: V3_COLORS.strat, backgroundColor: 'transparent', borderWidth: 1.8, pointRadius: 0, tension: 0});
         navDatasets.push({label: '超额净值', data: first.series.excess_nav, borderColor: V3_COLORS.excess, backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, tension: 0});
     } else {
         navDatasets.push({
-            label: `${first.label}·基准净值`, data: first.series.index_nav,
+            label: `${first.label}·指数净值`, data: first.series.index_nav,
             borderColor: V3_COLORS.gray, borderWidth: 1.2, borderDash: [4, 4], pointRadius: 0, tension: 0
         });
         datasets.forEach((ds) => {
@@ -602,13 +603,13 @@ function renderNavCharts(datasets, single) {
         }
     });
 
-    // 水下回撤：策略（单模式叠加基准），填充至 0 轴以下
+    // 水下回撤：策略（单模式叠加指数），填充至 0 轴以下
     const uwEl = document.getElementById('v3-chart-underwater');
     if (!uwEl) return;
     destroyChart('underwater');
     const uwDatasets = [];
     if (single) {
-        uwDatasets.push({label: '基准回撤%', data: drawdownSeries(first.series.index_nav), borderColor: V3_COLORS.bench, backgroundColor: 'rgba(13,110,253,0.12)', fill: 'origin', borderWidth: 1.2, pointRadius: 0, tension: 0});
+        uwDatasets.push({label: '指数回撤%', data: drawdownSeries(first.series.index_nav), borderColor: V3_COLORS.bench, backgroundColor: 'rgba(13,110,253,0.12)', fill: 'origin', borderWidth: 1.2, pointRadius: 0, tension: 0});
         uwDatasets.push({label: '策略回撤%', data: drawdownSeries(first.series.start_nav), borderColor: V3_COLORS.down, backgroundColor: 'rgba(25,135,84,0.15)', fill: 'origin', borderWidth: 1.5, pointRadius: 0, tension: 0});
     } else {
         datasets.forEach((ds) => {
@@ -696,7 +697,7 @@ function renderAnnualCharts(datasets, single) {
     const years = Array.from(yearSet).sort();
     const annualDatasets = [];
     if (single) {
-        annualDatasets.push({label: '基准收益%', data: years.map((y) => pctOrNull(yearMap(datasets[0].metrics?.index_returns_rate, 'annual_return').get(y))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
+        annualDatasets.push({label: '指数收益%', data: years.map((y) => pctOrNull(yearMap(datasets[0].metrics?.index_returns_rate, 'annual_return').get(y))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
         annualDatasets.push({label: '策略收益%', data: years.map((y) => pctOrNull(yearMap(datasets[0].metrics?.start_returns_rate, 'annual_return').get(y))), backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1});
     } else {
         datasets.forEach((ds) => {
@@ -705,7 +706,7 @@ function renderAnnualCharts(datasets, single) {
     }
     buildBarChart('v3-chart-annual-returns', 'annualReturns', years, annualDatasets, '%', (v) => `${Number(v).toFixed(1)}`);
 
-    // 年度最大回撤（单模式基准 vs 策略；对比模式各数据集策略）
+    // 年度最大回撤（单模式指数 vs 策略；对比模式各数据集策略）
     const ddYearSet = new Set();
     datasets.forEach((ds) => {
         ['index_maximum_drawdown', 'start_maximum_drawdown'].forEach((key) => {
@@ -717,7 +718,7 @@ function renderAnnualCharts(datasets, single) {
     const ddYears = Array.from(ddYearSet).sort();
     const ddDatasets = [];
     if (single) {
-        ddDatasets.push({label: '基准回撤%', data: ddYears.map((y) => pctOrNull(yearMap(datasets[0].metrics?.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown').get(y))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
+        ddDatasets.push({label: '指数回撤%', data: ddYears.map((y) => pctOrNull(yearMap(datasets[0].metrics?.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown').get(y))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
         ddDatasets.push({label: '策略回撤%', data: ddYears.map((y) => pctOrNull(yearMap(datasets[0].metrics?.start_maximum_drawdown?.year_maximum_drawdown, 'drawdown').get(y))), backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1});
     } else {
         datasets.forEach((ds) => {
@@ -770,22 +771,45 @@ function renderRadar(datasets, single) {
     // 归一化：各轴按参与序列的最大值缩放到 0~1；波动率轴取反（越小得分越高）
     const rawPolygons = [];
     if (single) {
-        rawPolygons.push({label: '基准', color: V3_COLORS.bench, values: axisDefs.map((axis) => axis.get(datasets[0].metrics || {}))});
+        rawPolygons.push({label: '指数', color: V3_COLORS.bench, values: axisDefs.map((axis) => axis.get(datasets[0].metrics || {}))});
     }
     datasets.forEach((ds) => {
         rawPolygons.push({label: single ? '策略' : ds.label, color: single ? V3_COLORS.strat : ds.color, values: axisDefs.map((axis) => axis.getSt(ds.metrics || {}))});
     });
 
+    // 逐轴归一化（比例缩放，避免 0/1 针尖形）：
+    // - 常规轴：以"正值最大"为锚，score = v/ref ∈ [0,1]，负值落到圆心（低于零锚）；
+    //   两系列同为负时以"最接近 0"为锚，score = ref/v（离 0 越近越靠外）；
+    // - 低更优轴（波动率）：以"正值最小"为锚，score = ref/v，越低越靠外。
+    // 旧的 min-max 归一化在两系列正负号相反时每根轴只剩 0/1 两个顶点，
+    // 相邻顶点一在圆心一在外缘，多边形被拉成穿过圆心的针尖。
     const normalized = axisDefs.map((axis, ai) => {
         const values = rawPolygons.map((poly) => Number(poly.values[ai])).filter(isFiniteNum);
         if (!values.length) return rawPolygons.map(() => null);
-        const max = Math.max(...values, 0);
-        const min = Math.min(...values, 0);
+        const positives = values.filter((v) => v > 0);
+        if (axis.invert) {
+            if (!positives.length) return rawPolygons.map(() => 0.5);
+            const ref = Math.min(...positives);
+            return rawPolygons.map((poly) => {
+                const v = Number(poly.values[ai]);
+                if (!isFiniteNum(v) || v <= 0) return 1;
+                return Math.min(ref / v, 1);
+            });
+        }
+        if (!positives.length) {
+            // 全负轴：最接近 0 的得 1，其余按比例收向圆心
+            const ref = Math.max(...values);
+            return rawPolygons.map((poly) => {
+                const v = Number(poly.values[ai]);
+                if (!isFiniteNum(v)) return 0;
+                return Math.max(Math.min(ref / v, 1), 0);
+            });
+        }
+        const ref = Math.max(...positives);
         return rawPolygons.map((poly) => {
             const v = Number(poly.values[ai]);
-            if (!Number.isFinite(v) || max === min) return max === 0 ? null : 0.5;
-            const score = (v - min) / (max - min);
-            return axis.invert ? 1 - score : score;
+            if (!isFiniteNum(v)) return 0;
+            return Math.max(Math.min(v / ref, 1), 0);
         });
     });
 
@@ -932,7 +956,7 @@ function renderRollingChart(active, single) {
     const datasets = [];
     if (single) {
         datasets.push({
-            type: 'bar', label: '基准平均收益%', order: 2,
+            type: 'bar', label: '指数平均收益%', order: 2,
             data: windows.map((n) => pctOrNull(active.metrics?.[`index_rolling_return_${n}_avg_return`])),
             backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1
         });
@@ -1008,7 +1032,7 @@ function renderScatter(active) {
             maintainAspectRatio: false,
             plugins: {legend: {position: 'top'}, tooltip: {callbacks: {label: (ctx) => `(${ctx.parsed.x.toFixed(2)}%, ${ctx.parsed.y.toFixed(2)}%)`}}},
             scales: {
-                x: {title: {display: true, text: '基准月收益%'}},
+                x: {title: {display: true, text: '指数月收益%'}},
                 y: {title: {display: true, text: '策略月收益%'}}
             }
         }
@@ -1023,7 +1047,7 @@ function renderDistCharts(datasets, single) {
     const monthlyLabels = distLabels(...datasets.map((ds) => ds.metrics?.index_monthly_distribution_pct), ...datasets.map((ds) => ds.metrics?.start_monthly_distribution_pct));
     const monthlyDatasets = [];
     if (single) {
-        monthlyDatasets.push({label: '基准占比%', data: monthlyLabels.map((label) => numOrNull(distValue(first.index_monthly_distribution_pct, label))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
+        monthlyDatasets.push({label: '指数占比%', data: monthlyLabels.map((label) => numOrNull(distValue(first.index_monthly_distribution_pct, label))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
         monthlyDatasets.push({label: '策略占比%', data: monthlyLabels.map((label) => numOrNull(distValue(first.start_monthly_distribution_pct, label))), backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1});
     } else {
         datasets.forEach((ds) => {
@@ -1036,7 +1060,7 @@ function renderDistCharts(datasets, single) {
     const dailyLabels = distLabels(...datasets.map((ds) => ds.metrics?.index_days_distribution_pct), ...datasets.map((ds) => ds.metrics?.start_days_distribution_pct));
     const dailyDatasets = [];
     if (single) {
-        dailyDatasets.push({label: '基准占比%', data: dailyLabels.map((label) => numOrNull(distValue(first.index_days_distribution_pct, label))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
+        dailyDatasets.push({label: '指数占比%', data: dailyLabels.map((label) => numOrNull(distValue(first.index_days_distribution_pct, label))), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1});
         dailyDatasets.push({label: '策略占比%', data: dailyLabels.map((label) => numOrNull(distValue(first.start_days_distribution_pct, label))), backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1});
     } else {
         datasets.forEach((ds) => {
@@ -1161,7 +1185,7 @@ function renderDailyHistogram(dataset) {
         data: {
             labels,
             datasets: [
-                {label: '基准日收益频数', data: countsFor(indexReturns), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 0.6},
+                {label: '指数日收益频数', data: countsFor(indexReturns), backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 0.6},
                 {label: '策略日收益频数', data: countsFor(startReturns), backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 0.6}
             ]
         },
@@ -1194,7 +1218,7 @@ function renderShapeCards(datasets, single) {
         ['日收益率峰度', (r) => r.index_mean_daily_kurtosis, (r) => r.start_mean_daily_kurtosis, 'num4']
     ];
     const head = single
-        ? '<tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr>'
+        ? '<tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr>'
         : `<tr><th>指标</th>${datasets.map((ds) => `<th class="num">${escapeHtml(ds.label)}</th>`).join('')}</tr>`;
     const body = rows.map(([label, idxFn, stFn, type]) => {
         const cells = single
@@ -1226,7 +1250,7 @@ function renderExtremeSection(active) {
             data: {
                 labels,
                 datasets: [
-                    {label: '基准月均年化%', data: [pctOrNull(r.index_downfall_avg_return), pctOrNull(r.index_upward_avg_return)], backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1},
+                    {label: '指数月均年化%', data: [pctOrNull(r.index_downfall_avg_return), pctOrNull(r.index_upward_avg_return)], backgroundColor: V3_COLORS.benchSoft, borderColor: V3_COLORS.bench, borderWidth: 1},
                     {label: '策略月均年化%', data: [pctOrNull(r.start_downfall_avg_return), pctOrNull(r.start_upward_avg_return)], backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1}
                 ]
             },
@@ -1244,7 +1268,7 @@ function renderExtremeSection(active) {
             data: {
                 labels,
                 datasets: [
-                    {label: '基准', data: [r.index_daily_gain_days ?? null, r.index_daily_loss_days ?? null], backgroundColor: V3_COLORS.upSoft, borderColor: V3_COLORS.up, borderWidth: 1},
+                    {label: '指数', data: [r.index_daily_gain_days ?? null, r.index_daily_loss_days ?? null], backgroundColor: V3_COLORS.upSoft, borderColor: V3_COLORS.up, borderWidth: 1},
                     {label: '策略', data: [r.start_daily_gain_days ?? null, r.start_daily_loss_days ?? null], backgroundColor: V3_COLORS.stratSoft, borderColor: V3_COLORS.strat, borderWidth: 1}
                 ]
             },
@@ -1264,7 +1288,7 @@ function renderExtremeSection(active) {
         labels.push('全部');
         const seriesDefs = [
             {
-                label: '基准修复天数',
+                label: '指数修复天数',
                 yearly: r.year_index_yearly_max_repair_days,
                 total: r.index_maximum_number_of_backtest_repair_days,
                 color: V3_COLORS.bench, soft: V3_COLORS.benchSoft
@@ -1323,7 +1347,7 @@ function renderCapitalCards(active) {
     container.innerHTML = `
         <div class="table-responsive">
             <table class="table table-sm table-striped mb-0 v3-detail-table">
-                <thead><tr><th>指标</th><th class="num">基准</th><th class="num">策略</th></tr></thead>
+                <thead><tr><th>指标</th><th class="num">指数</th><th class="num">策略</th></tr></thead>
                 <tbody>${rows.map(([label, idx, st]) => `<tr><td>${label}</td><td class="num">${idx}</td><td class="num">${st}</td></tr>`).join('')}</tbody>
             </table>
         </div>`;
@@ -1649,7 +1673,7 @@ function renderAllMetricsTable(r) {
         } else if (fmtType === 'consecutive') {
             value = `连涨 ${fmtInt(raw?.max_gain_months)} 月 / 连跌 ${fmtInt(raw?.max_loss_months)} 月`;
         } else if (fmtType === 'analysis_mode') {
-            value = raw === 'dual' ? '双列（基准+策略）' : '单列';
+            value = raw === 'dual' ? '双列（指数+策略）' : '单列';
         } else if (raw !== null && typeof raw === 'object') {
             value = `<code>${escapeHtml(JSON.stringify(raw).slice(0, 120))}</code>`;
         } else {

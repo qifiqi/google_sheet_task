@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.model_summary import extractor
+from app.utils.value_parser import parse_percent_like
 
 
 CSV_LEADING_COLUMNS = [
@@ -41,7 +42,7 @@ def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
         return ""
     if not format_name and isinstance(value, str):
         return value
-    number = extractor._safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return _csv_text(value)
     if format_name == "percent":

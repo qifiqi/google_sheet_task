@@ -12,12 +12,7 @@ from croniter import croniter
 from flask import current_app
 
 from app.exceptions import BadRequestError, ServiceError, ValidationError
-from app.repositories import (
-    scheduled_task_repository,
-    task_log_repository,
-    task_result_repository,
-)
-from app.services.task.data_cleanup import delete_task_result_dependencies
+from app.repositories import scheduled_task_repository
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -336,78 +331,6 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"释放任务锁失败: {e}")
     
-    def _cleanup_old_logs(self, params):
-        """清理旧日志（批量处理优化）"""
-        try:
-            days = params.get('days', 10)
-            batch_size = params.get('batch_size', 200)  # 减小批次大小
-            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            total_deleted = 0
-            while True:
-                # 分批删除，避免长时间锁定数据库
-                batch_ids = task_log_repository.list_ids_older_than(cutoff_date, batch_size)
-
-                if not batch_ids:
-                    break
-
-                # 删除当前批次
-                deleted_count = task_log_repository.delete_by_ids(batch_ids)
-
-                total_deleted += deleted_count
-                logger.info(f"已清理 {deleted_count} 条日志记录，总计: {total_deleted}")
-
-                # 如果删除的记录少于批次大小，说明已经清理完毕
-                if deleted_count < batch_size:
-                    break
-
-                # 延长休息时间，降低系统负载
-                time.sleep(delay)
-
-            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务日志")
-            return True
-
-        except Exception as e:
-            logger.error(f"清理旧日志失败: {e}")
-            return False
-    
-    def _cleanup_old_results(self, params):
-        """清理旧结果（批量处理优化）"""
-        try:
-            days = params.get('days', 10)
-            batch_size = params.get('batch_size', 200)  # 减小批次大小
-            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            total_deleted = 0
-            while True:
-                # 分批删除，避免长时间锁定数据库
-                batch_ids = task_result_repository.list_ids_older_than(cutoff_date, batch_size)
-
-                if not batch_ids:
-                    break
-
-                delete_task_result_dependencies(batch_ids)
-                deleted_count = task_result_repository.delete_by_ids(batch_ids)
-
-                total_deleted += deleted_count
-                logger.info(f"已清理 {deleted_count} 条结果记录，总计: {total_deleted}")
-
-                # 如果删除的记录少于批次大小，说明已经清理完毕
-                if deleted_count < batch_size:
-                    break
-
-                # 延长休息时间，降低系统负载
-                time.sleep(delay)
-
-            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务结果")
-            return True
-
-        except Exception as e:
-            logger.error(f"清理旧结果失败: {e}")
-            return False
-
     def _record_task_run(self, scheduled_task):
         """累计执行次数并更新下次执行时间"""
         next_time = self._compute_next_run(scheduled_task)

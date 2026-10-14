@@ -126,6 +126,7 @@ def update_task_config(task_id):
         data.name,
         data.description,
         data.status,
+        merge_config=data.merge,
     )
     return success(data=result, message="任务更新成功")
 

@@ -8,7 +8,7 @@ from app.services.task.facade import TaskManager
 
 def _backtest_task(task_id, *, status="pending", task_type="backtest_training", sheet_id="sheet-1", products=None):
     config = {
-        "sheet": {"spreadsheet_id": sheet_id, "sheet_name": "data"},
+        "sheets": [{"spreadsheet_id": sheet_id, "sheet_name": "data"}],
         "parameters": [["p1"]],
     }
     if products is not None:

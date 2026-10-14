@@ -284,3 +284,162 @@ def test_schema_rejects_ranges_off_step_grid():
         ],
     )
     assert accepted.result_ids == [1, 2]
+
+
+def test_schema_num_products_defaults_and_bounds():
+    assert WeightCombinationSchema(task_id="task-1").num_products is None
+
+    with pytest.raises(PydValidationError):
+        WeightCombinationSchema(task_id="task-1", num_products=-1)
+
+    with pytest.raises(PydValidationError):
+        WeightCombinationSchema(task_id="task-1", num_products=101)
+
+
+def test_num_products_pairs_fixed_anchor(monkeypatch):
+    """必选 S1=70%，其余 5 只权重钉死 15%（下限=上限），组合产品数=2。
+
+    钉死权重的可选产品在"不持仓 / 恰好 15%"之间二选一，产出 C(5,2)=10 个
+    两两组合；总权重区间无需钉在 100% 来隐式固定权重。
+    """
+    _stub(monkeypatch, [_result(index, f"S{index}", f"Name{index}") for index in range(1, 7)])
+
+    combinations = _combinations({
+        "task_id": "task-1",
+        "step": 5,
+        "max_weight": 100,
+        "min_weight": 50,
+        "stock_ranges": [
+            {"result_id": 1, "min_weight": 70, "max_weight": 70},
+            *[{"result_id": index, "min_weight": 15, "max_weight": 15} for index in range(2, 7)],
+        ],
+        "fixed_result_ids": [1],
+        "num_products": 2,
+    })
+
+    assert len(combinations) == 10
+    seen_pairs = set()
+    for item in combinations:
+        active = [stock for stock in item["stocks"] if stock["ratio"]]
+        assert len(active) == 3
+        assert active[0]["result_id"] == 1
+        assert active[0]["ratio"] == 70
+        assert all(stock["ratio"] == 15 for stock in active[1:])
+        seen_pairs.add(frozenset(stock["result_id"] for stock in active[1:]))
+    assert len(seen_pairs) == 10
+
+
+def test_pinned_optional_products_toggle_between_zero_and_ratio(monkeypatch):
+    """无必选时，钉死权重（下限=上限）的产品在 不持仓/该权重 之间二选一。"""
+    _stub(monkeypatch, [_result(1, "AAA", "Alpha"), _result(2, "BBB", "Beta")])
+
+    combinations = _combinations({
+        "task_id": "task-1",
+        "step": 50,
+        "max_weight": 100,
+        "min_weight": 50,
+        "stock_ranges": [
+            {"result_id": 1, "min_weight": 50, "max_weight": 50},
+            {"result_id": 2, "min_weight": 50, "max_weight": 50},
+        ],
+    })
+
+    ratio_pairs = {tuple(stock["ratio"] for stock in item["stocks"]) for item in combinations}
+    assert ratio_pairs == {(50, 50), (50, 0), (0, 50)}
+
+
+def test_num_products_without_fixed_counts_all_active(monkeypatch):
+    """无必选产品时组合产品数 = 组合内持仓产品总数。"""
+    _stub(monkeypatch, [_result(index, f"S{index}", f"Name{index}") for index in range(1, 6)])
+
+    combinations = _combinations({
+        "task_id": "task-1",
+        "step": 50,
+        "max_weight": 100,
+        "min_weight": 50,
+        "stock_ranges": [{"result_id": index, "max_weight": 50} for index in range(1, 6)],
+        "num_products": 2,
+    })
+
+    # 每只只能取 0/50%，恰好 2 只非零 ⇒ C(5,2)=10
+    assert len(combinations) == 10
+    for item in combinations:
+        assert len([stock for stock in item["stocks"] if stock["ratio"]]) == 2
+
+
+def test_num_products_zero_keeps_only_fixed(monkeypatch):
+    _stub(monkeypatch, [_result(index, f"S{index}", f"Name{index}") for index in range(1, 4)])
+
+    combinations = _combinations({
+        "task_id": "task-1",
+        "step": 10,
+        "max_weight": 100,
+        "min_weight": 50,
+        "stock_ranges": [
+            {"result_id": 1, "min_weight": 70, "max_weight": 70},
+            {"result_id": 2, "min_weight": 0, "max_weight": 30},
+            {"result_id": 3, "min_weight": 0, "max_weight": 30},
+        ],
+        "fixed_result_ids": [1],
+        "num_products": 0,
+    })
+
+    # 只要必选产品自身的唯一组合：S2/S3 都不持仓（70% ≥ 组合下限 50%）
+    assert len(combinations) == 1
+    assert [stock["ratio"] for stock in combinations[0]["stocks"]] == [70, 0, 0]
+
+
+def test_num_products_rejects_impossible_counts(monkeypatch):
+    _stub(monkeypatch, [_result(index, f"S{index}", f"Name{index}") for index in range(1, 4)])
+    base = {
+        "task_id": "task-1",
+        "step": 10,
+        "max_weight": 100,
+        "min_weight": 0,
+        "stock_ranges": [
+            {"result_id": 1, "min_weight": 70, "max_weight": 70},   # 必选产品
+            {"result_id": 2, "min_weight": 0, "max_weight": 0},      # 上限 0，无法持仓
+            {"result_id": 3, "min_weight": 0, "max_weight": 30},
+        ],
+        "fixed_result_ids": [1],
+    }
+
+    # 可变产品共 2 个，3 个超出
+    with pytest.raises(ValidationError, match="超过可变产品数"):
+        _combinations({**base, "num_products": 3})
+
+    # 可变产品中能持仓的只有 1 个（S2 上限为 0），2 个超出
+    with pytest.raises(ValidationError, match="可持仓的可变产品数"):
+        _combinations({**base, "num_products": 2})
+
+
+def test_fixed_result_ids_validation(monkeypatch):
+    _stub(monkeypatch, [_result(1, "AAA", "Alpha"), _result(2, "BBB", "Beta")])
+    base = {
+        "task_id": "task-1",
+        "step": 10,
+        "max_weight": 100,
+        "min_weight": 50,
+        "stock_ranges": [
+            {"result_id": 1, "min_weight": 0, "max_weight": 30},
+            {"result_id": 2, "min_weight": 0, "max_weight": 30},
+        ],
+    }
+
+    # 必选产品必须参与了组合
+    with pytest.raises(ValidationError, match="必选产品不存在或未参与组合"):
+        _combinations({**base, "fixed_result_ids": [99]})
+
+    # 必选产品的单股上限不能为 0（无法持仓）
+    with pytest.raises(ValidationError, match="单股上限不能为 0"):
+        _combinations({
+            **base,
+            "fixed_result_ids": [2],
+            "stock_ranges": [
+                {"result_id": 1, "min_weight": 0, "max_weight": 30},
+                {"result_id": 2, "min_weight": 0, "max_weight": 0},
+            ],
+        })
+
+    with pytest.raises(PydValidationError):
+        WeightCombinationSchema(task_id="task-1", fixed_result_ids=[1, "1"])

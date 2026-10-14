@@ -30,3 +30,19 @@ def get_price_type(price_mode: Any) -> str:
         "random_price": "随机价",
         "ohlc_price": "OHLC（开高低收）",
     }.get(str(price_mode or "").strip().lower(), "")
+
+
+def is_c7_0_3_config(config: Any) -> bool:
+    """C7.0.3 任务配置判定（training/query 共用，统一 sheets[] 形态）。
+
+    看 sheets[].c7_model_version 或 sheets[].title 含 "C7.0.3"；
+    多品回测的逐产品判定传 ``{"sheets": [product["sheet"]]}`` 包装。
+    """
+    if not isinstance(config, dict):
+        return False
+    return any(
+        str(item.get("c7_model_version") or "").strip().lower() == "c7_0_3"
+        or "C7.0.3" in str(item.get("title") or "").upper()
+        for item in config.get("sheets") or []
+        if isinstance(item, dict)
+    )

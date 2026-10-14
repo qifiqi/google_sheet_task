@@ -112,16 +112,13 @@ class C5Service(BaseGoogleSheetService):
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
                 elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
-                        # A_num = google_sheet.get_last_row('A')
                         A_num = column_A_length
                         self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                         google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
-                        item = {}
-                        if i <= _kline_len:
-                            item = kline[i]
+                        item = kline[i]
                         cell_num = i + 2
                         cell_A = f"{c5_input_column_a}{cell_num}"
                         cell_B = f"{c5_input_column_b}{cell_num}"
@@ -158,13 +155,6 @@ class C5Service(BaseGoogleSheetService):
                     return False
                 c5_check_positions_c_v = check_values.get(":".join(c5_check_positions))
                 c5_output_range_1_c_v = check_values.get(c5_output_range_1)
-                # for position, value in check_values.items():
-                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                #         return False
-                #     if 'target' in str(value).lower():
-                #         return False
-                _check_values = initial_results[spreadsheet_id]
-
                 if (c5_parameter_1.strip() != c5_check_positions_c_v.get(c5_check_positions[0]).strip()
                         and c5_parameter_2.strip() != c5_check_positions_c_v.get(c5_check_positions[1]).strip()):
                     # 校验参数是否成功响应
@@ -284,22 +274,7 @@ class C5Service(BaseGoogleSheetService):
         )
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
-        data = []
-        for v1 in parameters[1]:
-            for v2 in parameters[2]:
-                data.append({
-                    "stock_code": parameter,
-                    "A1": v1,
-                    "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
-                })
-
-        if not data:
-            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
-
-        data = self._deduplicate_parameter_combinations(data, custom_kline_map)
-        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
+        return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=True)
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。

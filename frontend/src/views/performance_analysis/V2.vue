@@ -10,7 +10,7 @@
         <h2 class="page-title">V2：回测数据分析</h2>
       </div>
       <div class="page-toolbar__actions">
-        <el-button @click="$router.push('/performance_analysis')">返回</el-button>
+        <el-button @click="goBack">返回</el-button>
       </div>
     </div>
 
@@ -484,8 +484,10 @@ import { ElMessage } from 'element-plus'
 import { analyzePerformanceAnalysisV1, analyzePerformanceAnalysis, exportPerformanceAnalysisResult, exportPerformanceAnalysisWordReportResponse, searchStocksWithSignal } from '@/api/performance_analysis'
 import { getWorksheets } from '@/api/googleSheet'
 import { useChartJs } from '@/composables/useChartJs'
+import { useBackNavigation } from '@/utils/navigation'
 
 const { loadChartJs } = useChartJs()
+const goBack = useBackNavigation('/performance_analysis')
 
 // ── 常量 ─────────────────────────────────────────────────────
 // 阈值输入按百分比填写并持久化；键名与静态版一致（v2_runtime_params），

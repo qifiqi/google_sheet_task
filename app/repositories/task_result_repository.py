@@ -159,21 +159,40 @@ class TaskResultRepository(BaseRepository):
         return [date for date in dates if date]
 
     def list_by_task_paginated(self, task_id, page, per_page):
-        """任务详情结果分页 + 成功/失败计数（task_api results 分页语义）。"""
-        pagination = (
+        """任务详情结果分页 + 成功/失败计数（task_api results 分页语义）。
+
+        total/success/failed 合并为一条聚合，取页走 offset/limit（flask-sqlalchemy
+        3.1 的 paginate 不支持外传 total）。原先 paginate count + 成功/失败拆分
+        共 3 条 count 且 service 层曾再重复一遍，结果表数十万行时是单页请求
+        的主要耗时。
+        """
+        current_page = max(page or 1, 1)
+        size = max(min(per_page or 20, 100), 1)
+        counts = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .with_entities(
+                func.count().label("total"),
+                func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+                func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+            )
+            .first()
+        )
+        items = (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-            .paginate(page=max(page or 1, 1), per_page=max(min(per_page or 20, 100), 1), error_out=False)
+            .offset((current_page - 1) * size)
+            .limit(size)
+            .all()
         )
-        data = {
-            "items": [r.to_dict() for r in pagination.items],
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "current_page": pagination.page,
-            "per_page": pagination.per_page,
+        return {
+            "items": [r.to_dict() for r in items],
+            "total": counts.total,
+            "pages": (counts.total + size - 1) // size,
+            "current_page": current_page,
+            "per_page": size,
+            "total_success": counts.success,
+            "total_failed": counts.failed,
         }
-        data.update(self.count_by_task_success(task_id))
-        return data
 
     def list_paginated(self, page, per_page, task_id=None, success=None, keyword=None):
         """/api/results 列表：保持现有精简键与 join Task 语义，结果查询页扩展投影。
@@ -182,9 +201,11 @@ class TaskResultRepository(BaseRepository):
         - 新增 task_name/task_type（join Task 已存在）、parameters_preview/error_preview
           （SQL 层 substr 截断，避免把 TEXT/LONGTEXT 整值拉进列表）；
         - success 过滤按布尔；keyword 模糊匹配任务名称或结果 task_id；
-        - counts 为同过滤条件的成功/失败计数；
-        - 指定 task_id 且任务不存在时返回空页（与现状一致）；
-        - 未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
+        - total/success/failed 计数合并为一条聚合，取页走 offset/limit
+          （flask-sqlalchemy 3.1 的 paginate 不支持外传 total；原先分页 count
+          与成功/失败计数是 2 条独立的全表聚合）；
+        - 指定 task_id 且任务不存在时返回空页（与现状一致）；未指定 task_id 时
+          join Task 本身已限定存在结果的任务，不再重复 distinct task_type 过滤。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
@@ -214,18 +235,6 @@ class TaskResultRepository(BaseRepository):
         )
         if task_id:
             query = query.filter(TaskResult.task_id == task_id)
-        else:
-            distinct_types = [row[0] for row in db.session.query(Task.task_type).distinct().all()]
-            if not distinct_types:
-                return {
-                    "items": [],
-                    "total": 0,
-                    "current_page": current_page,
-                    "per_page": size,
-                    "total_success": 0,
-                    "total_failed": 0,
-                }
-            query = query.filter(Task.task_type.in_(distinct_types))
 
         if success is not None:
             query = query.filter(TaskResult.success.is_(success))
@@ -234,13 +243,17 @@ class TaskResultRepository(BaseRepository):
             pattern = f"%{keyword.strip()}%"
             query = query.filter(or_(Task.name.ilike(pattern), TaskResult.task_id.ilike(pattern)))
 
-        pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
-            page=current_page, per_page=size, error_out=False
-        )
         counts_row = query.with_entities(
+            func.count().label("total"),
             func.count(case((TaskResult.success.is_(True), 1))).label("success"),
             func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
         ).first()
+        items = (
+            query.order_by(TaskResult.timestamp.desc())
+            .offset((current_page - 1) * size)
+            .limit(size)
+            .all()
+        )
         results = [
             {
                 "id": row.id,
@@ -253,11 +266,11 @@ class TaskResultRepository(BaseRepository):
                 "error_preview": row.error_preview,
                 "timestamp": row.timestamp.isoformat() if row.timestamp else None,
             }
-            for row in pagination.items
+            for row in items
         ]
         return {
             "items": results,
-            "total": pagination.total,
+            "total": counts_row.total,
             "current_page": current_page,
             "per_page": size,
             "total_success": counts_row.success,
@@ -265,14 +278,16 @@ class TaskResultRepository(BaseRepository):
         }
 
     def count_by_task_success(self, task_id):
-        """{success, failed}：任务成功/失败结果计数。"""
-        success = (
-            TaskResult.query.filter_by(task_id=task_id, success=True).count()
+        """{success, failed}：任务成功/失败结果计数（单条 case when 聚合）。"""
+        counts = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .with_entities(
+                func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+                func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+            )
+            .first()
         )
-        failed = (
-            TaskResult.query.filter_by(task_id=task_id, success=False).count()
-        )
-        return {"total_success": success, "total_failed": failed}
+        return {"total_success": counts.success, "total_failed": counts.failed}
 
     def latest_time_by_task(self, task_id):
         """任务最新结果时间（ISO 字符串或 None），用于本地状态检查。"""

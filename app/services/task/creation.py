@@ -11,8 +11,11 @@ from functools import reduce
 from itertools import product
 from typing import Any, Optional
 
+from pydantic import ValidationError as PydanticValidationError
+
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.models import GoogleSheetTokenTaskType, TaskStatus
+from app.schemas.task_configs import validate_task_config_shape
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -34,6 +37,17 @@ VALID_KLINE_SOURCES = {KLINE_SOURCE_AUTO, KLINE_SOURCE_CUSTOM}
 
 def _is_empty_custom_kline_option(value: Any) -> bool:
     return value in (None, "") or value == [] or value == ()
+
+
+def _format_config_model_error(exc: PydanticValidationError) -> str:
+    """把 pydantic 校验错误压成单行用户可读消息（取首条）。"""
+    errors = exc.errors()
+    if not errors:
+        return "任务配置结构不正确"
+    first = errors[0]
+    loc = ".".join(str(part) for part in first.get("loc", ()) if part != "__root__")
+    message = first.get("msg", "校验失败")
+    return f"任务配置结构不正确: {loc}: {message}" if loc else f"任务配置结构不正确: {message}"
 
 
 def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -192,10 +206,6 @@ class TaskCreationMixin:
                 normalized.get("kline_data_source", normalized.get("data_source"))
             )
 
-        if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
-            normalized.pop("spreadsheet_id", None)
-            normalized.pop("sheet_name", None)
-
         if task_type == "backtest_multi_product":
             from app.services.backtest_multi_product_service import (
                 normalize_multi_product_config,
@@ -204,6 +214,13 @@ class TaskCreationMixin:
             normalized = normalize_multi_product_config(normalized)
         elif task_type == "backtest_training":
             normalized = normalize_backtest_training_config(normalized)
+
+        # 结构收口唯一出口：按 task_type 配置模型校验并输出规范形态
+        # （sheets[] 引用、公共段类型收口）；未知类型不校验，原样透传。
+        try:
+            normalized = validate_task_config_shape(task_type, normalized)
+        except PydanticValidationError as exc:
+            raise ValidationError(_format_config_model_error(exc)) from exc
 
         if task_type in ("backtest_training", "backtest_multi_product") and not normalized.get("token_id"):
             token_id = (
@@ -451,9 +468,12 @@ class TaskCreationMixin:
                     child_config = dict(shared_config)
                     child_config.update(
                         {
-                            "spreadsheet_id": spreadsheet_id,
-                            "sheet_name": sheet_name,
-                            "title": sheet_title or None,
+                            # 统一 Sheet 引用形态：C3 子任务 sheets 恰好 1 个元素
+                            "sheets": [{
+                                "spreadsheet_id": spreadsheet_id,
+                                "sheet_name": sheet_name or "data",
+                                "title": sheet_title or "",
+                            }],
                             "stock_code": stock_code,
                             "stock_name": stock_name,
                             "market_type": stock_market_type,
@@ -571,8 +591,13 @@ class TaskCreationMixin:
         update_name: str = None,
         update_description: str = None,
         update_status: str = None,
+        merge_config: bool = True,
     ) -> dict[str, Any]:
-        """更新任务配置；校验失败抛 NotFoundError/ValidationError，成功返回 {task}。"""
+        """更新任务配置；校验失败抛 NotFoundError/ValidationError，成功返回 {task}。
+
+        merge_config=True（结构化表单部分提交）：payload 顶层键覆盖旧值、未出现
+        的键保留，修复"表单重建丢键"；False（完整 JSON 提交）：整体替换。
+        """
         try:
             task = task_repository.get(task_id)
             if not task:
@@ -594,22 +619,29 @@ class TaskCreationMixin:
                 if next_status not in allowed_statuses:
                     raise ValidationError(f"不支持的任务状态: {next_status}")
 
-            new_config = self._normalize_task_config_for_type(task["task_type"], new_config)
-            if task["task_type"] == "backtest_training":
-                self.validate_backtest_training_sheet(new_config)
-            old_config = task["config"] or {}
-            old_google_sheet_id = (
-                old_config.get("google_sheet_id") if isinstance(old_config, dict) else None
+            if merge_config:
+                old_config = task["config"] if isinstance(task["config"], dict) else {}
+                effective_config = {**old_config, **new_config}
+            else:
+                effective_config = new_config
+            effective_config = self._normalize_task_config_for_type(
+                task["task_type"], effective_config
             )
-            new_google_sheet_id = new_config.get("google_sheet_id")
+            if task["task_type"] == "backtest_training":
+                self.validate_backtest_training_sheet(effective_config)
+            old_config = task["config"] or {}
+            # sheets[] 形态下顶层无 google_sheet_id，占用迁移对比走配置收集
+            # （sheets[].google_sheet_id，缺登记时回退 spreadsheet_id 反查）。
+            old_sheet_ids = sorted(self._collect_google_sheet_ids(old_config))
+            new_sheet_ids = sorted(self._collect_google_sheet_ids(effective_config))
 
-            if old_google_sheet_id != new_google_sheet_id:
-                if old_google_sheet_id:
+            if old_sheet_ids != new_sheet_ids:
+                if old_sheet_ids:
                     self.release_google_sheet_occupancy(task_id)
-                if new_google_sheet_id:
-                    self.ensure_google_sheet_occupancy(task_id, new_config)
+                if new_sheet_ids:
+                    self.ensure_google_sheet_occupancy(task_id, effective_config)
 
-            fields = {"config": json.dumps(new_config)}
+            fields = {"config": json.dumps(effective_config)}
             if update_name:
                 fields["name"] = update_name
             if update_description is not None:

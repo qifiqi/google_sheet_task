@@ -125,10 +125,6 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
         charts["最大回撤曲线"], "最大回撤曲线", dates,
         [*drawdown_series, (f"{strategy_label}回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     )
-    # _draw_excess_line_bar_chart(
-    #     charts["超额收益曲线"], "累计超额收益曲线", dates,
-    #     _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
-    # )
     _draw_line_chart(
         charts["超额收益曲线"], "累计超额收益曲线", dates,
         excess_line_series, "超额收益（%）", percent=True,
@@ -455,15 +451,6 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
     _save_figure(figure, path)
 
 
-def _histogram_limits(values: list[float]) -> tuple[float, float]:
-    minimum, maximum = min(values), max(values)
-    if minimum == maximum:
-        # 常数序列需要人为扩展范围，否则 Matplotlib 无法生成可见的柱形。
-        padding = max(abs(minimum) * 0.12, 0.01)
-        return minimum - padding, maximum + padding
-    return minimum, maximum
-
-
 def _symmetric_histogram_limit(values: list[float]) -> float:
     """返回核心区间、以 0 为中心的直方图半轴范围。
 
@@ -635,14 +622,6 @@ def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> No
         _set_axis_labels(axis, x_label="日收益率（%）")
         _apply_symmetric_percent_ticks(axis, symmetric_limit, mark_overflow=overflow_count > 0)
         _style_axis(axis)
-    if overflow_count:
-        # 归并需在图内说明，否则读者会把边缘柱当成普通分箱。
-        # axes[-1].text(
-        #     0.98, 0.96, f"{overflow_count} 笔超出 ±{symmetric_limit * 100:.1f}% 已并入两端",
-        #     transform=axes[-1].transAxes, color="#8C8C8C", fontproperties=_font(7),
-        #     ha="right", va="top",
-        # )
-        pass
     _set_axis_labels(axes[0], y_label="频数")
     figure.tight_layout(rect=(0, 0, 1, 0.98))
     _save_figure(figure, path)
