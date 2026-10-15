@@ -15,8 +15,8 @@
     - backtest_training：嵌套 ``sheet{}`` 平移为 ``sheets:[1]``（含
       google_sheet_id/c7_model_version 附加键）；
     - 其余已知类型：直接过类型模型结构收口（sheet_name 缺省、类型矫正）。
-    迁移后写入仍用 ``json.dumps`` 默认序列化，与 create_task 落库格式一致
-    （列表页 stock_code LIKE 文本匹配依赖该格式）。
+    迁移后写入仍用统一封装（app.utils.json_utils，orjson 紧凑输出）序列化，
+    与 create_task 落库格式一致（列表页 stock_code LIKE 文本匹配依赖该格式）。
 
 用法（项目根目录执行；线上库先 set DATABASE_URL=...）：
     .venv\\Scripts\\python scripts\\migrate_task_config_schema.py            # dry-run

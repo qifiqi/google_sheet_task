@@ -1,4 +1,7 @@
 import calendar
+# stdlib json 仅保留 allow_nan=False 的 NaN/Inf 守卫用途（orjson 会静默序列化为
+# null，无法等价表达，见 app/utils/json_utils.py）；其余统一走 json_utils。
+import json
 from app.utils.json_utils import dumps, loads, JSONDecodeError
 import random
 import time
@@ -1020,8 +1023,9 @@ class BaseGoogleSheetService:
             result_fields = {
                 "task_id": self.task_id,
                 "step_index": step_index,
-                "parameters": dumps(safe_parameters, allow_nan=False),
-                "result": dumps(safe_result, allow_nan=False),
+                # NaN/Inf 守卫：结果落库遇 NaN 抛 ValueError，禁止静默写 null。
+                "parameters": json.dumps(safe_parameters, allow_nan=False),
+                "result": json.dumps(safe_result, allow_nan=False),
                 "success": success,
             }
             return_fields = {"task_id": self.task_id, **series_fields} if series_fields else None

@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import json
-
 from flask import Blueprint, current_app, request
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError

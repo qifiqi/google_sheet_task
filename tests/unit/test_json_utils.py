@@ -41,6 +41,44 @@ def test_dumps_numpy_roundtrip():
     assert loads(dumps(payload)) == {"v": 1.5, "arr": [1, 2]}
 
 
+def test_dumps_non_str_keys_fallback_to_stdlib():
+    # stdlib 静默把非字符串键转字符串；orjson 严格拒绝，封装回退 stdlib 保持语义
+    assert dumps({2024: [1, 2], "a": 1}) == '{"2024":[1,2],"a":1}'
+    assert dumps({2024: 1}, sort_keys=True) == '{"2024":1}'
+
+
+def test_dumps_tuple_fallback_to_stdlib():
+    assert loads(dumps({"t": (1, 2)})) == {"t": [1, 2]}
+
+
+def test_dumps_big_int_fallback_to_stdlib():
+    # orjson 整数上限 64bit，超出抛 TypeError；stdlib 任意精度，封装回退保持语义
+    big = 2**70
+    assert loads(dumps({"id": big})) == {"id": big}
+    with pytest.raises(TypeError):
+        import orjson
+
+        orjson.dumps(big)
+
+
+def test_dumps_unserializable_type_still_raises():
+    class Unknown:
+        pass
+
+    with pytest.raises(TypeError):
+        dumps({"x": Unknown()})
+
+
+def test_flask_provider_non_str_keys_fallback():
+    from flask import Flask, jsonify
+
+    app = Flask(__name__)
+    app.json = OrjsonJSONProvider(app)
+    with app.test_request_context():
+        body = jsonify({2024: {"a": 1}, 2025: {"a": 2}}).get_data(as_text=True)
+    assert stdlib_json.loads(body) == {"2024": {"a": 1}, "2025": {"a": 2}}
+
+
 def test_loads_accepts_bytes():
     assert loads(b'{"a":1}') == {"a": 1}
 
