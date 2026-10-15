@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps
 from typing import Any
 
 from app.repositories import stock_metadata_repository
@@ -51,7 +51,7 @@ def normalize_stock_payload(item: Any) -> dict[str, Any]:
         "exchange_market": exchange_market,
         "security_type_name": security_type_name,
         "source": source,
-        "raw_json": json.dumps(raw_payload, ensure_ascii=False, default=str),
+        "raw_json": dumps(raw_payload, ensure_ascii=False, default=str),
     }
 
 

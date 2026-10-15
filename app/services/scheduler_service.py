@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps, loads
 import os
 import subprocess
 import sys
@@ -400,7 +400,7 @@ class SchedulerService:
         """任务参数 JSON 校验；无效抛 ValidationError（400 语义）。"""
         if task_params:
             try:
-                json.loads(task_params)
+                loads(task_params)
             except Exception as e:
                 raise ValidationError(f"任务参数必须是有效的JSON格式: {e}")
 
@@ -533,7 +533,7 @@ class SchedulerService:
                     'cron_expression': '0 0 * * *',  # 每天0点
                     'task_type': 'cleanup',
                     'task_function': 'cleanup_old_data',
-                    'task_params': json.dumps({'days': 10}),
+                    'task_params': dumps({'days': 10}),
                     'is_active': True,
                 })
                 default_task = scheduled_task_repository.get_entity(created['id'])

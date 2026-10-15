@@ -1,5 +1,5 @@
 
-import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 import math
 import re
 from collections import OrderedDict
@@ -162,8 +162,8 @@ def _get_task_result_return_rows(task_result, return_series_by_id=None):
 
 def _extract_task_result_payload(task_result, return_rows=None):
     try:
-        result_payload = json.loads(task_result.result) if task_result.result else {}
-    except (TypeError, json.JSONDecodeError):
+        result_payload = loads(task_result.result) if task_result.result else {}
+    except (TypeError, JSONDecodeError):
         result_payload = {}
 
     if isinstance(result_payload, dict) and result_payload:
@@ -262,8 +262,8 @@ def _build_c3_summary_rows(task_id):
 
     for task_result in task_results:
         try:
-            parameters = json.loads(task_result.parameters) if task_result.parameters else {}
-        except (TypeError, json.JSONDecodeError):
+            parameters = loads(task_result.parameters) if task_result.parameters else {}
+        except (TypeError, JSONDecodeError):
             parameters = {}
 
         if not isinstance(parameters, dict):
@@ -322,7 +322,7 @@ def _build_c3_summary_rows(task_id):
 
         source_window = str(parameters.get("year") or parameters.get("Kline_key") or "")
         year_label = _extract_display_year(source_window)
-        parameter_signature = json.dumps(parameter_values, ensure_ascii=False)
+        parameter_signature = dumps(parameter_values, ensure_ascii=False)
 
         strategy_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["return_rate"]))
         index_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["index_return"]))
@@ -828,7 +828,7 @@ def _build_global_preview_payload_from_results(task, task_results):
 
     # 先建立分组和动态列，再填充指标行，保证失败结果也能在预览中占位。
     for task_result in task_results:
-        parameters = json.loads(task_result.parameters) if task_result.parameters else {}
+        parameters = loads(task_result.parameters) if task_result.parameters else {}
         year_key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
@@ -983,7 +983,7 @@ def _build_global_preview_initial_payload(task_id):
     items = []
     is_c7_0_3 = is_c7_0_3_config(task_config)
     for row in metadata_rows:
-        parameters = json.loads(row["parameters"]) if row["parameters"] else {}
+        parameters = loads(row["parameters"]) if row["parameters"] else {}
         model_name = _detect_global_preview_model_name(task, parameters)
         if model_name == "C7" and _resolve_c7_model_version(task_config, parameters) == "c7_0_3":
             is_c7_0_3 = True

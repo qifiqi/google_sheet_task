@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 import random
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +26,7 @@ class GoogleSheetTokenService:
 
         for row in task_repository.list_id_config_by_status("running"):
             try:
-                config = json.loads(row["config"]) if isinstance(row["config"], str) else (row["config"] or {})
+                config = loads(row["config"]) if isinstance(row["config"], str) else (row["config"] or {})
             except Exception:
                 continue
 
@@ -277,11 +277,11 @@ class GoogleSheetTokenService:
             raise ValidationError("token内容不能为空")
 
         try:
-            parsed = json.loads(raw_context)
-        except json.JSONDecodeError as exc:
+            parsed = loads(raw_context)
+        except JSONDecodeError as exc:
             raise ValidationError(f"token内容不是有效JSON: {exc}") from exc
 
-        return json.dumps(parsed, ensure_ascii=False, indent=2)
+        return dumps(parsed, ensure_ascii=False, indent=2)
 
     def ensure_token_file(self, token: GoogleSheetToken):
         runtime_path = Path(token.token_file or self._build_runtime_token_file(token.id))

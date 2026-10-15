@@ -4,7 +4,7 @@
 回撤、分布和极端行情等原始指标；不处理请求解析、外部数据读取或输出协议。
 """
 
-import json
+from app.utils.json_utils import dumps
 import math
 
 import numpy as np
@@ -1588,27 +1588,27 @@ class PerformanceMetricsMixin:
 
             # 打印调试信息
             # Print debug information
-            logger.debug("指数最大回撤: %s", json.dumps(index_maximum_drawdown, indent=4, default=str))
-            logger.debug("指数月度收益率: %s", json.dumps(index_returns_rate, indent=4, default=str))
-            logger.debug("指数夏普比率: %s", json.dumps(index_sharpe_ratios, indent=4, default=str))
-            logger.debug("模型最大回撤: %s", json.dumps(start_maximum_drawdown, indent=4, default=str))
-            logger.debug("模型月度收益率: %s", json.dumps(start_returns_rate, indent=4, default=str))
-            logger.debug("模型夏普比率: %s", json.dumps(start_sharpe_ratios, indent=4, default=str))
-            logger.debug("指数卡玛比率: %s", json.dumps(index_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(index_monthly_sortino_ratio, indent=4, default=str))
-            logger.debug("指数盈利年百分比（不需要每年）: %s", json.dumps(index_profit_annual, indent=4, default=str))
-            logger.debug("模型盈利月百分比: %s", json.dumps(index_profit_monthly, indent=4, default=str))
-            logger.debug("指数月度收益率波动率: %s", json.dumps(index_monthly_return_volatility, indent=4, default=str))
-            logger.debug("模型卡玛比率: %s", json.dumps(start_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(start_monthly_sortino_ratio, indent=4, default=str))
-            logger.debug("模型盈利年百分比（不需要每年）: %s", json.dumps(start_profit_annual, indent=4, default=str))
-            logger.debug("模型盈利月百分比: %s", json.dumps(start_profit_monthly, indent=4, default=str))
-            logger.debug("模型月度收益率波动率: %s", json.dumps(start_monthly_return_volatility, indent=4, default=str))
-            logger.debug("年超额收益: %s", json.dumps(excess_returns, indent=4, default=str))
-            logger.debug("跑赢年份: %s", json.dumps(outperform_year, indent=4, default=str))
-            logger.debug("月超额收益百分比: %s", json.dumps(monthly_excess_return_percentage, indent=4, default=str))
-            logger.debug("月超额波动率: %s", json.dumps(monthly_excess_volatility, indent=4, default=str))
-            logger.debug("超额回撤胜率: %s", json.dumps(excess_drawdown_winning_rate, indent=4, default=str))
+            logger.debug("指数最大回撤: %s", dumps(index_maximum_drawdown, indent=4, default=str))
+            logger.debug("指数月度收益率: %s", dumps(index_returns_rate, indent=4, default=str))
+            logger.debug("指数夏普比率: %s", dumps(index_sharpe_ratios, indent=4, default=str))
+            logger.debug("模型最大回撤: %s", dumps(start_maximum_drawdown, indent=4, default=str))
+            logger.debug("模型月度收益率: %s", dumps(start_returns_rate, indent=4, default=str))
+            logger.debug("模型夏普比率: %s", dumps(start_sharpe_ratios, indent=4, default=str))
+            logger.debug("指数卡玛比率: %s", dumps(index_kama_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", dumps(index_monthly_sortino_ratio, indent=4, default=str))
+            logger.debug("指数盈利年百分比（不需要每年）: %s", dumps(index_profit_annual, indent=4, default=str))
+            logger.debug("模型盈利月百分比: %s", dumps(index_profit_monthly, indent=4, default=str))
+            logger.debug("指数月度收益率波动率: %s", dumps(index_monthly_return_volatility, indent=4, default=str))
+            logger.debug("模型卡玛比率: %s", dumps(start_kama_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", dumps(start_monthly_sortino_ratio, indent=4, default=str))
+            logger.debug("模型盈利年百分比（不需要每年）: %s", dumps(start_profit_annual, indent=4, default=str))
+            logger.debug("模型盈利月百分比: %s", dumps(start_profit_monthly, indent=4, default=str))
+            logger.debug("模型月度收益率波动率: %s", dumps(start_monthly_return_volatility, indent=4, default=str))
+            logger.debug("年超额收益: %s", dumps(excess_returns, indent=4, default=str))
+            logger.debug("跑赢年份: %s", dumps(outperform_year, indent=4, default=str))
+            logger.debug("月超额收益百分比: %s", dumps(monthly_excess_return_percentage, indent=4, default=str))
+            logger.debug("月超额波动率: %s", dumps(monthly_excess_volatility, indent=4, default=str))
+            logger.debug("超额回撤胜率: %s", dumps(excess_drawdown_winning_rate, indent=4, default=str))
             # 统一出口：递归剥离 pandas/numpy 类型为 Python 原生类型，
             # 浮点值保留 6 位小数，NaN/inf（std=0 等无法计算的口径）转为 None
             result = _convert_pandas_to_native(result, round_digits=6, non_finite_to_none=True)

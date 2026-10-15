@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO, StringIO
@@ -161,8 +161,8 @@ class ExportService:
             step_index = row["step_index"]
             result_json = row["result"]
             try:
-                parsed = json.loads(result_json) if result_json else {}
-            except (TypeError, json.JSONDecodeError):
+                parsed = loads(result_json) if result_json else {}
+            except (TypeError, JSONDecodeError):
                 parsed = {}
             result_map.setdefault(task_id, []).append({
                 "task_id": task_id,

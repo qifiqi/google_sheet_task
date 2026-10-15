@@ -1,5 +1,5 @@
 import hashlib
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 import os
 import random
 import time
@@ -309,7 +309,7 @@ class DFCJStockApi:
             json_str = response.text
             if "(" in json_str and ")" in json_str:
                 json_str = json_str[json_str.find("(") + 1:json_str.rfind(")")]
-            json_data = json.loads(json_str)
+            json_data = loads(json_str)
             self.logger.debug(f"接口url:{response.url}\n 搜索接口返回数据: {json_data}")
 
             rows = json_data.get("result") or []
@@ -345,7 +345,7 @@ class DFCJStockApi:
 
             return normalized_rows
 
-        except json.JSONDecodeError as je:
+        except JSONDecodeError as je:
             self.logger.warning(f"codetable 搜索 JSON 解析失败: {je}")
             return []
         except Exception as e:
@@ -409,7 +409,7 @@ class DFCJStockApi:
 
             return normalized_rows
 
-        except json.JSONDecodeError as je:
+        except JSONDecodeError as je:
             self.logger.exception("suggest 搜索接口返回数据无法解析为JSON")
             return {"error": f"JSON解析失败: {str(je)}"}
         except Exception as e:

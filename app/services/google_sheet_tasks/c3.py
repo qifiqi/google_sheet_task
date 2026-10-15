@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps
 import random
 import time
 from datetime import datetime, timedelta
@@ -84,7 +84,7 @@ class C3Service(BaseGoogleSheetService):
         if isinstance(metrics_payload, dict):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
-        return json.dumps(
+        return dumps(
             sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
@@ -117,7 +117,7 @@ class C3Service(BaseGoogleSheetService):
                 ]
                 if key in flat_result
             }
-        return json.dumps(
+        return dumps(
             sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,

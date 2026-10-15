@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_template_repository
@@ -25,8 +25,8 @@ class TaskTemplateService:
         """
         if isinstance(config, str):
             try:
-                config_json = json.loads(config)
-            except json.JSONDecodeError:
+                config_json = loads(config)
+            except JSONDecodeError:
                 raise BadRequestError("配置信息不是有效的JSON格式")
         else:
             config_json = config
@@ -37,7 +37,7 @@ class TaskTemplateService:
                 )
             except Exception as exc:
                 raise BadRequestError(f"模板配置结构不正确: {exc}") from exc
-        return json.dumps(config_json, ensure_ascii=False)
+        return dumps(config_json, ensure_ascii=False)
 
     def list_templates(self, task_type: str | None = None):
         return task_template_repository.list_all(task_type=task_type)

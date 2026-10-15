@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads
 from datetime import datetime
 from typing import Any
 
@@ -23,7 +23,7 @@ def _safe_json_loads(raw_value, default=None):
     if isinstance(raw_value, (dict, list)):
         return raw_value
     try:
-        return json.loads(raw_value)
+        return loads(raw_value)
     except Exception:
         return default
 

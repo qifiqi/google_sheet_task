@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+from app.utils.json_utils import dumps, loads
 import math
 import sys
 from pathlib import Path
@@ -99,7 +99,7 @@ def backfill_result(task_result: TaskResult, force: bool, recompute: bool = True
 
     ``recompute=False`` 为快速普查模式：只诊断缺键，不做重算（--all dry-run 用）。
     """
-    payload = json.loads(task_result.result) if task_result.result else {}
+    payload = loads(task_result.result) if task_result.result else {}
     if not isinstance(payload, dict) or not payload:
         return "skipped: result JSON 为空"
 
@@ -137,7 +137,7 @@ def backfill_result(task_result: TaskResult, force: bool, recompute: bool = True
     if still_missing:
         print(f"  [警告] 重算后仍缺失（数据形态导致，如除零）: {still_missing}")
 
-    task_result.result = json.dumps(
+    task_result.result = dumps(
         sanitize_json_value(payload), ensure_ascii=False, allow_nan=False, default=str
     )
     return "recomputed"

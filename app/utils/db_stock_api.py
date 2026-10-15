@@ -6,7 +6,7 @@ HTTP请求工具类
 """
 
 import requests
-import json
+from app.utils.json_utils import JSONDecodeError
 from typing import Dict, Optional
 from app.utils.logger import get_logger
 from app.utils.stock_api_base import resolve_stock_base_url
@@ -68,7 +68,7 @@ class StockAPIClient:
         if response.status_code == 200:
             try:
                 return response.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 logger.warning(f"响应不是有效的JSON格式: {response.text}")
                 return {"raw_response": response.text}
         raise requests.HTTPError(f"请求失败，状态码: {response.status_code}, 响应: {response.text}")
@@ -101,7 +101,7 @@ class StockAPIClient:
         if response.status_code == 200:
             try:
                 result = response.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 result = {"raw_response": response.text}
             return result
 

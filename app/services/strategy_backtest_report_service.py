@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads
 import math
 import re
 from dataclasses import dataclass
@@ -156,7 +156,7 @@ class StrategyBacktestReportService:
         task = task_repository.get_entity(task_id)
         if task is not None:
             try:
-                parsed = json.loads(task.config) if task.config else {}
+                parsed = loads(task.config) if task.config else {}
             except (TypeError, ValueError):
                 parsed = {}
             if isinstance(parsed, dict):

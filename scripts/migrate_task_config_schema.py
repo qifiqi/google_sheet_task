@@ -30,7 +30,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+from app.utils.json_utils import dumps, loads
 import sys
 from pathlib import Path
 from typing import Any
@@ -153,7 +153,7 @@ def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict
     for row in rows:
         stats["total"] += 1
         try:
-            config = json.loads(row.config) if row.config else None
+            config = loads(row.config) if row.config else None
         except (TypeError, ValueError) as exc:
             stats["skipped"] += 1
             logger.warning("[%s] %s config 解析失败，跳过: %s", label, row.id, exc)
@@ -178,7 +178,7 @@ def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict
             if verbose:
                 logger.info("[%s] %s %s", label, row.id, status)
             if apply:
-                row.config = json.dumps(new_config)
+                row.config = dumps(new_config)
                 session.add(row)
         else:
             stats["unchanged"] += 1

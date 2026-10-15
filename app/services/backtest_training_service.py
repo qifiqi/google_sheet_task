@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
@@ -162,8 +162,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 # 先合并系统默认配置，再用任务配置覆盖，保证历史任务也能使用最新默认值。
                 if isinstance(task.config, str):
                     try:
-                        config_data = json.loads(task.config)
-                    except json.JSONDecodeError as e:
+                        config_data = loads(task.config)
+                    except JSONDecodeError as e:
                         self._log_error(f"配置解析失败: {str(e)}")
                         return 'error'
                 else:

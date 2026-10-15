@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps
 import operator
 import time
 import uuid
@@ -262,7 +262,7 @@ class TaskCreationMixin:
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
-        config_str = json.dumps(config) if isinstance(config, dict) else str(config)
+        config_str = dumps(config) if isinstance(config, dict) else str(config)
         task_repository.create(
             {
                 "id": task_id,
@@ -644,7 +644,7 @@ class TaskCreationMixin:
                 if new_sheet_ids:
                     self.ensure_google_sheet_occupancy(task_id, effective_config)
 
-            fields = {"config": json.dumps(effective_config)}
+            fields = {"config": dumps(effective_config)}
             if update_name:
                 fields["name"] = update_name
             if update_description is not None:
@@ -698,7 +698,7 @@ class TaskCreationMixin:
                 "name": f"{original_task['name']} (重启)",
                 "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
                 "task_type": original_task["task_type"],
-                "config": json.dumps(original_config),
+                "config": dumps(original_config),
                 "status": "pending",
                 "created_by_user_id": original_task["created_by_user_id"],
             })

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -250,7 +250,7 @@ def _summary_record_group_key(row: SummaryRecord) -> str:
 
 def _json_text(value: Any) -> str:
     """处理_json_text相关逻辑。"""
-    return json.dumps(value, ensure_ascii=False, default=str)
+    return dumps(value, ensure_ascii=False, default=str)
 
 
 def _normalize_market_type(value: Any) -> str:

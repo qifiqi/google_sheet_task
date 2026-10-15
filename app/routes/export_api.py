@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 from dataclasses import replace
 from urllib.parse import quote
 
@@ -89,8 +89,8 @@ def _parse_ratios_query():
     if not raw_ratios:
         return None
     try:
-        ratios = json.loads(raw_ratios)
-    except (TypeError, json.JSONDecodeError):
+        ratios = loads(raw_ratios)
+    except (TypeError, JSONDecodeError):
         raise BadRequestError("ratios 参数不是有效 JSON")
     if not isinstance(ratios, list):
         raise BadRequestError("ratios 参数必须是数组")

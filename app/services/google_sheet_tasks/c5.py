@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps
 from typing import Dict, Any
 
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
@@ -53,7 +53,7 @@ class C5Service(BaseGoogleSheetService):
             {
                 "stock_code": combination.get("stock_code"),
                 "ml": combination.get("B1"),
-                "kline_range": json.dumps(combination['kline']),
+                "kline_range": dumps(combination['kline']),
             },
         )
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None

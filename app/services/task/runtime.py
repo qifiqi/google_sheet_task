@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 import threading
 from datetime import datetime
 from typing import Any
@@ -131,8 +131,8 @@ class TaskRuntimeMixin:
         if isinstance(task.config, dict):
             return task.config
         try:
-            return json.loads(task.config) if task.config else {}
-        except (TypeError, json.JSONDecodeError):
+            return loads(task.config) if task.config else {}
+        except (TypeError, JSONDecodeError):
             return {}
 
     def _find_running_backtest_task_for_spreadsheet(

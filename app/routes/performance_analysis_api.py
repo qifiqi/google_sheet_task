@@ -1,7 +1,7 @@
 """绩效分析 API（统一分析入口 analyze 与权重组合 weight-combination；页面路由已归位
 app/routes/pages/performance_analysis.py，页面 URL 前缀 /performance-analysis）。"""
 
-import json
+from app.utils.json_utils import dumps
 
 from flask import Blueprint, Response, current_app, stream_with_context
 
@@ -72,14 +72,14 @@ def weight_combination():
             try:
                 for combination in performance_analysis_service.weight_combination(payload):
                     # 每个组合输出为一行 JSON
-                    yield json.dumps(combination, ensure_ascii=False) + '\n'
+                    yield dumps(combination, ensure_ascii=False) + '\n'
             except AppException as exc:
                 # 业务异常文案本身面向用户（与 errors.py 信封同源），随流末行下发。
-                yield json.dumps({'error': True, 'message': exc.message}, ensure_ascii=False) + '\n'
+                yield dumps({'error': True, 'message': exc.message}, ensure_ascii=False) + '\n'
             except Exception:
                 # 非业务异常细节只进日志，绝不下发 str(e)（errors.py 红线）。
                 logger.exception("权重组合分析流式生成失败")
-                yield json.dumps(
+                yield dumps(
                     {'error': True, 'message': '权重组合分析处理失败，请稍后重试'},
                     ensure_ascii=False,
                 ) + '\n'

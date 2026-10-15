@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
+from app.utils.json_utils import dumps, loads
 import os
 import shutil
 import threading
@@ -123,7 +123,7 @@ def get_or_build_word_export(
         return filename, BytesIO(raw), len(raw)
 
     _sweep_expired(directory, ttl)
-    canonical = "word-export:v5:" + json.dumps(
+    canonical = "word-export:v5:" + dumps(
         payload.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, default=str,
     )
     key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -153,7 +153,7 @@ def _read_cached_export(directory: Path, key: str, ttl: int) -> tuple[str, Binar
 def _load_entry_meta(meta_path: Path) -> dict[str, Any]:
     """读取 sidecar 元数据；缺失或损坏返回空字典（条目按不完整处理）。"""
     try:
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
+        data = loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -184,7 +184,7 @@ def _write_cached_export(
         _atomic_write(directory / f"{key}.docx", raw)
         _atomic_write(
             directory / f"{key}.json",
-            json.dumps(payload_meta, ensure_ascii=False).encode("utf-8"),
+            dumps(payload_meta, ensure_ascii=False).encode("utf-8"),
         )
     except OSError:
         logger.warning("Word 导出缓存写盘失败，本次结果不做缓存: %s", key, exc_info=True)
