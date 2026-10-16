@@ -34,6 +34,21 @@ def _isolated_word_export_cache(tmp_path, monkeypatch):
     ttl_cache.clear_word_export_cache()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_runtime_state_store():
+    """任务运行态存储按用例隔离（方案 B，2026-10-16）。
+
+    测试进程 REDIS_URL 为空时存储降级为进程内存单例；不隔离的话上一用例
+    残留的运行态会让下一用例的日志/进度读写改道 Redis 流，断言落库的用例
+    会互相污染。每个用例开始注入全新空存储，结束恢复环境默认单例。
+    """
+    from app.services.task import runtime_state
+
+    runtime_state.configure_runtime_state_store(runtime_state.TaskRuntimeStateStore())
+    yield
+    runtime_state.configure_runtime_state_store(None)
+
+
 @pytest.fixture
 def sqlite_test_url(tmp_path):
     return f"sqlite:///{tmp_path / 'test_app.db'}"

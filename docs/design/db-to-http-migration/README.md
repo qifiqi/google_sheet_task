@@ -40,6 +40,9 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | `STOCK_BASE_URL` | 空（必填） | 远端服务地址，仅允许 http/https（remote_api 统一调用器构造传输时校验） |
 | `STOCK_API_TOKEN` | 空 | 服务级凭据（Token 请求头） |
 | `STOCK_API_TIMEOUT` | `10` | 请求超时（秒） |
+| `REDIS_URL` | 空 | Redis 连接；承载裁决层互斥锁（§8.1）+ 任务运行期中间态（§8.1.1，方案 B）。未配置时裁决层直通、运行态降级进程内存（单 worker 部署语义完整） |
+| `REDIS_NAMESPACE` | `arb:gstask` | 两类 Redis 键的命名空间前缀（裁决锁 `{ns}:*`；运行态 `{ns}:rt:{task_id}:*`） |
+| `TASK_RUNTIME_LOG_MAX` | `1000` | 运行期日志流截断上限（结束快照回灌 TaskLog 的行数量级） |
 
 ## 4. 鉴权（单 Token 子服务模式）
 
@@ -89,6 +92,8 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | `*_repository.delete_by_task / delete_older_than / delete_by_ids` | 只有按 id Delete | 逐 id 删除（非原子）；logs 清理走 timestamp 升序扫描提前终止 |
 | `task_result_repository.list_paginated`（无 task_id 分支） | 无 join/类型过滤 | 任务 id 分块过滤结果后本地分页 |
 | `task_result_repository.list_by_task_fields`（fields 白名单投影，2026-09-28 dev_vue 新增） | **http 孪生缺失**：无字段投影端点 | **TODO(db-to-http)**：http 模式下 `/api/tasks/<id>/results?fields=` 报 AttributeError。补法：http 侧复用 `list_by_task` 取数通道后 Python 白名单投影，`return_date_range` 从 returns 控制器首末行取；长期按 §8 向远端要字段投影 DTO |
+| `task_log_repository.create_logs`（快照回灌批量写，2026-10-16 方案 B 新增） | 远端无批量创建端点（E9 裁定不提供） | **best-effort**：逐行 ModifyOrAdd 慢写、单次 2 秒超时（管线按次 timeout 覆盖），仅抛弃失败行并继续写剩余、不重试——本地文件日志有全量留存 |
+| `model_summary/jobs.py` 的 `task_repository.add_entity` / `task_log_repository.add_entity` | **http 孪生缺失**：实体流接口 | 重建任务在 http 模式不可用；该任务为本仓 **方案 B 例外**（批量粒度进度保持落库，不走 Redis 运行态），改造时一并补 http 孪生 |
 | `google_sheet_repository.get_by_spreadsheet_id` / `get_duplicate_row` | 无对应过滤 | 全量拉取本地匹配（registry 表小） |
 | `stock_metadata_repository.bulk_upsert` | 无批量端点 | 循环 upsert |
 
@@ -120,5 +125,25 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
    `REDIS_URL` 未配置时直通退化（等价单 worker 现状）；部署见 `dockers/docker-compose.yml`
    redis 服务与 `dockers/.env.example`。远端条件更新端点（E1）落地后，相关临界区可整体
    替换为 CAS，届时 Redis 仅剩跨副本兜底职责。
-2. **远端增量端点建议**（按收益排序）：条件更新（CAS）、按 task_id 批量删除、聚合统计（count/sum/group by）、join 查询（task+result）、批量 ids 查询——**已整理为接口需求规格：[02-remote-incremental-endpoints.md](02-remote-incremental-endpoints.md)**（含请求/响应 DTO、消费方映射与实施顺序）。
+2. **远端增量端点建议**（按收益排序）：条件更新（CAS）、按 task_id 批量删除、聚合统计（count/sum/group by）、join 查询（task+result）、批量 ids 查询——**已整理为接口需求规格：[02-remote-incremental-endpoints.md](02-remote-incremental-endpoints.md)**（含请求/响应 DTO、消费方映射与实施顺序；E9 日志批量创建已于 2026-10-16 裁定不提供，日志回灌改 best-effort 逐行 + 超时抛弃）。
 3. 迁移稳定后删除 `DATA_ACCESS_MODE=db` 回退与本地 ORM 仓储（含 models），完成"无兼容层"收口。
+
+### 8.1.1 任务运行期中间态迁 Redis（方案 B，2026-10-16）
+
+数据库在任务执行期只保留三个**瞬时里程碑**：创建 pending、启动 running（一次写）、
+结束终态快照；**持续中间态**——每组合进度（current_step/total_steps）、业务日志、
+取消标志、心跳——全部落 `app/services/task/runtime_state.py`（Redis 主存 +
+进程内存降级），任务结束时由 `_finalize_task_execution → sync_snapshot` 一次性
+回灌（进度字段合并终态更新 + 日志批量回灌 TaskLog）并清键。
+
+- **取消链路**：`cancel_task` 写 Redis 取消标志（`request_cancel`）+ DB 终态行；
+  执行链每组合取消检查改读运行态（`_runtime_task_status`），不再逐组合查库/查远端。
+- **断点恢复**：`mark_running` 以任务行当前进度播种运行态（恢复窗口崩溃对账不回退）；
+  重启/启动期先 `sync_snapshot` 对账遗留运行态再读 DB 步号；启动对账在
+  `_recover_runtime_resources` 中先于裁决层 `namespace_reset` 执行（顺序不能反）。
+- **查询面**：运行中任务的进度由查询服务叠加运行态（`query._overlay_runtime_progress`、
+  `runtime_view`、`check_local_task_status` 心跳读运行态）；日志读取统一 store 优先
+  （`TaskLogMixin`/`runtime_view.read_task_logs`）。
+- **例外登记**：model_summary 索引重建任务保持落库进度（批量粒度、自带终态收尾、
+  不走任务运行时）；看门狗仍停用，恢复时其"最新日志时间"心跳需改读运行态 `heartbeat_at`。
+- 修改文档：`docs/model_update/2026-10-16-任务运行态迁Redis.md`。

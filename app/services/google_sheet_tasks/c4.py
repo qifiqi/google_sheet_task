@@ -3,17 +3,16 @@ from typing import Dict, Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
-from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.kline_validation import require_kline_rows
@@ -120,9 +119,10 @@ class C4Service(BaseGoogleSheetService):
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
 
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            task_result_repository.commit_with_retry()
+            # 更新任务总步数（方案 B：写 Redis 运行态，结束快照回灌）
+            get_runtime_state_store().update_progress(
+                self.task_id, total_steps=total_combinations
+            )
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -159,11 +159,8 @@ class C4Service(BaseGoogleSheetService):
                         processed_index += 1
                         continue
 
-                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return task_repository.get_status_value(self.task_id)
-
-                    result = safe_db_operation(check_task_status)
+                    # 检查任务是否被取消（每个外层参数进入前检查一次；方案 B 读 Redis 运行态）
+                    result = self._runtime_task_status()
 
                     if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -193,9 +190,10 @@ class C4Service(BaseGoogleSheetService):
                             failed_count += 1
                             return success_count, failed_count, 'error'
 
-                        # 更新当前步数为组合级别
-                        task.current_step = current_step
-                        task_result_repository.commit_with_retry()
+                        # 更新当前步数为组合级别（方案 B：Redis 运行态）
+                        get_runtime_state_store().update_progress(
+                            self.task_id, current_step=current_step
+                        )
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
@@ -223,8 +221,7 @@ class C4Service(BaseGoogleSheetService):
                         failed_count += 1
                         # 检查是否是任务被取消
                         try:
-                            task_check = task_repository.get_entity(self.task_id)
-                            if task_check and task_check.status == 'cancelled':
+                            if self._runtime_task_status() == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
                         except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -246,8 +243,7 @@ class C4Service(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = task_repository.get_entity(self.task_id)
-                if task_check and task_check.status == 'cancelled':
+                if self._runtime_task_status() == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

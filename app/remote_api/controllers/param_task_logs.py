@@ -54,7 +54,11 @@ class ParamTaskLogsApi(ControllerApi):
         """
         return self._make_request('POST', '/api/ParamTaskLogs/GetInfoById', payload)
 
-    def modify_or_add(self, payload: Mapping[str, Any] | None = None) -> Any:
+    def modify_or_add(
+        self,
+        payload: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
         """
         写入任务日志
 
@@ -63,5 +67,10 @@ class ParamTaskLogsApi(ControllerApi):
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "message": "..."}'
+
+        ``timeout``：按次覆盖单请求超时（秒）；日志回灌（低价值高频写）
+        传短超时快速失败，其余调用不传用服务级 STOCK_API_TIMEOUT。
         """
-        return self._make_request('POST', '/api/ParamTaskLogs/ModifyOrAdd', payload)
+        return self._make_request(
+            'POST', '/api/ParamTaskLogs/ModifyOrAdd', payload, timeout=timeout
+        )

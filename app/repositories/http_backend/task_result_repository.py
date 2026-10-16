@@ -95,6 +95,10 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     def get(self, result_id):
         return self._get_raw(result_id)
 
+    def get_entity(self, result_id):
+        """实体形态读取（runtime_view/results 链属性访问）；HTTP 版即 RemoteRecord。"""
+        return self._get_raw(result_id)
+
     def get_with_task_type(self, result_id):
         """返回结果 dict 并附带 task_type 键（两表各查一次拼接）。"""
         result = self._get_raw(result_id)

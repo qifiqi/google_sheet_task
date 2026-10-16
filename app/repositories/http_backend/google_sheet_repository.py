@@ -127,6 +127,10 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
+    def get_entity(self, sheet_id):
+        """实体形态读取（registry 占用链属性访问）；HTTP 版即 RemoteRecord。"""
+        return self.get(sheet_id)
+
     def create(self, fields, commit=True):
         # TODO(db-to-http): 数值主键由远端生成；ModifyOrAdd 若不回显 ret_obj，
         # 返回记录缺 id，调用方如需 id 须以 spreadsheet_id 复查。

@@ -247,6 +247,10 @@ class TaskHttpRepository(HttpRepositoryBase):
         """过期会话缓存后重读实体；HTTP 版即单次远端读取。"""
         return self._get_raw(task_id)
 
+    def get_entity(self, task_id):
+        """实体形态读取（执行链/重启链消费属性访问）；HTTP 版即 RemoteRecord。"""
+        return self._get_raw(task_id)
+
     def list_running_backtest_entities(self):
         return [
             row

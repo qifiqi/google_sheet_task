@@ -13,6 +13,7 @@ from app.models import Task
 from app.utils.return_series import parse_return_series_fields
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
+from app.services.task.runtime_state import get_runtime_state_store, read_task_logs
 
 
 def _safe_json_loads(raw_value, default=None):
@@ -210,7 +211,8 @@ class TaskRuntimeViewService:
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
-        recent_logs = task_log_repository.list_by_task(task.id, limit=20)
+        # 方案 B：运行中任务的日志在 Redis 运行态，读取时优先运行态。
+        recent_logs = read_task_logs(task.id, limit=20)
 
         duration_seconds = None
         if task.start_time:
@@ -221,9 +223,29 @@ class TaskRuntimeViewService:
             )
 
         data = task.to_dict()
+        # 进度百分比由 data 字段计算（不依赖本地模型方法，HTTP RemoteRecord 同样可用）。
+        _current = int(data.get("current_step") or 0)
+        _total = int(data.get("total_steps") or 0)
+        progress_percentage = round(_current / _total * 100, 2) if _total else 0
+        # 方案 B：运行态存在时叠加 Redis 进度（进度百分比随之以运行态为准）。
+        try:
+            runtime_state = get_runtime_state_store().get_state(task.id)
+        except Exception:
+            runtime_state = None
+        if runtime_state:
+            for field in ("current_step", "total_steps"):
+                if runtime_state.get(field) is not None:
+                    data[field] = runtime_state[field]
+            if runtime_state.get("total_steps"):
+                progress_percentage = round(
+                    (runtime_state.get("current_step") or 0)
+                    / runtime_state["total_steps"]
+                    * 100,
+                    2,
+                )
         data.update(
             {
-                "progress_percentage": task.get_progress_percentage(),
+                "progress_percentage": progress_percentage,
                 "duration_seconds": duration_seconds,
                 "config_summary": config_summary,
                 "stop_confirmation": stop_confirmation,

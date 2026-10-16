@@ -124,6 +124,10 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
+    def get_entity(self, token_id):
+        """实体形态读取（token 占用链属性访问）；HTTP 版即 RemoteRecord。"""
+        return self.get(token_id)
+
     def delete(self, token_id, commit=True):
         try:
             super().delete(token_id)

@@ -24,6 +24,7 @@ from app.services.task.error_handling import (
     record_task_exception,
     summarize_task_exception,
 )
+from app.services.task.runtime_state import get_runtime_state_store
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.formatting import max_yearly_repair_days, parse_lenient_json, sanitize_json_value
@@ -815,8 +816,8 @@ class BacktestMultiProductService(BacktestTrainingService):
         products = config_data["products"]
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
-        task.total_steps = total_steps
-        task_result_repository.commit_with_retry()
+        # 方案 B：总步数写 Redis 运行态，结束快照回灌
+        get_runtime_state_store().update_progress(self.task_id, total_steps=total_steps)
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
         # current_step 与 TaskResult.step_index 都是全局步骤索引，而不是单个产品内索引。
@@ -835,7 +836,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     continue
 
-                result = task_repository.get_status_value(self.task_id)
+                # 方案 B：取消检查读 Redis 运行态
+                result = self._runtime_task_status()
                 if not result or result == "cancelled":
                     self._log_warning("任务已被取消，停止执行")
                     return "cancelled"
@@ -963,11 +965,8 @@ class BacktestMultiProductService(BacktestTrainingService):
         return "completed" if success_count else "error"
 
     def _update_task_progress(self, current_step: int) -> None:
-        task = task_repository.get_entity(self.task_id)
-        if not task:
-            return
-        task.current_step = current_step
-        task_result_repository.commit_with_retry()
+        # 方案 B：进度写 Redis 运行态，结束快照回灌数据库
+        get_runtime_state_store().update_progress(self.task_id, current_step=current_step)
 
     def _build_task_result_persistence_payload(self, safe_parameters, result, return_date=None):
         """多品结果持久化前叠加加权组合指标。"""

@@ -78,6 +78,7 @@ class RemoteTransport:
         method: str,
         path: str,
         payload: Mapping[str, Any],
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """发送一次请求并返回统一响应信封字典。
 
@@ -85,7 +86,7 @@ class RemoteTransport:
         ``payload``，空载荷也发送 ``{}`` 并携带
         ``Content-Type: application/json``——远端 ``[FromBody]`` 接口在
         请求体缺失或 Content-Type 不符时返回 HTTP 415。传输错误与 HTTP
-        错误翻译为本模块异常。
+        错误翻译为本模块异常。``timeout`` 按次覆盖实例超时（秒）。
         """
         headers: dict[str, str] = {}
         if self.token:
@@ -96,7 +97,7 @@ class RemoteTransport:
                 f"{self.base_url}{path}",
                 json=dict(payload or {}),
                 headers=headers,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             )
         except requests.Timeout as exc:
             raise RemoteApiError(f"远程数据服务请求超时: {path}") from exc
@@ -239,9 +240,12 @@ class StockApiClient:
         payload: Mapping[str, Any] | None = None,
         *,
         token: str | None = None,
+        timeout: float | None = None,
     ) -> Any:
         """调用一个远程接口，并仅返回解包后的 ``ret_obj``。"""
-        ret_obj, _ = self.request_with_count(method, path, payload, token=token)
+        ret_obj, _ = self.request_with_count(
+            method, path, payload, token=token, timeout=timeout
+        )
         return ret_obj
 
     def request_with_count(
@@ -251,12 +255,13 @@ class StockApiClient:
         payload: Mapping[str, Any] | None = None,
         *,
         token: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[Any, int | None]:
         """调用远程接口并返回 ``(ret_obj, ret_count)``。
 
         ``ret_count`` 是统一信封携带的记录计数（分页查询的匹配总数）；
         远端未返回时为 ``None``。分页仓储用它在 ``ret_obj`` 缺少 total
-        字段时派生总数。
+        字段时派生总数。``timeout`` 按次覆盖单请求超时（秒）。
         """
         # 唯一出站出口统一完成布尔 → 0/1 编码（远端布尔字段以整型承载，
         # JSON true/false 会在远端模型绑定阶段解析失败）。
@@ -272,7 +277,7 @@ class StockApiClient:
             ",".join(sorted(str(key) for key in body)),
         )
         try:
-            envelope = transport.request(method, path, body)
+            envelope = transport.request(method, path, body, timeout=timeout)
         except RemoteApiError as exc:
             logger.warning(
                 "远程接口调用失败: %s %s error=%s message=%s request_payload=%s",

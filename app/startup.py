@@ -771,6 +771,17 @@ def _recover_runtime_resources():
     reset_google_sheet_token_occupancy()
     reset_google_sheet_occupancy()
     cleanup_stale_backtest_sheet_run_locks()
+    # 方案 B：先回灌上一进程遗留的 Redis 任务运行态（进度/日志落库），再清
+    # 键空间——顺序不能反，namespace_reset 会清掉 rt:* 键。遗留 running 里程碑
+    # 行由随后的 check_and_cleanup_dead_tasks 复位为待启动。
+    from app.services.task.runtime_state import reconcile_all_runtime_states
+    try:
+        reconciled = reconcile_all_runtime_states()
+    except Exception as exc:
+        get_logger('startup').error(f'任务运行态启动对账失败: {exc}')
+    else:
+        if reconciled:
+            get_logger('startup').info(f'任务运行态启动对账完成，回灌 {reconciled} 个任务')
     # Redis 裁决层锁命名空间清理（db-to-http §8.1）：清掉上一个进程的残留
     # 裁决锁（正常退出已释放，异常退出靠 TTL 兜底，这里立即清）。REDIS_URL
     # 未配置时为直通 no-op；多副本共库经 REDIS_NAMESPACE 隔离互不影响。

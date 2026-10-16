@@ -25,6 +25,7 @@ from app.models import (
 from app.services.backtest_report_query_service import _build_zip_member_name
 from app.services.export_service import GeneratedFile, export_service
 from app.routes.backtest_api import _build_excel_download_name
+from app.services.task.runtime_state import get_runtime_state_store
 from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
     build_multi_product_global_preview_word_payload,
@@ -880,6 +881,11 @@ def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_fac
 
         assert service._execute_products(task, config) == "completed"
 
+        # 方案 B：执行期进度在 Redis 运行态，DB 行要等结束快照才回灌。
+        runtime_state = get_runtime_state_store().get_state(task_id)
+        assert runtime_state["current_step"] == runtime_state["total_steps"] == 4
+
+        get_runtime_state_store().sync_snapshot(task_id, status="completed")
         progress_task = db.session.get(Task, task_id)
         assert progress_task.current_step == progress_task.total_steps == 4
         assert TaskResult.query.filter_by(task_id=task_id).count() == 4

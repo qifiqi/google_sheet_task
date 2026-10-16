@@ -7,14 +7,12 @@ from typing import Dict, Any, List, Optional, Tuple
 from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
-from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
@@ -25,6 +23,7 @@ from app.services.task.error_handling import (
     record_task_exception,
     summarize_task_exception,
 )
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields
@@ -545,9 +544,10 @@ class C3Service(BaseGoogleSheetService):
             for param_list in parameters:
                 total_combinations *= len(param_list)
 
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            task_result_repository.commit_with_retry()
+            # 更新任务总步数（方案 B：写 Redis 运行态，结束快照回灌）
+            get_runtime_state_store().update_progress(
+                self.task_id, total_steps=total_combinations
+            )
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -598,11 +598,8 @@ class C3Service(BaseGoogleSheetService):
                 # 按需计算参数组合，避免内存问题
                 combination = self._get_parameter_combination_by_index(parameters, i)
 
-                # 每轮执行前检查数据库中的取消状态。
-                def check_task_status():
-                    return task_repository.get_status_value(self.task_id)
-
-                result = safe_db_operation(check_task_status)
+                # 每轮执行前检查取消状态（方案 B：读 Redis 运行态）。
+                result = self._runtime_task_status()
 
                 if not result or result == 'cancelled':
                     self._log_warning("任务已被取消，停止执行")
@@ -639,9 +636,10 @@ class C3Service(BaseGoogleSheetService):
                         result=result,
                     )
 
-                    # 更新当前步数
-                    task.current_step = i + 1
-                    task_result_repository.commit_with_retry()
+                    # 更新当前步数（方案 B：Redis 运行态）
+                    get_runtime_state_store().update_progress(
+                        self.task_id, current_step=i + 1
+                    )
 
 
                     # 保存结果到数据库
@@ -666,8 +664,7 @@ class C3Service(BaseGoogleSheetService):
                     failed_count += 1
                     # 检查是否是任务被取消
                     try:
-                        task_check = task_repository.get_entity(self.task_id)
-                        if task_check and task_check.status == 'cancelled':
+                        if self._runtime_task_status() == 'cancelled':
                             self._log_info(f'第 {i + 1} 个参数组合执行中断（任务被取消）: {str(e)}')
                             break  # 退出循环
                     except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -689,8 +686,7 @@ class C3Service(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = task_repository.get_entity(self.task_id)
-                if task_check and task_check.status == 'cancelled':
+                if self._runtime_task_status() == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

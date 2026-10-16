@@ -28,9 +28,14 @@ class ControllerApi:
         payload: Mapping[str, Any] | None = None,
         *,
         token: str | None = None,
+        timeout: float | None = None,
     ) -> Any:
-        """通用调用器：发送请求并返回解包后的 ``ret_obj``。"""
-        return self._client.request(method, path, payload, token=token)
+        """通用调用器：发送请求并返回解包后的 ``ret_obj``。
+
+        ``timeout`` 为按次覆盖的单请求超时（秒）；None 用服务级
+        ``STOCK_API_TIMEOUT``，供低价值高频写（如日志回灌）收紧。
+        """
+        return self._client.request(method, path, payload, token=token, timeout=timeout)
 
     def _make_request_with_count(
         self,
@@ -39,9 +44,12 @@ class ControllerApi:
         payload: Mapping[str, Any] | None = None,
         *,
         token: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[Any, int | None]:
         """分页接口专用：返回 ``(ret_obj, ret_count)``。
 
         ``ret_count`` 为信封携带的匹配总记录数，远端未返回时为 None。
         """
-        return self._client.request_with_count(method, path, payload, token=token)
+        return self._client.request_with_count(
+            method, path, payload, token=token, timeout=timeout
+        )

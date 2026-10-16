@@ -16,8 +16,8 @@ from app.services.task.error_handling import (
     record_task_exception,
     summarize_task_exception,
 )
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.performance_analysis.analyzer import performance_analyzer
@@ -350,9 +350,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 data_source=config_data.get("kline_data_source", "akshare"),
             )
             total_combinations = len(combinations)
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            task_result_repository.commit_with_retry()
+            # 更新任务总步数（方案 B：写 Redis 运行态，结束快照回灌）
+            get_runtime_state_store().update_progress(
+                self.task_id, total_steps=total_combinations
+            )
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -398,11 +399,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         processed_index += 1
                         continue
 
-                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return task_repository.get_status_value(self.task_id)
-
-                    result = safe_db_operation(check_task_status)
+                    # 检查任务是否被取消（每个外层参数进入前检查一次；方案 B 读 Redis 运行态）
+                    result = self._runtime_task_status()
 
                     if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -416,9 +414,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
                     self._log_info(progress_msg)
 
-                    # 更新当前步数为组合级别
-                    task.current_step = current_step
-                    task_result_repository.commit_with_retry()
+                    # 更新当前步数为组合级别（方案 B：Redis 运行态）
+                    get_runtime_state_store().update_progress(
+                        self.task_id, current_step=current_step
+                    )
 
                     # 单个组合内部会根据 K 线是否变化决定是否重写输入列，只更新必要的单元格。
                     try:
@@ -464,8 +463,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         failed_count += 1
                         # 检查是否是任务被取消
                         try:
-                            task_check = task_repository.get_entity(self.task_id)
-                            if task_check and task_check.status == 'cancelled':
+                            if self._runtime_task_status() == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
                         except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -492,8 +490,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = task_repository.get_entity(self.task_id)
-                if task_check and task_check.status == 'cancelled':
+                if self._runtime_task_status() == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

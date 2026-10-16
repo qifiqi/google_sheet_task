@@ -26,6 +26,7 @@ from app.services.google_sheet_tasks.c5 import C5Service
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.task_error_utils import unwrap_exception
 
@@ -280,6 +281,13 @@ class TaskRuntimeMixin:
 
     def _record_task_exception(self, task_id: str, exc: Exception, app):
         record = record_task_exception(task_id, exc, "task_runtime", app)
+        # 该路径不再经过 _finalize_task_execution：这里兜底回灌运行态
+        # （进度/日志），终态字段已由 record_task_exception 直写数据库。
+        try:
+            get_runtime_state_store().sync_snapshot(task_id)
+        except Exception as sync_error:
+            task_logger = get_task_logger(task_id, f"{__name__}.exception")
+            task_logger.error("异常收尾回灌运行态失败: %s", sync_error)
         return format_task_error_message(record)
 
     def _get_task_fresh(self, task_id: str):
@@ -322,6 +330,20 @@ class TaskRuntimeMixin:
             task_logger.info("stop event cleaned")
             task_logger.info("清理任务事件队列")
 
+    def _sync_final_snapshot(self, task_id: str, status: str) -> None:
+        """终态快照（方案 B）：终态字段合并 Redis 进度写库，运行期日志回灌
+        TaskLog，随后清理运行态。之后的 add_task_log 无运行态，直写数据库。
+        """
+        store = get_runtime_state_store()
+        try:
+            synced = store.sync_snapshot(task_id, status=status, end_time=datetime.now())
+        except Exception as exc:
+            logger.error("收尾回灌任务运行态失败（task_id=%s）: %s", task_id, exc)
+            synced = None
+        if synced is None:
+            # 无运行态（尚未建态即收尾等）：退化为纯终态写。
+            task_repository.update_fields(task_id, status=status, end_time=datetime.now())
+
     def _finalize_task_execution(
         self,
         task_id: str,
@@ -332,14 +354,16 @@ class TaskRuntimeMixin:
         """统一收尾任务状态。
 
         取消信号优先于执行返回值，避免线程尾部把已取消任务覆盖成 completed。
+        方案 B：运行期中间态在 Redis 运行态存储，收尾时做终态快照回灌。
         """
         task = self._get_task_fresh(task_id)
         if not task:
             task_logger.warning("任务不存在，无法收尾: %s", task_id)
+            get_runtime_state_store().drop(task_id)
             return
 
         if task.status == "cancelled" or self._is_stop_requested(task_id):
-            task_repository.update_fields(task_id, status="cancelled", end_time=datetime.now())
+            self._sync_final_snapshot(task_id, "cancelled")
             task_logger.info("任务执行完成，状态: cancelled（任务被取消）")
             self.add_task_log(
                 task_id,
@@ -350,7 +374,7 @@ class TaskRuntimeMixin:
             return
 
         if task_result == "cancelled":
-            task_repository.update_fields(task_id, status="cancelled", end_time=datetime.now())
+            self._sync_final_snapshot(task_id, "cancelled")
             task_logger.info("任务执行完成，状态: cancelled（执行过程中被取消）")
             self.add_task_log(
                 task_id,
@@ -361,12 +385,12 @@ class TaskRuntimeMixin:
             return
 
         if task_result == "completed":
-            task_repository.update_fields(task_id, status="completed", end_time=datetime.now())
+            self._sync_final_snapshot(task_id, "completed")
             task_logger.info("任务执行完成，状态: completed")
             self.add_task_log(task_id, "info", "任务执行完成，状态: completed", app)
             return
 
-        task_repository.update_fields(task_id, status="error", end_time=datetime.now())
+        self._sync_final_snapshot(task_id, "error")
         task_logger.info("任务执行完成，状态: error")
         self.add_task_log(task_id, "info", "任务执行完成，状态: error", app)
 
@@ -635,6 +659,15 @@ class TaskRuntimeMixin:
                     self.add_task_log(task_id, "warn", duplicate_message, app)
                     return None
                 task = task_repository.get_entity(task_id)
+
+        # 方案 B：运行期中间态进 Redis 运行态存储（进度/日志/取消/心跳载体）；
+        # 进度以任务行当前值播种，保证断点恢复窗口的崩溃对账不回退。
+        get_runtime_state_store().mark_running(
+            task_id,
+            start_time=datetime.now(),
+            current_step=getattr(task, "current_step", 0) or 0,
+            total_steps=getattr(task, "total_steps", 0) or 0,
+        )
 
         self.add_task_log(task_id, "info", start_message, app)
         return task

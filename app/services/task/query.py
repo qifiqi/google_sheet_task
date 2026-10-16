@@ -7,7 +7,29 @@ from typing import Any, Optional
 
 from app.exceptions import NotFoundError
 from app.repositories import task_repository, task_result_repository
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.task_types import normalize_task_type
+
+
+def _overlay_runtime_progress(task: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """方案 B：运行中任务的进度中间态在 Redis 运行态，读取时叠加。
+
+    DB 行在运行期只保留启动 running 里程碑；current_step/total_steps 以
+    Redis 运行态为准；无运行态（已结束/待执行）原样返回。
+    """
+    if not isinstance(task, dict) or not task.get("id"):
+        return task
+    try:
+        state = get_runtime_state_store().get_state(task["id"])
+    except Exception:
+        return task
+    if not state:
+        return task
+    merged = dict(task)
+    for field in ("current_step", "total_steps"):
+        if state.get(field) is not None:
+            merged[field] = state[field]
+    return merged
 
 
 class TaskQueryService:
@@ -17,11 +39,11 @@ class TaskQueryService:
         self._task_manager = task_manager
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
-        return task_repository.get(task_id)
+        return _overlay_runtime_progress(task_repository.get(task_id))
 
     def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
         """任务 dict 访问；不存在返回 None。"""
-        return task_repository.get(task_id)
+        return _overlay_runtime_progress(task_repository.get(task_id))
 
     def get_required_task(self, task_id: str) -> dict[str, Any]:
         """任务 dict 访问；不存在抛 NotFoundError（页面/导出端点的 404 入口）。"""
@@ -92,6 +114,20 @@ class TaskQueryService:
             keyword=keyword,
             stock_code=stock_code,
         )
+        # 方案 B：运行中任务的进度在 Redis 运行态，逐行叠加。
+        items = page_data["items"]
+        try:
+            runtime_states = get_runtime_state_store().get_states(
+                [item.get("id") for item in items if item.get("id")]
+            )
+        except Exception:
+            runtime_states = {}
+        if runtime_states:
+            overlaid_items = []
+            for item in items:
+                state = runtime_states.get(str(item.get("id")))
+                overlaid_items.append(_overlay_runtime_progress(item) if state else item)
+            page_data["items"] = overlaid_items
         aggregates = page_data["aggregates"]
         total = aggregates["total"]
         completed_tasks = aggregates["completed"]
@@ -132,18 +168,33 @@ class TaskQueryService:
         }
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
+        store = get_runtime_state_store()
+        try:
+            runtime_state = store.get_state(task_id)
+        except Exception:
+            runtime_state = None
+
         task = task_repository.get(task_id)
         if not task:
             return {"status": "not_found", "message": "任务不存在"}
+
+        if runtime_state:
+            for field in ("current_step", "total_steps"):
+                if runtime_state.get(field) is not None:
+                    task[field] = runtime_state[field]
 
         db_status = task["status"]
         thread = self._task_manager.running_tasks.get(task_id)
         memory_running = bool(thread and thread.is_alive())
 
         latest_log_time = None
-        task_logs = self._task_manager.get_task_logs(task_id)
-        if task_logs:
-            latest_log_time = task_logs[-1]["timestamp"]
+        if runtime_state and runtime_state.get("heartbeat_at"):
+            # 运行态存在：心跳含进度写与日志写，比"最新日志时间"更实时。
+            latest_log_time = runtime_state["heartbeat_at"]
+        else:
+            task_logs = self._task_manager.get_task_logs(task_id)
+            if task_logs:
+                latest_log_time = task_logs[-1]["timestamp"]
 
         status_check = {
             "task_id": task_id,

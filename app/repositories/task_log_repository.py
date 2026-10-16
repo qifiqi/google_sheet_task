@@ -1,4 +1,6 @@
 """TaskLog 仓储（契约见 docs/design/data-layer-refactor/02 §2.3）。"""
+from datetime import datetime
+
 from app.extensions import db
 from app.models import TaskLog
 from app.repositories.base import BaseRepository
@@ -56,6 +58,27 @@ class TaskLogRepository(BaseRepository):
         if commit:
             self._commit()
         return log.to_dict()
+
+    def create_logs(self, task_id, logs, commit=True):
+        """批量写入任务日志（任务结束快照回灌，保序）。
+
+        logs 为 [{level, message, timestamp}] 投影；timestamp 缺省取当前时间。
+        """
+        if not logs:
+            return []
+        rows = [
+            TaskLog(
+                task_id=task_id,
+                level=item.get("level") or "info",
+                message=TaskLog.normalize_message(item.get("message") or ""),
+                timestamp=item.get("timestamp") or datetime.now(),
+            )
+            for item in logs
+        ]
+        db.session.add_all(rows)
+        if commit:
+            self._commit()
+        return [row.to_dict() for row in rows]
 
     def delete_by_task(self, task_id, commit=True):
         deleted = (

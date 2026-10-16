@@ -121,6 +121,14 @@ POST /api/StockMetadata/BulkUpsert
 - 消费方：`stock_metadata_repository.bulk_upsert`（循环单行 upsert → 批量；
   搜索结果落库路径每任务一次调用）
 
+### ~~E9 任务日志批量创建~~（已裁定不提供，2026-10-16）
+
+~~`POST /api/ParamTaskLogs/BulkCreate`~~ —— 主站无此端点且不再补充。替代策略：
+任务结束快照回灌保持逐行 `ModifyOrAdd` 慢写，**单次请求 2 秒超时**（管线新增按次
+`timeout` 覆盖：transport → client → ControllerApi → ParamTaskLogs.modify_or_add），
+**仅抛弃失败的一条并继续写剩余**（不重试）——日志为低价值数据，本地文件日志有
+全量留存。落地位置：`TaskLogHttpRepository.create_logs`（`LOG_WRITE_TIMEOUT_SECONDS = 2.0`）。
+
 ## 实施顺序建议
 
 1. **E7-fields 投影**（ParamTaskResults 加 `fields` 参数）——最小改动，直接消掉本仓库当前唯一

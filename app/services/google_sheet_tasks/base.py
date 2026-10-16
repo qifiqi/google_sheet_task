@@ -8,7 +8,6 @@ from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.repositories import task_log_repository, task_repository, task_result_repository
-from app.models import TaskLog
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
@@ -27,6 +26,7 @@ from app.services.task.error_handling import (
     record_task_exception,
     summarize_task_exception,
 )
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error, unwrap_exception
 from app.exceptions import ValidationError
 from app.exceptions.sheet_check_error import SheetCheckError
@@ -132,10 +132,22 @@ class BaseGoogleSheetService:
         if self.stop_event and self.stop_event.is_set():
             return True
         try:
-            task = task_repository.get_entity(self.task_id)
-            return bool(task and task.status == 'cancelled')
+            # 方案 B：取消标志在 Redis 运行态（None=运行态已清，等价停止信号）。
+            return get_runtime_state_store().get_status_value(self.task_id) == 'cancelled'
         except Exception:
             return False
+
+    def _runtime_task_status(self):
+        """运行态状态值读取（取消检查热路径，方案 B 读 Redis 运行态）。
+
+        返回 None（无运行态，等价任务已不存在）或 "cancelled" 时，调用方
+        停止执行；读取自身异常按 None 处理（与原 safe_db_operation 失败
+        语义一致，fail-safe 停止）。
+        """
+        try:
+            return get_runtime_state_store().get_status_value(self.task_id)
+        except Exception:
+            return None
 
     def _interruptible_sleep(self, seconds: float) -> bool:
         if seconds <= 0:
@@ -222,7 +234,7 @@ class BaseGoogleSheetService:
             else:
                 self.task_logger.info(prefixed_message)
 
-            self._save_to_database(level, formatted_message)
+            self._persist_log(level, formatted_message)
         except Exception:
             pass
 
@@ -237,15 +249,20 @@ class BaseGoogleSheetService:
             return f"[API_ERROR] {action} - {error}"
         return message
 
-    def _save_to_database(self, level: str, message: str):
+    def _persist_log(self, level: str, message: str):
+        """业务日志写入（方案 B）：运行态存在写 Redis 日志流，结束快照统一
+        回灌 TaskLog；无运行态（异常兜底路径）直写数据库。
+        """
+        try:
+            store = get_runtime_state_store()
+            if store.has_state(self.task_id):
+                store.append_log(self.task_id, level, message)
+                return
+        except Exception:
+            pass
+
         def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=TaskLog.normalize_message(message),
-            )
-            task_log_repository.add_entity(log)
-            task_result_repository.commit()
+            task_log_repository.create_log(self.task_id, level, message)
 
         try:
             if has_app_context():
@@ -736,9 +753,10 @@ class BaseGoogleSheetService:
                 precomputed_params.append((combinations, column_A_length, kline_data_map))
                 total_combinations += len(combinations)
 
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            task_result_repository.commit_with_retry()
+            # 更新任务总步数（方案 B：写 Redis 运行态，结束快照回灌）
+            get_runtime_state_store().update_progress(
+                self.task_id, total_steps=total_combinations
+            )
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -778,11 +796,8 @@ class BaseGoogleSheetService:
 
                     self._stamp_combination(combination, batch)
 
-                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return task_repository.get_status_value(self.task_id)
-
-                    result = safe_db_operation(check_task_status)
+                    # 检查任务是否被取消（每个外层参数进入前检查一次；方案 B 读 Redis 运行态）
+                    result = self._runtime_task_status()
 
                     if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -824,9 +839,10 @@ class BaseGoogleSheetService:
                             )
                         )
 
-                        # 更新当前步数为组合级别
-                        task.current_step = current_step
-                        task_result_repository.commit_with_retry()
+                        # 更新当前步数为组合级别（方案 B：Redis 运行态）
+                        get_runtime_state_store().update_progress(
+                            self.task_id, current_step=current_step
+                        )
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
@@ -844,8 +860,7 @@ class BaseGoogleSheetService:
                         failed_count += 1
                         # 检查是否是任务被取消
                         try:
-                            task_check = task_repository.get_entity(self.task_id)
-                            if task_check and task_check.status == 'cancelled':
+                            if self._runtime_task_status() == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
                         except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -867,8 +882,7 @@ class BaseGoogleSheetService:
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = task_repository.get_entity(self.task_id)
-                if task_check and task_check.status == 'cancelled':
+                if self._runtime_task_status() == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -974,8 +988,7 @@ class BaseGoogleSheetService:
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
+                if self._runtime_task_status() == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

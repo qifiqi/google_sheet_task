@@ -10,6 +10,7 @@ from app.exceptions import ConflictError, NotFoundError
 
 from app.services.task.data_cleanup import clear_task_execution_data
 from app.repositories import task_repository
+from app.services.task.runtime_state import get_runtime_state_store
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger
 
@@ -36,6 +37,12 @@ class TaskRestartMixin:
         stop_event = self.task_stop_events.get(task_id)
         if stop_event:
             stop_event.set()
+
+        # 方案 B：运行中任务的取消标志写 Redis 运行态（执行链热路径读这里）。
+        try:
+            get_runtime_state_store().request_cancel(task_id)
+        except Exception as exc:
+            logger.warning("写入任务取消标志失败: %s", exc)
 
         task_repository.update_fields(
             task_id,
@@ -64,7 +71,6 @@ class TaskRestartMixin:
                 raise NotFoundError("任务不存在")
 
             original_status = task.status
-            current_step = task.current_step
             original_start_time = task.start_time
             status_check = self.check_local_task_status(task_id)
             if original_status == "running":
@@ -92,6 +98,18 @@ class TaskRestartMixin:
                     self.task_stop_events.pop(task_id, None)
             if still_alive:
                 raise ConflictError("任务仍在停止中，请稍后重试")
+
+            # 方案 B：先对账可能残留的 Redis 运行态（崩溃遗留进度/日志回灌数据库），
+            # 再取断点步号，避免读到上一进程未回灌的旧值。无运行态时为 no-op。
+            try:
+                get_runtime_state_store().sync_snapshot(task_id)
+            except Exception as exc:
+                logger.warning("重启前回灌任务运行态失败: %s", exc)
+            task = task_repository.get_entity(task_id)
+            if not task:
+                raise NotFoundError("任务不存在")
+            current_step = task.current_step
+            original_start_time = task.start_time
 
             start_time = None
             if resume_from_checkpoint:
@@ -201,6 +219,7 @@ class TaskRestartMixin:
 
                 clear_task_execution_data(task_id, include_logs=True)
                 task_repository.delete(task_id)
+                get_runtime_state_store().drop(task_id)
 
                 self.running_tasks.pop(task_id, None)
                 stop_event = self.task_stop_events.pop(task_id, None)

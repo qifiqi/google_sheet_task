@@ -12,6 +12,9 @@ from typing import Any
 from app.models import TaskLog
 from app.repositories.http_backend.base import HttpRepositoryBase, dump_row
 from app.remote_api import RemoteApiNotFoundError
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TaskLogHttpRepository(HttpRepositoryBase):
@@ -20,6 +23,10 @@ class TaskLogHttpRepository(HttpRepositoryBase):
     group_name = "param_task_logs"
 
     _DT_FIELDS = ("timestamp",)
+
+    # 日志回灌为低价值写入：单次请求 2 秒超时快速失败（2026-10-16 裁定，
+    # 远端无批量端点 E9，逐行慢写 + 失败行单独抛弃，本地文件日志有全量留存）。
+    LOG_WRITE_TIMEOUT_SECONDS = 2.0
 
     def to_api_payload(self, payload):
         return dump_row(payload, datetime_fields=self._DT_FIELDS)
@@ -93,6 +100,43 @@ class TaskLogHttpRepository(HttpRepositoryBase):
             "timestamp": datetime.now(),
         }
         return self.save(dump_row(log, datetime_fields=self._DT_FIELDS))
+
+    def create_logs(self, task_id, logs, commit=True):
+        """批量写入任务日志（任务结束快照回灌，保序）——best-effort 语义。
+
+        远端无批量创建端点（E9 已裁定不提供，2026-10-16）：逐行 ModifyOrAdd
+        慢写，单次 2 秒超时；失败仅抛弃当前一条并继续写剩余（不重试），
+        收尾统一汇总成功/抛弃条数——本地文件日志有全量留存，Redis 侧日志
+        流在回灌后随快照清理。
+        """
+        created = []
+        dropped = 0
+        last_error = None
+        for item in logs or []:
+            payload = {
+                "task_id": task_id,
+                "level": item.get("level") or "info",
+                "message": TaskLog.normalize_message(item.get("message") or ""),
+                "timestamp": item.get("timestamp") or datetime.now(),
+            }
+            try:
+                created.append(self.save(
+                    dump_row(payload, datetime_fields=self._DT_FIELDS),
+                    timeout=self.LOG_WRITE_TIMEOUT_SECONDS,
+                ))
+            except Exception as exc:
+                dropped += 1
+                last_error = exc
+        if dropped:
+            logger.warning(
+                "任务日志回灌完成：成功 %d 条，失败抛弃 %d 条（不重试，本地文件日志有留存）: "
+                "task_id=%s last_error=%s",
+                len(created),
+                dropped,
+                task_id,
+                last_error,
+            )
+        return created
 
     def delete_by_task(self, task_id, commit=True):
         """按任务删除全部日志；远端无按条件删除端点，逐 id 删除。

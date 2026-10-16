@@ -157,15 +157,20 @@ class HttpRepositoryBase:
             return None
         return self.normalize_record(self._as_mapping(raw, "详情"))
 
-    def save(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    def save(self, payload: Mapping[str, Any], timeout: float | None = None) -> dict[str, Any]:
         """调用远端新增/更新接口并标准化返回记录。
 
         部分远端 ``ModifyOrAdd`` 接口只返回成功信封
         （``ret_code`` / ``ret_msg`` / ``ret_count``），不携带 ``ret_obj``。
         此时调用器已经验证写入成功，返回本次提交的数据以兼容调用方。
+        ``timeout`` 按次覆盖单请求超时（秒），仅显式传入时改走带 timeout
+        的控制器签名（当前仅 ParamTaskLogs.modify_or_add 支持）。
         """
         api_payload = self.to_api_payload(payload)
-        raw = self._controller().modify_or_add(api_payload)
+        if timeout is None:
+            raw = self._controller().modify_or_add(api_payload)
+        else:
+            raw = self._controller().modify_or_add(api_payload, timeout=timeout)
         if raw is None:
             return self.normalize_record(api_payload)
         return self.normalize_record(self._as_mapping(raw, "保存结果"))
