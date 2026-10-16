@@ -1,7 +1,7 @@
 """任务配置（Task.config / TaskTemplate.config）结构统一迁移脚本。
 
 背景：
-    2026-10 配置结构统一（见 docs/model_update/2026-10-09-任务配置Pydantic统一.md）
+    2026-10 配置结构统一（详见 docs/model_update/2026-10-月度汇总.md 同日条目）
     把 Google Sheet 引用收敛为唯一形态 ``sheets: [{spreadsheet_id, sheet_name,
     title, ...}]``，并为每类任务建立 Pydantic 配置模型
     （app/schemas/task_configs.py）。此前的三种引用形态——C3 顶层平铺

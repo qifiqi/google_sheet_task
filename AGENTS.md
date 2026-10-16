@@ -11,7 +11,7 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 - `app/` — Flask 应用主体（routes / services / repositories / schemas / exceptions / utils）
 - `app/services/task/` — 任务主控门面（facade/runtime/creation/restart/occupancy/query/results）
 - `templates/` + `static/` — Jinja2 服务端渲染页面（Bootstrap 5 + 大量内联 JS） 
-- `frontend/` — Vue 3 SPA（Vite + Element Plus/Naive UI，开发中） 处理时统一排除这个
+- ~~`frontend/`~~ — Vue 3 SPA 已于 2026-10 从仓库移除（源码存根目录 `frontend.7z`），当前唯一前端为 `templates/` + `static/` 静态页面
 - `ding_stream_service/` — 钉钉 Stream 独立微服务（不挂载到 run.py）
 - `stock_sdk/` — 内置K线库读写客户端（wire 字段 `stock_open/stock_max/...`）
 - `tests/`、`docs/`、`docs/design/`、`migrations/`、`scripts/`
@@ -23,8 +23,7 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 ```bash
 pip install -r requirements.txt          # 运行依赖（pytest 在 requirements-dev.txt）
 python run.py                            # 启动 Flask，port 5000
-cd frontend && npm run dev               # Vite dev server，代理 /api、/admin/api、/backtest-training/api 到 5000
-cd frontend && npm run build
+# （2026-10 起 frontend/ Vue SPA 已移除，无前端构建步骤，直接访问 Flask 5000）
 .venv\Scripts\python.exe run_ding.py     # 钉钉 Stream 微服务（不要用系统 python，缺 dingtalk-stream）
 python -m pytest tests/unit tests/integration   # 全量回归（统一入口，见"测试"）
 python -m pytest tests/unit/test_xxx.py::test_name   # 定向测试
@@ -43,12 +42,12 @@ Get-Content .\run.py -Encoding UTF8
 
 ## 接口规范（2026-09 数据层重构确立）
 
-设计文档：`docs/design/data-layer-refactor/`、`docs/design/code-audit-2026-09/`。总原则：**不修改数据库 schema/迁移/数据**；**全库无兼容层**（单一响应格式、单一异常体系、单一执行路径，无灰度/回退/双轨开关）。
+设计文档（已收官，归档查阅）：`docs/archive/design/data-layer-refactor/`、`docs/archive/design/code-audit-2026-09/`。总原则：**不修改数据库 schema/迁移/数据**；**全库无兼容层**（单一响应格式、单一异常体系、单一执行路径，无灰度/回退/双轨开关）。
 
 - **统一响应信封**（唯一格式 `{"status","code","message","data"}`）：唯一出口 `app/utils/api_response.py` 的 `success()/error()/paginated()`。routes 禁止手写响应字典；分页统一 `{items,total,pages,current_page,per_page}`。
 - **统一异常体系**：`app/exceptions/base.py` 的 `AppException` 层级（BadRequest 400 … ServiceError 500）。repositories 只抛 `NotFoundError`/`ConflictError`；services 抛业务子类；routes 原则上不 catch，交给 `app/errors.py` 全局处理器（仅 `/api` 前缀返回 JSON 信封，兜底 500 绝不 `str(e)` 下发）。任务线程域异常（`C5*`、`RetryableNetworkTaskError`、`[NETWORK_RETRYABLE]`）不并入 HTTP 语义体系。
 - **请求校验**：Pydantic v2。模型在 `app/schemas/`，解析经 `app/utils/request_parsing.py` 的 `parse_body/parse_query`。
-- **鉴权边界**：本项目后续作为**子服务接入主服务**（路由网关/鉴权/权限整体迁移），当前 RBAC/JWT 是历史产物，**不再新增权限类建设**。保持两个迁移接缝单一：服务端只经 `login_required` 装饰器，前端只经 `template-auth.js`；新增路由/页面不得自写鉴权逻辑。主服务 SSO 已按入口换票接入（免登端点 `POST /api/auth/sso/exchange`，代码在 `app/routes/sso.py` + `app/services/sso_service.py`；默认角色 `main_service_user` 由 `flask init-rbac` 播种）。红线：任何外部令牌/凭据一律不写入源码、日志或测试，凭据仅来自环境变量或密钥服务，处理机制详见 `docs/design/sso-integration-2026-09/` §5。已知缺口登记于 `docs/design/api-model-query-audit/07-public-deployment-and-subservice.md`。
+- **鉴权边界**：本项目后续作为**子服务接入主服务**（路由网关/鉴权/权限整体迁移），当前 RBAC/JWT 是历史产物，**不再新增权限类建设**。保持两个迁移接缝单一：服务端只经 `login_required` 装饰器，前端只经 `template-auth.js`；新增路由/页面不得自写鉴权逻辑。主服务 SSO 已按入口换票接入（免登端点 `POST /api/auth/sso/exchange`，代码在 `app/routes/sso.py` + `app/services/sso_service.py`；默认角色 `main_service_user` 由 `flask init-rbac` 播种）。红线：任何外部令牌/凭据一律不写入源码、日志或测试，凭据仅来自环境变量或密钥服务，处理机制详见 `docs/archive/design/sso-integration-2026-09/` §5。已知缺口登记于 `docs/archive/design/api-model-query-audit/07-public-deployment-and-subservice.md`。
 - **限流**：Flask-Limiter（`app/extensions.py::limiter`，内存存储，默认无全局限流），不自行实现限流算法。
 
 ## 数据层分层规则
@@ -73,7 +72,7 @@ Get-Content .\run.py -Encoding UTF8
 - 关键文件：`runtime.py`（`start_task()`、`_execute_*_task()`）、`creation.py`（`create_task()`、`batch_create_and_start_task()`）、`restart.py`、`occupancy.py`。
 - 运行态 dict（`running_tasks` 等）复合操作必须持 `_runtime_state_lock`；`start_task` 前置失败必须走 `_rollback_start_reservation()`。
 - **C31** 不是独立执行器：前端批量创建页 → `batch_create_and_start_task()` 拆成多个 C3 子任务 → service 消费。新增字段要三层透传（前端 config → child_config 透传 → 执行 service 读取），只改一层不够。
-- **C 系任务骨架**：`BaseGoogleSheetService` 唯一实现批量执行骨架；新增 C 系任务经钩子（`_prepare_batch/_expand_parameters/...`）接入，**禁止复制骨架**（见 `docs/design/code-audit-2026-09/03-task-code-refactor.md` §3.3）。去重/断点在基类，子类不得本地覆盖。
+- **C 系任务骨架**：`BaseGoogleSheetService` 唯一实现批量执行骨架；新增 C 系任务经钩子（`_prepare_batch/_expand_parameters/...`）接入，**禁止复制骨架**（见 `docs/archive/design/code-audit-2026-09/03-task-code-refactor.md` §3.3）。去重/断点在基类，子类不得本地覆盖。
 - **C5/C7 自定义K线**（`config.kline_source=custom`）：只在 `get_bdl()` 预计算阶段读一次 Sheet 输入列，不进 `_get_all_parameters()` 的自动行情链路；不要把 custom 分支塞进 `_get_all_parameters()`。
 - **K线字段命名**（全项目统一英文 schema）：内部行用 `open/high/low/close/volume/amount/vwap` + `stock_date/stock_code/stock_name`；推送远程的 wire 字段（`stock_open/stock_max/...`）保持不变，翻译在 `KlineService.read/write_internal_kline_data`。`price_mode → 价格字段` 唯一入口 `kline_service.get_kline_price_field()`；取价序列统一 `build_price_rows()`。C4 固定按市场取价（A股 open、美股 close）。
 - **结果载荷**：C5/C7 指标/analyze 透传字段以 `app/services/result_payload.py` 规格表为准，新增指标只改规格表。注意历史键名升级：模型指标键以规格表为准（如索提诺/超额夏普曾被旧键名坑过）。
@@ -95,8 +94,8 @@ Get-Content .\run.py -Encoding UTF8
 
 ## 双前端
 
-1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由统一在 `app/routes/pages/` 包（JSON API 留在 `app/routes/` 平级 `*_api.py`，结构约定见 `docs/design/routes-restructure-2026-09/`），经包内 `send_page`/`register_page_routes` 表驱动返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。
-2. **Vue 3 SPA**（`frontend/`，当前分支 dev_vue 主战场）：Vite dev proxy 到 Flask 5000；JWT 存 localStorage，401 自动 refresh 重试（`docs/前端Vue工程.md`）；其 `src/{api,composables,components}` 分层与静态版 common/ 对齐，迁移时是翻译不是重设计。
+1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/archive/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由统一在 `app/routes/pages/` 包（JSON API 留在 `app/routes/` 平级 `*_api.py`，结构约定见 `docs/archive/design/routes-restructure-2026-09/`），经包内 `send_page`/`register_page_routes` 表驱动返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。
+2. ~~Vue 3 SPA~~（已移除）：`frontend/` 已于 2026-10 删除（源码存根目录 `frontend.7z`）；`docs/前端Vue工程.md` 归档至 `docs/archive/前端Vue工程.md` 仅作历史参考。
 
 ## 测试
 
@@ -123,12 +122,14 @@ Get-Content .\run.py -Encoding UTF8
 
 ## 文档索引
 
-`docs/目录索引.md` 是全部文档索引。改敏感区域前先读对应文档：
+`docs/README.md` 是全部文档唯一索引（2026-10-15 起，原 `docs/目录索引.md` 已退役归档）。结构：`docs/project-memory/`（实现实况权威源：架构总览 + 领域分册 + 技术决策 + 变更日志 + 已知问题 + 文档台账）、`docs/guides/`（操作指南）、`docs/design/`（仅 partial/pending 设计；已收官主题归档至 `docs/archive/design/`，design/ 原位留跳转存根）、`docs/archive/`（只读归档）、`docs/model_update/`（变更记录）、`docs/release-notes/`。
 
-- 执行链路：`docs/GoogleSheet执行链路.md`、`docs/任务系统与调度.md`
-- 回测/指标：`docs/回测系统与报告.md`、`docs/指标计算与单品多品统一方案.md`
-- 接口/分层：`docs/design/data-layer-refactor/`、`docs/design/code-audit-2026-09/`、`docs/接口总览.md`
-- 鉴权：`docs/登录与鉴权指南.md`；部署：`docs/部署运维.md`；本地开发：`docs/本地开发指南.md`
+改敏感区域前先读对应文档：
 
-设计文档存放在 `docs/design/<主题目录>/` 下，每个主题独立建目录。
-每次大规模修改后都要在`docs/model_update/` 下提供修改文档
+- 执行链路：`docs/project-memory/GoogleSheet执行链路.md`、`docs/project-memory/任务系统与调度.md`
+- 回测/指标：`docs/project-memory/回测系统与报告.md`、`docs/design/metrics-unify-2026-09/指标计算与单品多品统一方案.md`（partial，行号锚点已漂移，以代码为准）
+- 接口/分层：`docs/archive/design/data-layer-refactor/`、`docs/archive/design/code-audit-2026-09/`、`docs/project-memory/接口总览.md`
+- 鉴权：`docs/guides/登录与鉴权指南.md`；部署：`docs/guides/部署运维.md`；本地开发：`docs/guides/本地开发指南.md`
+
+设计文档存放在 `docs/design/<主题目录>/` 下，每个主题独立建目录；已收官主题归档至 `docs/archive/design/`。
+每次大规模修改后在 `docs/model_update/` 当月月度汇总（如 `2026-10-月度汇总.md`）文末追加小节（标题 + 要点 + 涉及文件），并在 `docs/project-memory/变更日志.md` 对应月份登记；变更记录按月归并维护，不再新增单篇文件。

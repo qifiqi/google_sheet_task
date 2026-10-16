@@ -2,7 +2,7 @@
 
 审查方式：`ocr`（OpenCodeReview）delegate 模式（LLM provider 未配置，按审查规则由 4 路并行审查 + 逐条全仓 grep 核实）。范围：app/ 全部、stock_sdk/、ding_stream_service/、scripts/、根入口文件；frontend/ 按约定排除；templates/static 仅做引用核对。所有"零引用"结论均含 `self.` 调用与动态派发（getattr/字符串方法名）排查；仓库内唯一动态派发点是 `registry.build_runner` 的 `_execute_*` 方法名，与下列候选无交集。
 
-本文只登记与给出建议，**未删除任何代码**；删除请按批次执行并单独提交。
+> **status: partial**（2026-10-15 复核）。审计时点本文"只登记未删除"；此后大批次已执行：`tests/archive/` 整目录删除、§1 高置信死代码（db_monitor.py、TTLCache、scheduler `_cleanup_old_logs`、text_analysis `get_performance_analysis`、export_workbook 3 个死常量等）、§3-2 C3Service.execute_task 并入基类、startup `_start_background_components` 恢复调用（执行记录见 `docs/model_update/2026-10-月度汇总.md` 同日条目）。**尚未完成**：§2 stock_sdk 裁剪批（待上游确认）、§3-3 C4 get_bdl 合并、§3-4 C5/C7 三处同构、§3-6 21 项汇总指标三处、§3-8/9 JSON 清洗多份、§4 分页双轨（PageQuery vs parse_pagination）等。下文"未删除任何代码"为审计时点表述，已过时。
 
 ## 结论速览
 
@@ -89,7 +89,7 @@
 
 ## 5. 顺带发现的存量问题（非死代码，登记）
 
-- `ding_stream_service/task_commands.py:282,286,297`：使用 `Task.query` 但未导入 `Task`，"查看运行/停止任务"指令执行即 NameError（`docs/model_update/2026-09-16-遗留代码清理与可读性优化.md:83` 已登记单独修复）。
+- `ding_stream_service/task_commands.py:282,286,297`：使用 `Task.query` 但未导入 `Task`，"查看运行/停止任务"指令执行即 NameError（`docs/model_update/2026-09-月度汇总.md` 同日条目已登记单独修复）。
 - `tests/test_startup_orchestration.py:39` 断言 `_start_background_components` 被调用，与 `startup.py:801` 注释掉调用矛盾；该文件在 tests 根目录不在统一回归入口内，未暴露。
 - 根目录 `frontend_source_backup_20260930.zip`、`google_task_*.tar` 未入 git（本地清理项，非仓库债务）。
 
