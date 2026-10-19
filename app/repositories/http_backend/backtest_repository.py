@@ -16,6 +16,7 @@ from app.repositories.http_backend.base import (
     RemoteRecord,
     dump_row,
     normalize_bool_fields,
+    orm_entity_payload,
 )
 from app.remote_api import RemoteApiDuplicateKeyError, RemoteApiNotFoundError
 
@@ -24,6 +25,9 @@ _SUMMARY_GROUP = "param_task_result_summary_index"
 _CACHE_GROUP = "param_backtest_product_result_cache"
 _LOCK_GROUP = "param_backtest_sheet_run_locks"
 _XPL_GROUP = "param_xpl_analysis_jobs"
+
+# 汇总索引行的时间列（TaskResultSummaryIndex 实体远端落库用）。
+_SUMMARY_DT_FIELDS = ("result_timestamp", "created_at", "updated_at")
 
 
 class BacktestHttpRepository(HttpRepositoryBase):
@@ -159,7 +163,8 @@ class BacktestHttpRepository(HttpRepositoryBase):
                 if not isinstance(raw_task, dict):
                     continue
                 task_cache[task_key] = RemoteRecord(dict(raw_task))
-            pairs.append((task_cache[task_key], result))
+            # 两侧都须为 RemoteRecord：抽取链（extractor）按实体属性访问。
+            pairs.append((task_cache[task_key], RemoteRecord(dict(result))))
         return pairs
 
     def list_finished_task_ids(self, finished_statuses, supported_types, task_type=None, task_id=None):
@@ -184,7 +189,8 @@ class BacktestHttpRepository(HttpRepositoryBase):
                 if not isinstance(raw_task, dict):
                     continue
                 task_cache[task_key] = RemoteRecord(dict(raw_task))
-            pairs.append((task_cache[task_key], result))
+            # 两侧都须为 RemoteRecord：抽取链（extractor）按实体属性访问。
+            pairs.append((task_cache[task_key], RemoteRecord(dict(result))))
         return pairs
 
     # ---- TaskResultSummaryIndex 写/删 ----
@@ -484,3 +490,29 @@ class BacktestHttpRepository(HttpRepositoryBase):
             for row in self.iter_pages({"task_id": task_id}, group=_LOCK_GROUP)
         ]
         return self._delete_ids(_LOCK_GROUP, ids)
+
+    def delete_stale_run_locks(self, is_task_running, commit=True):
+        """启动期清理陈旧 per-sheet 运行锁；返回删除行数。
+
+        持有任务不存在或非 running 视为陈旧；``is_task_running`` 为
+        task_id → bool 判活回调（经任务仓储判读，与本地孪生同签名）。
+        """
+        deleted = 0
+        for row in list(self.iter_pages({}, group=_LOCK_GROUP)):
+            if is_task_running(row.get("task_id")):
+                continue
+            try:
+                self._controller(_LOCK_GROUP).delete({"id": self.normalize_id(row["id"])})
+            except RemoteApiNotFoundError:
+                continue
+            deleted += 1
+        return deleted
+
+    # ---- TaskResultSummaryIndex 写（model_summary 重建作业消费） ----
+
+    def add_entity(self, entity, flush=False):
+        """挂起新建汇总索引实体：ORM 实体远端落库，自增主键由远端生成。"""
+        payload = orm_entity_payload(entity)
+        if payload.get("id") is None:
+            payload.pop("id", None)
+        return self.save(dump_row(payload, datetime_fields=_SUMMARY_DT_FIELDS))

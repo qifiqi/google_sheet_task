@@ -118,9 +118,21 @@ class HttpRepositoryBase:
         raw, ret_count = self._controller(group).get_data_by_page_list(body)
         return self._normalize_page(raw, ret_count)
 
-    def list_all(self, payload: Mapping[str, Any] | None = None, *, page_size: int = 200) -> list[dict[str, Any]]:
-        """按过滤条件读取全部分页数据。"""
-        return list(self.iter_pages(payload or {}, page_size=page_size))
+    def list_all(
+        self,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        page_size: int = 200,
+        order_field: str | None = None,
+        order_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """按过滤条件读取全部分页数据（排序键可选透传，对齐本地仓储签名）。"""
+        return list(self.iter_pages(
+            payload or {},
+            page_size=page_size,
+            order_field=order_field,
+            order_type=order_type,
+        ))
 
     def iter_pages(
         self,
@@ -227,6 +239,18 @@ def iso_or_none(value: Any) -> Any:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
+
+
+def orm_entity_payload(entity: Any) -> dict[str, Any]:
+    """ORM 实体列值 → dict（http ``add_entity`` 过渡用，不 import models）。
+
+    经实体自带的 ``__table__`` 元数据取列属性，非 ORM 对象退化为 ``dict()``；
+    None 主键是否剔除由调用方决定（自增主键远端生成，应用生成主键需保留）。
+    """
+    table = getattr(entity, "__table__", None)
+    if table is None:
+        return dict(entity)
+    return {column.key: getattr(entity, column.key, None) for column in table.columns}
 
 
 def dump_row(

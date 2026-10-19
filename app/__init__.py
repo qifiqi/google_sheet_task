@@ -122,6 +122,13 @@ def create_app():
             return auth_error
         return None
 
+    @app.teardown_request
+    def _clear_request_user_token(exc=None):
+        """请求结束清除请求域用户 Token（线程复用防串号，请求域凭据只在请求内有效）。"""
+        from app.remote_api.client import clear_request_user_token
+
+        clear_request_user_token()
+
     @app.context_processor
     def inject_template_auth_context():
         return {

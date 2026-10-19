@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from app.models import TaskLog
-from app.repositories.http_backend.base import HttpRepositoryBase, dump_row
+from app.repositories.http_backend.base import HttpRepositoryBase, dump_row, orm_entity_payload
 from app.remote_api import RemoteApiNotFoundError
 from app.utils.logger import get_logger
 
@@ -100,6 +100,12 @@ class TaskLogHttpRepository(HttpRepositoryBase):
             "timestamp": datetime.now(),
         }
         return self.save(dump_row(log, datetime_fields=self._DT_FIELDS))
+
+    def add_entity(self, entity, flush=False):
+        """挂起新建日志实体（model_summary 重建作业消费）：ORM 实体远端落库。"""
+        payload = orm_entity_payload(entity)
+        payload["message"] = TaskLog.normalize_message(payload.get("message") or "")
+        return self.save(dump_row(payload, datetime_fields=self._DT_FIELDS))
 
     def create_logs(self, task_id, logs, commit=True):
         """批量写入任务日志（任务结束快照回灌，保序）——best-effort 语义。

@@ -86,6 +86,16 @@ class GoogleSheetRepository(BaseRepository):
             self._commit()
         return updated
 
+    def clear_all_occupancy(self, commit=True):
+        """启动期占用复位：清空全部 Sheet 占用标记；返回复位行数。"""
+        updated = GoogleSheet.query.filter(GoogleSheet.is_in_use == True).update(  # noqa: E712
+            {"is_in_use": False, "current_task_id": None},
+            synchronize_session=False,
+        )
+        if commit:
+            self._commit()
+        return updated
+
     def get(self, sheet_id):
         row = db.session.get(GoogleSheet, sheet_id)
         return row.to_dict() if row else None

@@ -65,6 +65,11 @@ class ScheduledTaskHttpRepository(HttpRepositoryBase):
             return None
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
+    def get_entity(self, task_id):
+        """实体形态读取（调度器 add_job 属性访问）；HTTP 版即 RemoteRecord。"""
+        row = self.get(task_id)
+        return RemoteRecord(row) if row is not None else None
+
     def get_required(self, task_id):
         """HTTP 语义不进数据层，由全局处理器映射 404。"""
         data = self.get(task_id)

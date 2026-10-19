@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
@@ -102,7 +103,11 @@ class TaskManager(
         with self._runtime_state_lock:
             self.running_tasks[task_id] = handle
         try:
-            handle.future = pool.submit(_wrapped)
+            # 空上下文执行：任务 worker 不继承提交请求线程的 contextvars（请求域
+            # 用户 Token 等）。任务执行链的数据访问一律回退服务级凭据（失效时由
+            # 统一调用器自动重登），避免用户 Token 被长任务线程带走——会话过期
+            # 后任务会中途失败，且权限语义以任务而非操作者评估。
+            handle.future = pool.submit(contextvars.Context().run, _wrapped)
         except Exception:
             # 入队失败必须撤回注册，避免运行态残留。
             with self._runtime_state_lock:

@@ -10,6 +10,7 @@ from typing import Any
 
 from app.repositories.http_backend.base import (
     HttpRepositoryBase,
+    RemoteRecord,
     dump_row,
     normalize_bool_fields,
 )
@@ -116,6 +117,17 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
                     updated += 1
             return updated
 
+    def clear_all_occupancy(self, commit=True):
+        """启动期占用复位：清空全部 Sheet 占用标记；返回复位行数。
+
+        is_in_use 为远端支持的过滤字段（文件头注），整表占用行逐行复位。
+        """
+        cleared = 0
+        for row in self.list_all({"is_in_use": True}):
+            self.save({**row, "is_in_use": False, "current_task_id": None})
+            cleared += 1
+        return cleared
+
     # ---- CRUD ----
 
     def get(self, sheet_id):
@@ -128,8 +140,9 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
     def get_entity(self, sheet_id):
-        """实体形态读取（registry 占用链属性访问）；HTTP 版即 RemoteRecord。"""
-        return self.get(sheet_id)
+        """实体形态读取（registry 占用链属性访问）；必须返回 RemoteRecord。"""
+        row = self.get(sheet_id)
+        return RemoteRecord(row) if row is not None else None
 
     def create(self, fields, commit=True):
         # TODO(db-to-http): 数值主键由远端生成；ModifyOrAdd 若不回显 ret_obj，

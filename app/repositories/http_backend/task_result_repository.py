@@ -8,6 +8,7 @@ list_paginated 的任务类型过滤）按"每表一次查询 + 业务层拼接"
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +22,47 @@ from app.remote_api import RemoteApiNotFoundError
 
 # /api/results 列表的历史精简投影键（本地 _RESULT_SUMMARY_FIELDS 语义）。
 _RESULT_SUMMARY_KEYS = ("id", "task_id", "step_index", "success", "timestamp")
+
+# tasks/<id>/results 字段投影允许的存储列（本地 _RESULT_FIELD_COLUMNS 的键集）；
+# return_date_range 为计算字段（收益序列首末日期），不在列集里。
+_RESULT_FIELD_KEYS = (
+    "id",
+    "task_id",
+    "step_index",
+    "parameters",
+    "result",
+    "return_series_id",
+    "success",
+    "error_message",
+    "timestamp",
+)
+
+
+def _json_dict(value):
+    """parameters/result 的 JSON 对象解析（坏 JSON 静默降级空 dict，对齐本地）。"""
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _iso_date(value):
+    """日期值 → ISO 字符串；空值返回 None（本地 isoformat 语义）。"""
+    if value is None or value == "":
+        return None
+    return value if isinstance(value, str) else value.isoformat()
+
+
+def _parse_stock_dates(stock_date) -> list[str]:
+    """stock_date JSON 数组解析（坏 JSON 静默降级空列表，对齐本地）。"""
+    try:
+        dates = json.loads(stock_date) if stock_date else []
+    except (TypeError, ValueError):
+        return []
+    return [date for date in dates if date]
 
 
 class TaskResultHttpRepository(HttpRepositoryBase):
@@ -115,6 +157,58 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         rows.sort(key=lambda row: (int(row.get("step_index") or 0), int(row.get("id") or 0)))
         return rows
 
+    def list_by_task_fields(self, task_id, fields):
+        """字段白名单投影任务结果列表（本地 _RESULT_FIELD_COLUMNS 语义）。
+
+        返回键与请求 fields 一一对应、顺序同 list_by_task；return_date_range
+        为计算字段。TODO(db-to-http): 远端无列投影端点（E7），整行拉取后
+        本地投影，result 大字段的网络放大待远端收敛。
+        """
+        rows = self.list_by_task(task_id)
+        ranges = (
+            self._return_date_ranges(
+                [row["return_series_id"] for row in rows if row.get("return_series_id")]
+            )
+            if "return_date_range" in fields
+            else {}
+        )
+        items = []
+        for row in rows:
+            item: dict[str, Any] = {}
+            for name in fields:
+                if name == "return_date_range":
+                    item[name] = ranges.get(row.get("return_series_id"))
+                elif name == "parameters":
+                    item[name] = _json_dict(row.get("parameters"))
+                elif name == "result":
+                    item[name] = _json_dict(row.get("result"))
+                elif name in _RESULT_FIELD_KEYS:
+                    item[name] = row.get(name)
+            items.append(item)
+        return items
+
+    def _return_date_ranges(self, series_ids) -> dict[Any, dict[str, str | None]]:
+        """批量取收益序列首末日期：{series_id: {"start": .., "end": ..}}。
+
+        优先 start/end_return_date 落库列，历史行 NULL 时回退解析
+        stock_date JSON（本地 _return_date_ranges 语义；远端无 in 查询，
+        逐序列读取）。
+        """
+        ranges: dict[Any, dict[str, str | None]] = {}
+        for series_id in series_ids:
+            raw = self._get_return_raw(series_id)
+            if raw is None:
+                ranges[series_id] = {"start": None, "end": None}
+                continue
+            start = _iso_date(raw.get("start_return_date"))
+            end = _iso_date(raw.get("end_return_date"))
+            if start is None or end is None:
+                dates = _parse_stock_dates(raw.get("stock_date"))
+                start = start or (dates[0] if dates else None)
+                end = end or (dates[-1] if dates else None)
+            ranges[series_id] = {"start": start, "end": end}
+        return ranges
+
     def list_by_task_paginated(self, task_id, page, per_page):
         """任务详情结果分页 + 成功/失败计数（本地 step asc 排序语义）。"""
         current_page = max(page or 1, 1)
@@ -136,49 +230,86 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         data.update(self.count_by_task_success(task_id))
         return data
 
-    def list_paginated(self, page, per_page, task_id=None):
-        """/api/results 列表（精简投影 + 任务类型过滤语义）。
+    def list_paginated(self, page, per_page, task_id=None, success=None, keyword=None):
+        """/api/results 列表：精简键 + 任务名/类型 join + success/keyword 过滤。
 
-        未指定 task_id 时：取存在结果的可见任务类型对应的任务 id 集，
-        分块过滤结果后本地分页。TODO(db-to-http): 远端无 join/聚合端点，
-        任务量大时为 O(任务数) 次调用，建议远端补 join 查询端点。
+        - 精简键（id/task_id/step_index/success/timestamp）+ task_name/task_type
+          + parameters_preview/error_preview（200 字符截断，对齐本地 substr 语义）；
+        - keyword 对齐本地“任务名称或 task_id”模糊语义：经任务表 keyword 过滤
+          取候选任务（远端任务 keyword 已覆盖 name/description/id）；
+        - total_success/total_failed 按 success 过滤前全集聚合（对齐本地口径）；
+        - TODO(db-to-http): 远端无 join/聚合端点（E6），任务量大时为 O(任务数)
+          次调用；task_name/task_type 在非 keyword 路径对页内条目逐条补齐。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
 
+        task_info: dict[str, dict[str, Any]] = {}
         if task_id:
             if not self._task_exists(task_id):
                 return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
-            rows = self._results_by_task_ids([task_id])
+            task_ids = [task_id]
+            raw = self.api.param_tasks.get_info_by_id({"id": str(task_id)})
+            if isinstance(raw, dict):
+                task_info[str(task_id)] = dict(raw)
         else:
-            distinct_types = {
-                row.get("task_type")
-                for row in self.iter_pages({}, group="param_tasks")
-                if row.get("task_type")
-            }
-            if not distinct_types:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
-            task_ids = [
-                row["id"]
-                for row in self.iter_pages({"task_types": sorted(distinct_types)}, group="param_tasks")
-            ]
+            if keyword:
+                task_rows = list(self.iter_pages({"keyword": keyword}, group="param_tasks"))
+            else:
+                distinct_types = {
+                    row.get("task_type")
+                    for row in self.iter_pages({}, group="param_tasks")
+                    if row.get("task_type")
+                }
+                task_rows = (
+                    list(self.iter_pages(
+                        {"task_types": sorted(distinct_types)}, group="param_tasks",
+                    ))
+                    if distinct_types else []
+                )
+            task_ids = [row["id"] for row in task_rows]
+            for row in task_rows:
+                task_info[str(row["id"])] = row
             if not task_ids:
                 return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
-            rows = self._results_by_task_ids(task_ids)
 
-        total = len(rows)
+        rows = self._results_by_task_ids(task_ids, order_desc=True)
+        total_success = sum(1 for row in rows if row.get("success"))
+        total_failed = len(rows) - total_success
+        if success is not None:
+            rows = [row for row in rows if bool(row.get("success")) == bool(success)]
+
         start = (current_page - 1) * size
-        items = [
-            {
+        items = []
+        for row in rows[start:start + size]:
+            task_key = str(row.get("task_id"))
+            info = task_info.get(task_key)
+            if info is None:
+                try:
+                    raw = self.api.param_tasks.get_info_by_id({"id": task_key})
+                    info = dict(raw) if isinstance(raw, dict) else {}
+                except RemoteApiNotFoundError:
+                    info = {}
+                task_info[task_key] = info
+            items.append({
                 "id": row.get("id"),
                 "task_id": row.get("task_id"),
                 "step_index": row.get("step_index"),
                 "success": row.get("success"),
                 "timestamp": row.get("timestamp"),
-            }
-            for row in rows[start:start + size]
-        ]
-        return {"items": items, "total": total, "current_page": current_page, "per_page": size}
+                "task_name": info.get("name"),
+                "task_type": info.get("task_type"),
+                "parameters_preview": str(row.get("parameters") or "")[:200],
+                "error_preview": str(row.get("error_message") or "")[:200],
+            })
+        return {
+            "items": items,
+            "total": len(rows),
+            "current_page": current_page,
+            "per_page": size,
+            "total_success": total_success,
+            "total_failed": total_failed,
+        }
 
     def count_by_task_success(self, task_id):
         """{total_success, total_failed}：success 布尔过滤各查一次 total。"""

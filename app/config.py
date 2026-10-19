@@ -98,9 +98,16 @@ class BaseConfig:
     REDIS_URL = ''
     REDIS_NAMESPACE = 'arb:gstask'
     # 远程数据服务凭据与超时（app/remote_api/client.py 统一调用器消费）。
-    # Token 只能来自环境变量/密钥服务，禁止写入源码。
+    # Token 只能来自环境变量/密钥服务，禁止写入源码。STOCK_API_TOKEN 为服务级
+    # 长效凭据（后台任务线程/启动钩子的唯一凭据来源）；它失效（远端 401）时，
+    # 若配置了 STOCK_API_USERNAME/PASSWORD 则由调用器自动重登换新。
     STOCK_API_TOKEN = os.environ.get('STOCK_API_TOKEN', '')
+    STOCK_API_USERNAME = os.environ.get('STOCK_API_USERNAME', '')
+    STOCK_API_PASSWORD = os.environ.get('STOCK_API_PASSWORD', '')
     STOCK_API_TIMEOUT = float(os.environ.get('STOCK_API_TIMEOUT', '10'))
+    # 主站部署在内网（STOCK_BASE_URL 域名解析为私网地址）时置 true，
+    # 放行传输构造期的 SSRF 地址校验（app/remote_api/client.py）。
+    STOCK_BASE_URL_ALLOW_PRIVATE = os.environ.get('STOCK_BASE_URL_ALLOW_PRIVATE', '')
     # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
     # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
     SSO_ENABLED = True
@@ -507,9 +514,13 @@ def init_config():
 
     }
 
+    # db-to-http：存量键从数据层仓储读（http 模式即远端），与运行期同源；
+    # 不再直读本地 SystemConfig 表——纯 http 部署无本地库也可完成播种。
+    from app.repositories import system_config_repository
+
     existing_configs = {
-        row.key: row.description
-        for row in SystemConfig.query.with_entities(SystemConfig.key, SystemConfig.description).all()
+        row["key"]: row.get("description")
+        for row in system_config_repository.list_all()
     }
     for key, item in default_configs.items():
         value = item['value']

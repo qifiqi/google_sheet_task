@@ -15,6 +15,7 @@ from app.repositories.http_backend.base import (
     HttpRepositoryBase,
     RemoteRecord,
     dump_row,
+    orm_entity_payload,
 )
 from app.remote_api import RemoteApiNotFoundError
 from app.adjudication import get_arbiter
@@ -159,52 +160,101 @@ class TaskHttpRepository(HttpRepositoryBase):
         }
 
     def list_paginated_with_statistics(self, page, per_page, task_type=None,
-                                       task_types=None, status=None, keyword=None):
+                                       task_types=None, status=None, keyword=None,
+                                       stock_code=None):
         """任务分页 + 同过滤条件的聚合统计。
 
         统计口径对齐本地 SQL：按状态各查一次 total；pending_started 与
         完成时长本地判读。TODO(db-to-http): 完成时长需扫描全部 completed
         任务（含 config 大字段），任务量上千后应推动远端提供聚合端点。
+
+        stock_code：config JSON 里 "stock_code" 键值前缀匹配（本地 like 语义，
+        兼容 ": " 与 ":" 分隔）。远端无 JSON 内容过滤（TODO E7），给出该参数
+        时整集拉取本地过滤后分页，统计改由同一过滤集本地聚合。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 10, 100), 1)
         list_status = status if (status and status != "all") else None
-        page_result = self._filtered_page(
-            task_type=task_type, task_types=task_types, status=list_status,
-            keyword=keyword, page_index=current_page, page_size=size,
-        )
-        total = page_result["total"]
+        stock_needle = str(stock_code or "").strip().strip('"').replace("%", "")
 
-        same_filter = dict(
-            task_type=task_type, task_types=task_types, keyword=keyword,
-        )
-        completed = self._filtered_page(status="completed", page_size=1, **same_filter)["total"]
-        running = self._filtered_page(status="running", page_size=1, **same_filter)["total"]
-        error = self._filtered_page(status="error", page_size=1, **same_filter)["total"]
+        if stock_needle:
+            rows = self.list_all_filtered(
+                task_type=task_type, task_types=task_types,
+                status=list_status, keyword=keyword or None,
+            )
 
-        # pending 特例：仅统计已开跑（current_step > 0）的待执行任务。
-        pending_started = 0
-        for row in self.list_all_filtered(status="pending"):
-            if int(row.get("current_step") or 0) > 0:
-                pending_started += 1
+            def _stock_match(row):
+                config = row.get("config")
+                value = config.get("stock_code") if isinstance(config, dict) else None
+                return bool(value) and str(value).startswith(stock_needle)
 
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_new = self._filtered_page(
-            created_from=today_start.isoformat(), page_size=1, **same_filter
-        )["total"]
+            rows = [row for row in rows if _stock_match(row)]
+            total = len(rows)
+            start = (current_page - 1) * size
+            page_items = rows[start:start + size]
+            completed = sum(1 for row in rows if row.get("status") == "completed")
+            running = sum(1 for row in rows if row.get("status") == "running")
+            error = sum(1 for row in rows if row.get("status") == "error")
+            pending_started = sum(
+                1 for row in rows
+                if row.get("status") == "pending"
+                and int(row.get("current_step") or 0) > 0
+            )
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_new = 0
+            for row in rows:
+                created = self._parse_dt(row.get("created_at"))
+                if created is not None and created >= today_start:
+                    today_new += 1
+            total_duration_seconds = 0.0
+            duration_count = 0
+            for row in rows:
+                if row.get("status") != "completed":
+                    continue
+                start_time = self._parse_dt(row.get("start_time"))
+                end_time = self._parse_dt(row.get("end_time"))
+                if start_time is None or end_time is None:
+                    continue
+                total_duration_seconds += (end_time - start_time).total_seconds()
+                duration_count += 1
+        else:
+            page_result = self._filtered_page(
+                task_type=task_type, task_types=task_types, status=list_status,
+                keyword=keyword, page_index=current_page, page_size=size,
+            )
+            total = page_result["total"]
+            page_items = page_result["items"]
 
-        total_duration_seconds = 0.0
-        duration_count = 0
-        for row in self.list_all_filtered(status="completed"):
-            start_time = self._parse_dt(row.get("start_time"))
-            end_time = self._parse_dt(row.get("end_time"))
-            if start_time is None or end_time is None:
-                continue
-            total_duration_seconds += (end_time - start_time).total_seconds()
-            duration_count += 1
+            same_filter = dict(
+                task_type=task_type, task_types=task_types, keyword=keyword,
+            )
+            completed = self._filtered_page(status="completed", page_size=1, **same_filter)["total"]
+            running = self._filtered_page(status="running", page_size=1, **same_filter)["total"]
+            error = self._filtered_page(status="error", page_size=1, **same_filter)["total"]
+
+            # pending 特例：仅统计已开跑（current_step > 0）的待执行任务。
+            pending_started = 0
+            for row in self.list_all_filtered(status="pending"):
+                if int(row.get("current_step") or 0) > 0:
+                    pending_started += 1
+
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_new = self._filtered_page(
+                created_from=today_start.isoformat(), page_size=1, **same_filter
+            )["total"]
+
+            total_duration_seconds = 0.0
+            duration_count = 0
+            for row in self.list_all_filtered(status="completed"):
+                start_time = self._parse_dt(row.get("start_time"))
+                end_time = self._parse_dt(row.get("end_time"))
+                if start_time is None or end_time is None:
+                    continue
+                total_duration_seconds += (end_time - start_time).total_seconds()
+                duration_count += 1
 
         return {
-            "items": page_result["items"],
+            "items": page_items,
             "pagination": {
                 "page": current_page,
                 "per_page": size,
@@ -302,6 +352,13 @@ class TaskHttpRepository(HttpRepositoryBase):
         if start_time is not None:
             fields["start_time"] = start_time.isoformat() if hasattr(start_time, "isoformat") else start_time
         return self._conditional_transition(task_id, "pending", fields)
+
+    def list_running_task_entities(self):
+        """running 任务实体（启动期死任务对账；属性访问兼容）。"""
+        return [
+            RemoteRecord(row)
+            for row in self.list_all_filtered(status="running")
+        ]
 
     def list_watchdog_tasks(self, created_cutoff, abandon_prefix, restart_prefix):
         """watchdog 巡检任务集；error_message 前缀判读在本地完成。"""
@@ -454,6 +511,28 @@ class TaskHttpRepository(HttpRepositoryBase):
         return result
 
     # ---- 写 ----
+
+    def add_entity(self, entity, flush=False):
+        """挂起新建实体（model_summary 重建作业消费）：ORM 实体远端落库。
+
+        本地版语义为入会话（flush 可选）；HTTP 版即一次 ModifyOrAdd。
+        应用生成的字符串主键保留直写，None 主键剔除交由远端生成；
+        远端回显 id 时回写到实体。
+        """
+        payload = orm_entity_payload(entity)
+        if payload.get("id") is None:
+            payload.pop("id", None)
+        saved = self.save(dump_row(
+            payload,
+            datetime_fields=self._DT_FIELDS,
+            json_fields=("config",),
+        ))
+        if isinstance(saved, dict) and saved.get("id") is not None and hasattr(entity, "id"):
+            try:
+                entity.id = saved["id"]
+            except AttributeError:
+                pass
+        return entity
 
     def create(self, fields, commit=True):
         return self.save(dump_row(fields, datetime_fields=self._DT_FIELDS, json_fields=("config",)))

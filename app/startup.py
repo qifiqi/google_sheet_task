@@ -361,30 +361,34 @@ def ensure_navigation_menu_schema():
 
 
 def reset_google_sheet_token_occupancy():
-    if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
-        GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
-        db.session.commit()
+    """启动期占用复位：token 使用计数清零。
+
+    db-to-http 迁移后真实占用态在数据层仓储指向的库（http 模式即远端
+    param_google_sheet_tokens），必须经仓储写入，禁读本地陈旧表。
+    """
+    from app.repositories import google_sheet_token_repository
+
+    google_sheet_token_repository.reset_all_usage_counts()
 
 
 def reset_google_sheet_occupancy():
-    from app.models import GoogleSheet
+    """启动期占用复位：清空 Sheet 占用标记（经仓储写真实库，同上）。"""
+    from app.repositories import google_sheet_repository
 
-    if GoogleSheet.query.filter(GoogleSheet.is_in_use == True).count() > 0:
-        GoogleSheet.query.update({'is_in_use': False, 'current_task_id': None}, synchronize_session=False)
-        db.session.commit()
+    google_sheet_repository.clear_all_occupancy()
 
 
 def cleanup_stale_backtest_sheet_run_locks():
-    stale_locks = (
-        BacktestSheetRunLock.query.outerjoin(Task, BacktestSheetRunLock.task_id == Task.id)
-        .filter((Task.id.is_(None)) | (Task.status != 'running'))
-        .all()
-    )
-    if not stale_locks:
-        return
-    for lock in stale_locks:
-        db.session.delete(lock)
-    db.session.commit()
+    """启动期清理陈旧 per-sheet 运行锁（经仓储写真实库，同上）。"""
+    from app.repositories import backtest_repository, task_repository
+
+    def _task_running(task_id):
+        if not task_id:
+            return False
+        task = task_repository.get(task_id)
+        return bool(task) and task.get("status") == "running"
+
+    backtest_repository.delete_stale_run_locks(_task_running)
 
 
 def register_shell_context(app):
@@ -676,25 +680,27 @@ def check_and_cleanup_dead_tasks(app):
     ``TaskManager.running_tasks`` 是进程内内存状态；Web 进程重启后必须以数据库
     任务状态为准重新协调，不能继续把这些任务视为仍在执行。
     """
+    from app.repositories import task_repository
     from app.services.task import task_manager
 
     logger = get_logger('startup')
     with app.app_context():
         try:
-            running_tasks = Task.query.filter_by(status='running').all()
-            for task in running_tasks:
+            for task in task_repository.list_running_task_entities():
                 status_check = task_manager.check_local_task_status(task.id)
                 if not status_check.get('can_restart'):
                     continue
-                task.status = 'pending'
-                task.error_message = None
-                task.end_time = None
+                task_repository.update_fields(
+                    task.id,
+                    status='pending',
+                    error_message=None,
+                    end_time=None,
+                )
                 task_manager.add_task_log(
                     task.id,
                     'info',
                     f"应用重启时检测到任务中断，已重置为待启动状态: {status_check.get('restart_reason')}",
                 )
-            db.session.commit()
         except Exception as exc:
             logger.error(f'检查任务状态时出错: {exc}')
 

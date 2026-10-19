@@ -6,9 +6,20 @@ import threading
 import time
 from typing import Any
 
-from app.remote_api import RemoteApiProtocolError, StockApiClient, stock_api
+from app.remote_api import (
+    RemoteApiError,
+    RemoteApiOperationError,
+    RemoteApiProtocolError,
+    StockApiClient,
+    stock_api,
+)
 
 
+# 身份正缓存 TTL：网关每请求校验身份，30 秒内的重复请求不再回源
+# （token 被远端吊销后最多延迟一个 TTL 感知，可接受）。
+_USER_INFO_CACHE_TTL_SECONDS = 30
+# 瞬时失败负缓存 TTL：远端抖动时避免每请求都阻塞至超时压垮 worker。
+_USER_INFO_NEGATIVE_TTL_SECONDS = 5
 _ROLE_LIST_CACHE_TTL_SECONDS = 60
 _MAX_CACHED_TOKENS = 64
 
@@ -27,6 +38,9 @@ class SysUserRepository:
         self.api = api or stock_api
         self._role_list_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}
         self._role_list_lock = threading.Lock()
+        # {token: (stamp, kind, payload)}；kind "ok" 正缓存 / "fail" 瞬时失败负缓存
+        self._user_info_cache: dict[str, tuple[float, str, dict[str, Any] | None]] = {}
+        self._user_info_lock = threading.Lock()
 
     def get_by_id(self, user_id: int | str) -> dict[str, Any] | None:
         """按用户主键读取身份信息（旧网关模式兼容入口）。"""
@@ -39,9 +53,54 @@ class SysUserRepository:
         该端点不接收请求体，凭据只走 ``Token`` 请求头；返回原始身份
         字典（``userid`` / ``username`` / ``last_login_time`` 等），
         响应不是对象时返回 ``None``。
+
+        网关每个请求都经本方法回源校验，故加短 TTL 缓存：成功正缓存
+        30 秒；登录失效（ret_code=401）不缓存、实时抛出；其余远程
+        失败负缓存 5 秒，避免远端抖动时每请求都阻塞至超时。
         """
-        raw = self.api.sys_user.get_user_info(token=token)
-        return dict(raw) if isinstance(raw, dict) else None
+        cache_key = str(token or "")
+        now = time.monotonic()
+        with self._user_info_lock:
+            cached = self._user_info_cache.get(cache_key)
+            if cached is not None:
+                stamp, kind, payload = cached
+                ttl = (
+                    _USER_INFO_CACHE_TTL_SECONDS
+                    if kind == "ok"
+                    else _USER_INFO_NEGATIVE_TTL_SECONDS
+                )
+                if now - stamp < ttl:
+                    if kind == "ok":
+                        return dict(payload or {})
+                    raise RemoteApiError("远程身份服务暂不可用（失败负缓存生效中）")
+                self._user_info_cache.pop(cache_key, None)
+
+        try:
+            raw = self.api.sys_user.get_user_info(token=token)
+        except RemoteApiOperationError:
+            # 登录失效必须实时反映，正负缓存都不落。
+            raise
+        except RemoteApiError:
+            self._write_user_info_cache(cache_key, "fail", None)
+            raise
+        if not isinstance(raw, dict):
+            return None
+        payload = dict(raw)
+        self._write_user_info_cache(cache_key, "ok", payload)
+        return dict(payload)
+
+    def _write_user_info_cache(
+        self,
+        key: str,
+        kind: str,
+        payload: dict[str, Any] | None,
+    ) -> None:
+        """写入身份缓存并限制容量（超限整体清空，身份调用频率低）。"""
+        now = time.monotonic()
+        with self._user_info_lock:
+            if len(self._user_info_cache) >= _MAX_CACHED_TOKENS:
+                self._user_info_cache.clear()
+            self._user_info_cache[key] = (now, kind, payload)
 
     def login(self, username: str, password: str) -> Any:
         """调用远程登录接口；凭据仅透传，不在本层记录日志。
@@ -77,7 +136,7 @@ class SysUserRepository:
         if raw is None:
             rows: list[dict[str, Any]] = []
         elif not isinstance(raw, list):
-            raise SdkProtocolError("远程路由表接口返回格式异常")
+            raise RemoteApiProtocolError("远程路由表接口返回格式异常")
         else:
             rows = [dict(item) for item in raw if isinstance(item, dict)]
 

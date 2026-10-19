@@ -420,3 +420,21 @@ class BacktestRepository(BaseRepository):
         if commit:
             self._commit()
         return deleted
+
+    def delete_stale_run_locks(self, is_task_running, commit=True):
+        """启动期清理陈旧 per-sheet 运行锁；返回删除行数。
+
+        持有任务不存在或非 running 视为陈旧；``is_task_running`` 为
+        task_id → bool 判活回调（经任务仓储判读，避免跨仓储 join 语义
+        在 http 孪生上无法复用）。
+        """
+        stale_locks = [
+            lock
+            for lock in BacktestSheetRunLock.query.all()
+            if not is_task_running(lock.task_id)
+        ]
+        for lock in stale_locks:
+            db.session.delete(lock)
+        if commit and stale_locks:
+            self._commit()
+        return len(stale_locks)

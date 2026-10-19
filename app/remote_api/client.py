@@ -17,17 +17,22 @@ KlineService 通过 ``stock_api`` 单例间接使用）。本模块负责：
 
 from __future__ import annotations
 
+import contextvars
+import ipaddress
 import json
 import logging
 import os
+import socket
 import threading
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
 from app.remote_api.exceptions import (
     RemoteApiConfigError,
+    RemoteApiError,
     RemoteApiNotFoundError,
     RemoteApiOperationError,
     RemoteApiProtocolError,
@@ -35,6 +40,30 @@ from app.remote_api.exceptions import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# 请求域用户 Token：网关校验通过后写入（before_request），统一调用器对
+# token=None 的服务级调用优先采用它——业务数据访问以实际用户身份过主站
+# 按角色鉴权（远端 param_* 接口按 Token 对应角色做 403 鉴权）。任务 worker
+# 线程经 facade 空上下文提交、不继承该值，回退服务级 STOCK_API_TOKEN。
+_REQUEST_USER_TOKEN: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "remote_request_user_token"
+)
+
+
+def set_request_user_token(token: str) -> None:
+    """请求域内登记当前用户 Token（网关 before_request 调用）。"""
+    _REQUEST_USER_TOKEN.set(str(token or "").strip())
+
+
+def clear_request_user_token() -> None:
+    """清除请求域用户 Token（teardown_request 调用，防线程池线程串号）。"""
+    _REQUEST_USER_TOKEN.set("")
+
+
+def get_request_user_token() -> str:
+    """读取请求域用户 Token；未设置时为空串。"""
+    return _REQUEST_USER_TOKEN.get("")
 
 
 def encode_remote_body(payload: Any) -> Any:
@@ -49,6 +78,40 @@ def encode_remote_body(payload: Any) -> Any:
     if isinstance(payload, (list, tuple)):
         return [encode_remote_body(item) for item in payload]
     return payload
+
+
+def _validate_remote_host(base_url: str, *, allow_private: bool = False) -> None:
+    """校验远端基地址 host：默认拒绝环回/私有/保留网段（SSRF 加固）。
+
+    基地址来自运维配置而非用户输入；这里在传输构造期解析 DNS 并逐地址
+    校验，误配 localhost/内网地址时直接失败，而不是静默把 Token 凭据
+    发往受限网段。主站部署在内网（如 stockapi.jaspil.cn → 172.18.x）时，
+    经 ``STOCK_BASE_URL_ALLOW_PRIVATE=true`` 显式放行私网网段。
+    """
+    hostname = urlsplit(base_url).hostname
+    if not hostname:
+        raise RemoteApiConfigError("STOCK_BASE_URL 缺少主机名")
+    if allow_private:
+        return
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise RemoteApiConfigError(f"STOCK_BASE_URL 主机解析失败: {hostname}") from exc
+    for info in addr_infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise RemoteApiConfigError(
+                f"STOCK_BASE_URL 指向受限地址（{hostname} → {ip}），"
+                "拒绝环回/私有/保留网段；内网部署可配置 "
+                "STOCK_BASE_URL_ALLOW_PRIVATE=true 放行"
+            )
 
 
 class RemoteTransport:
@@ -91,14 +154,33 @@ class RemoteTransport:
         headers: dict[str, str] = {}
         if self.token:
             headers["Token"] = self.token
+        resolved_timeout = self.timeout if timeout is None else timeout
+        # 连接超时单独收紧：主站域名存在内网/公网双 A 记录，解析到不可达
+        # 记录时快速失败（读超时仍按配置值）。
+        connect_timeout = min(5.0, resolved_timeout)
         try:
             response = self._session.request(
                 method,
                 f"{self.base_url}{path}",
                 json=dict(payload or {}),
                 headers=headers,
-                timeout=self.timeout if timeout is None else timeout,
+                timeout=(connect_timeout, resolved_timeout),
             )
+        except requests.ConnectTimeout as exc:
+            # 仅对"连接建立超时"重试一次：请求未发出、幂等安全，且新连接会
+            # 重新解析 DNS，有机会换到可达记录。
+            try:
+                response = self._session.request(
+                    method,
+                    f"{self.base_url}{path}",
+                    json=dict(payload or {}),
+                    headers=headers,
+                    timeout=(connect_timeout, resolved_timeout),
+                )
+            except requests.RequestException as retry_exc:
+                raise RemoteApiError(
+                    f"远程数据服务连接失败: {retry_exc}"
+                ) from retry_exc
         except requests.Timeout as exc:
             raise RemoteApiError(f"远程数据服务请求超时: {path}") from exc
         except requests.RequestException as exc:
@@ -147,6 +229,11 @@ class StockApiClient:
         """服务级与各用户 Token 的传输实例按需创建并缓存。"""
         self._transports: dict[str | None, RemoteTransport] = {}
         self._transports_lock = threading.Lock()
+        # 服务级 401 自动重登：thread-local 标志防递归（登录调用自身的 401
+        # 不再触发重登），锁 + 代数计数把并发 401 合并为一次重登。
+        self._service_relogin_lock = threading.Lock()
+        self._service_token_generation = 0
+        self._relogin_tls = threading.local()
         # 控制器分组：与远程 Swagger 控制器一一对应（属性名即仓储层
         # group_name），具体接口函数见各控制器模块。
         from app.remote_api.controllers import bind_controllers
@@ -177,6 +264,10 @@ class StockApiClient:
             raise RemoteApiConfigError(
                 "STOCK_BASE_URL 必须以 http:// 或 https:// 开头"
             )
+        allow_private = str(
+            cls._get_setting("STOCK_BASE_URL_ALLOW_PRIVATE", "") or ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        _validate_remote_host(base_url, allow_private=allow_private)
         try:
             timeout = float(cls._get_setting("STOCK_API_TIMEOUT", 10.0))
         except (TypeError, ValueError) as exc:
@@ -191,6 +282,21 @@ class StockApiClient:
             base_url=base_url,
             timeout=timeout,
         )
+
+    def _effective_token(self, token: str | None) -> str | None:
+        """解析本次调用的实际凭据：显式 token > 请求域用户 token > 服务级。
+
+        重登路径（thread-local 标志内）不采用请求域 token——登录调用必须
+        以服务级凭据形态发出；请求域 token 为空（任务线程/调度器/启动钩子）
+        时回退 ``None`` → ``STOCK_API_TOKEN``（失效时自动重登）。
+        """
+        if token is not None:
+            return token
+        if not getattr(self._relogin_tls, "active", False):
+            request_token = get_request_user_token()
+            if request_token:
+                return request_token
+        return None
 
     def _transport_for(self, token: str | None) -> RemoteTransport:
         """取该 Token 对应的 HTTP 传输，缺失时按集中配置创建。"""
@@ -266,7 +372,8 @@ class StockApiClient:
         # 唯一出站出口统一完成布尔 → 0/1 编码（远端布尔字段以整型承载，
         # JSON true/false 会在远端模型绑定阶段解析失败）。
         body = encode_remote_body(dict(payload or {}))
-        transport = self._transport_for(token)
+        effective_token = self._effective_token(token)
+        transport = self._transport_for(effective_token)
 
         # 所有远程 HTTP 请求都汇集到这里；仅记录字段名，避免日志泄漏
         # Token、收益序列及任务参数等可能很大的敏感请求内容。
@@ -301,6 +408,21 @@ class StockApiClient:
                 path,
                 code,
             )
+            # 服务级凭据失效（后台任务线程无用户上下文，无法像前端那样重新
+            # 登录）：自动重登换新后单次重试，重试仍 401 则原样抛出。
+            if (
+                code == 401
+                and effective_token is None
+                and not getattr(self._relogin_tls, "active", False)
+                and self._try_service_relogin()
+            ):
+                self._relogin_tls.active = True
+                try:
+                    return self.request_with_count(
+                        method, path, payload, token=token, timeout=timeout
+                    )
+                finally:
+                    self._relogin_tls.active = False
             # 远端服务以 409 或稳定错误码标识唯一键冲突，供锁和幂等写入处理。
             if code == 409 or "DUPLICATE_KEY" in message.upper():
                 raise RemoteApiDuplicateKeyError(message, code=code)
@@ -313,3 +435,63 @@ class StockApiClient:
         except (TypeError, ValueError):
             ret_count = None
         return envelope.get("ret_obj", envelope.get("retObj")), ret_count
+
+    # ---- 服务级凭据自动重登 ----
+
+    # 远端登录接口返回 Token 的候选字段名（不同版本字段名不统一，逐一兼容，
+    # 与 token_identity_service._LOGIN_TOKEN_KEYS 同源）。
+    _LOGIN_TOKEN_KEYS = ("token", "Token", "access_token", "jwt")
+
+    def _try_service_relogin(self) -> bool:
+        """服务级调用 401 时用 ``STOCK_API_USERNAME/PASSWORD`` 自动重登换新。
+
+        后台任务线程无用户上下文，服务级 Token 失效后无法人工重登；这里经
+        ``SysUser/Login`` 换新并整体替换 ``None`` 凭据的缓存传输。凭据缺失
+        或重登失败返回 False（沿用原 401 抛错，不给任务线程伪装成功）。
+        登录请求在 thread-local 标志内发出，自身 401 不会递归触发重登；
+        并发 401 经锁 + 代数计数合并为一次重登，其余线程直接复用新传输。
+        """
+        username = str(self._get_setting("STOCK_API_USERNAME", "") or "").strip()
+        password = self._get_setting("STOCK_API_PASSWORD", "") or ""
+        if not username or not password:
+            return False
+        generation = self._service_token_generation
+        with self._service_relogin_lock:
+            if self._service_token_generation != generation:
+                # 其他线程已完成重登：调用方直接以新传输重试即可。
+                return True
+            self._relogin_tls.active = True
+            try:
+                ret_obj = self.sys_user.login(
+                    {"user_name": username, "user_password": password}
+                )
+            except RemoteApiError as exc:
+                logger.warning(
+                    "服务级 Token 自动重登失败: %s: %s",
+                    exc.__class__.__name__,
+                    exc,
+                )
+                return False
+            finally:
+                self._relogin_tls.active = False
+            token = self._extract_login_token(ret_obj)
+            if not token:
+                logger.warning("服务级 Token 自动重登失败: 远端未返回有效 Token")
+                return False
+            with self._transports_lock:
+                self._transports[None] = self._build_transport(token)
+                self._service_token_generation += 1
+            logger.info("服务级 Token 已自动重登换新")
+            return True
+
+    @classmethod
+    def _extract_login_token(cls, ret_obj: Any) -> str:
+        """从登录响应对象提取 Token（兼容纯字符串与多字段名对象形态）。"""
+        if isinstance(ret_obj, str):
+            return ret_obj.strip()
+        if isinstance(ret_obj, Mapping):
+            for key in cls._LOGIN_TOKEN_KEYS:
+                value = ret_obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""

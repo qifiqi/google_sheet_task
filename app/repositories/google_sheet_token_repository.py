@@ -31,6 +31,17 @@ class GoogleSheetTokenRepository(BaseRepository):
             self._commit()
         return updated
 
+    def reset_all_usage_counts(self, commit=True) -> int:
+        """启动期占用复位：全部 token 使用计数清零；返回复位行数。"""
+        updated = (
+            GoogleSheetToken.query
+            .filter(GoogleSheetToken.current_in_use_count != 0)
+            .update({"current_in_use_count": 0}, synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return updated
+
     def list_entities_ordered(self, task_type=None):
         """list_tokens 的实体形态（服务层转 dict）。"""
         query = GoogleSheetToken.query

@@ -213,6 +213,10 @@ class TaskRepository(BaseRepository):
             self._commit()
         return rows_updated
 
+    def list_running_task_entities(self):
+        """running 任务实体（启动期死任务对账；属性访问兼容）。"""
+        return Task.query.filter_by(status="running").all()
+
     def list_watchdog_tasks(self, created_cutoff, abandon_prefix, restart_prefix):
         """watchdog 巡检任务集（创建窗口内 running/error(未放弃)/cancelled(重启中)）。
 

@@ -10,12 +10,12 @@ from app.remote_api import StockApiClient, encode_remote_body
 
 
 class _CaptureTransport:
-    """记录实际请求体并返回成功信封的假传输。"""
+    """记录实际请求体并返回成功信封的假传输（签名对齐 RemoteTransport.request）。"""
 
     def __init__(self):
         self.calls = []
 
-    def request(self, method, path, body):
+    def request(self, method, path, body, timeout=None):
         self.calls.append((method, path, body))
         return {"ret_code": 200, "ret_msg": "ok", "ret_obj": None, "ret_count": 3}
 

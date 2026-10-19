@@ -247,6 +247,12 @@ def authenticate_current_request():
 
     g.current_user = RemoteTokenUser(info)
     g.current_token = token
+    # 请求域登记用户 Token：请求线程内的业务数据调用（仓储 → 远程统一出口）
+    # 以该用户身份过主站按角色鉴权；任务 worker 线程经 facade 空上下文提交
+    # 不继承，仍走服务级凭据。teardown_request 统一清除。
+    from app.remote_api.client import set_request_user_token
+
+    set_request_user_token(token)
     return None
 
 

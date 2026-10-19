@@ -46,6 +46,15 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
                 updated += 1
             return updated
 
+    def reset_all_usage_counts(self, commit=True) -> int:
+        """启动期占用复位：全部 token 使用计数清零；返回复位行数。"""
+        updated = 0
+        for row in self.list_all():
+            if int(row.get("current_in_use_count") or 0) != 0:
+                self.save({**row, "current_in_use_count": 0})
+                updated += 1
+        return updated
+
     def list_entities_ordered(self, task_type=None):
         """list_tokens 的实体形态（服务层转 dict）。
 
@@ -125,8 +134,10 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
         return self.normalize_record(dict(raw)) if isinstance(raw, dict) else None
 
     def get_entity(self, token_id):
-        """实体形态读取（token 占用链属性访问）；HTTP 版即 RemoteRecord。"""
-        return self.get(token_id)
+        """实体形态读取（token 占用链属性访问）；必须返回 RemoteRecord，
+        占用校验链（_assert_token_usage_available 等）按属性访问。"""
+        row = self.get(token_id)
+        return RemoteRecord(row) if row is not None else None
 
     def delete(self, token_id, commit=True):
         try:
