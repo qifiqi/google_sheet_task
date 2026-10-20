@@ -172,20 +172,42 @@ class HttpRepositoryBase:
     def save(self, payload: Mapping[str, Any], timeout: float | None = None) -> dict[str, Any]:
         """调用远端新增/更新接口并标准化返回记录。
 
-        部分远端 ``ModifyOrAdd`` 接口只返回成功信封
-        （``ret_code`` / ``ret_msg`` / ``ret_count``），不携带 ``ret_obj``。
-        此时调用器已经验证写入成功，返回本次提交的数据以兼容调用方。
+        远端 ``ModifyOrAdd`` 的返回形态（2026-10 实测）：
+        - 更新：``ret_obj`` 为空（只回成功信封），返回本次提交数据；
+        - 插入：``ret_obj`` 为**主键字符串**（如 ``"0f88d30c59ea4685..."``），
+          由远端生成 id，回填进返回记录（按仓储的 ``normalize_id`` 规则定类型）；
+        - 部分表仍回完整对象，按对象合并。
+        ``id`` 显式为 ``None`` 时从载荷中剔除（插入不携带 id，交由远端生成）。
         ``timeout`` 按次覆盖单请求超时（秒），仅显式传入时改走带 timeout
         的控制器签名（当前仅 ParamTaskLogs.modify_or_add 支持）。
         """
         api_payload = self.to_api_payload(payload)
+        if api_payload.get("id") is None:
+            api_payload.pop("id", None)
         if timeout is None:
             raw = self._controller().modify_or_add(api_payload)
         else:
             raw = self._controller().modify_or_add(api_payload, timeout=timeout)
         if raw is None:
             return self.normalize_record(api_payload)
+        if isinstance(raw, str):
+            return self.normalize_record(self._with_generated_id(api_payload, raw))
         return self.normalize_record(self._as_mapping(raw, "保存结果"))
+
+    def _with_generated_id(
+        self,
+        api_payload: dict[str, Any],
+        generated_id: str,
+    ) -> dict[str, Any]:
+        """插入回执（主键字符串）回填载荷；按仓储主键规则转换类型。"""
+        value: Any = generated_id.strip()
+        if not value:
+            return api_payload
+        try:
+            value = self.normalize_id(value)
+        except (TypeError, ValueError):
+            pass
+        return {**api_payload, "id": value}
 
     def delete(self, record_id: int | str) -> None:
         """按主键删除远端记录。"""

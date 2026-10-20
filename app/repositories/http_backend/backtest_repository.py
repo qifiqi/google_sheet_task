@@ -511,8 +511,7 @@ class BacktestHttpRepository(HttpRepositoryBase):
     # ---- TaskResultSummaryIndex 写（model_summary 重建作业消费） ----
 
     def add_entity(self, entity, flush=False):
-        """挂起新建汇总索引实体：ORM 实体远端落库，自增主键由远端生成。"""
+        """挂起新建汇总索引实体：ORM 实体远端落库，主键由远端自增生成。"""
         payload = orm_entity_payload(entity)
-        if payload.get("id") is None:
-            payload.pop("id", None)
+        payload.pop("id", None)
         return self.save(dump_row(payload, datetime_fields=_SUMMARY_DT_FIELDS))

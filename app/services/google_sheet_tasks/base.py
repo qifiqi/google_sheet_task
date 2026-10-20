@@ -211,7 +211,14 @@ class BaseGoogleSheetService:
         return timeout_payload
 
     def _task_detail_url(self) -> str:
-        return f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
+        # 对外链接统一走 ding_talk_notifier 的基地址解析（DING_TALK_DETAIL_BASE_URL
+        # > PUBLIC_BASE_URL > BASE_URL），避免各服务硬编码 BASE_URL 导致链接指向内网。
+        from app.utils.ding_talk_notifier import get_external_base_url
+
+        base_url = get_external_base_url()
+        if not base_url:
+            return ''
+        return f"{base_url}/google-sheet/detail?task_id={self.task_id}"
 
     def task_ok_to_dd(self, result):
         payload_result = self.app.notifier.send_task_notification(
@@ -1190,7 +1197,9 @@ class BaseGoogleSheetService:
         try:
             self._log_info("开始初始化Google Sheet连接")
 
-            token_file = config_data.get('token_file', 'data/token.json')
+            # token_file 显式为 None 时（配置被规范化补齐为空键）回退历史默认值，
+            # 避免下游 os.path 报 "expected str ... not NoneType" 的难懂错误。
+            token_file = config_data.get('token_file') or 'data/token.json'
             proxy_url = config_data.get('proxy_url')
 
             sheets = config_data.get('sheets') or []

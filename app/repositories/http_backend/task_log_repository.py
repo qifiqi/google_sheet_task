@@ -102,8 +102,12 @@ class TaskLogHttpRepository(HttpRepositoryBase):
         return self.save(dump_row(log, datetime_fields=self._DT_FIELDS))
 
     def add_entity(self, entity, flush=False):
-        """挂起新建日志实体（model_summary 重建作业消费）：ORM 实体远端落库。"""
+        """挂起新建日志实体（model_summary 重建作业消费）：ORM 实体远端落库。
+
+        日志主键由远端自增，不携带本地 id。
+        """
         payload = orm_entity_payload(entity)
+        payload.pop("id", None)
         payload["message"] = TaskLog.normalize_message(payload.get("message") or "")
         return self.save(dump_row(payload, datetime_fields=self._DT_FIELDS))
 

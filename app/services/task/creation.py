@@ -243,7 +243,9 @@ class TaskCreationMixin:
         created_by_user_id: Optional[int] = None,
     ) -> str:
         """创建新任务。"""
-        task_id = str(uuid.uuid4())
+        # 本地占位 id：仅用于创建前的占用校验与日志上下文；http 数据层模式下
+        # 主键由远端生成（任务插入不携带本地 uuid），最终以返回记录为准。
+        local_task_id = str(uuid.uuid4())
         config = self._normalize_task_config_for_type(task_type, config)
 
         if isinstance(config, dict):
@@ -253,16 +255,16 @@ class TaskCreationMixin:
                 self.validate_backtest_training_sheet(config)
             self.validate_google_sheet_available_for_task(
                 config,
-                task_id,
+                local_task_id,
                 allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
             )
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
-        task_repository.create(
+        created = task_repository.create(
             {
-                "id": task_id,
+                "id": local_task_id,
                 "name": name,
                 "description": description,
                 "task_type": task_type,
@@ -272,6 +274,7 @@ class TaskCreationMixin:
             },
             commit=False,
         )
+        task_id = str((created or {}).get("id") or local_task_id)
 
         if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
             self.ensure_google_sheet_occupancy(task_id, config)
@@ -690,7 +693,7 @@ class TaskCreationMixin:
                 original_config,
             )
 
-            task_repository.create({
+            created = task_repository.create({
                 "id": new_task_id,
                 "name": f"{original_task['name']} (重启)",
                 "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
@@ -699,6 +702,8 @@ class TaskCreationMixin:
                 "status": "pending",
                 "created_by_user_id": original_task["created_by_user_id"],
             })
+            # http 数据层模式主键由远端生成，以返回记录为准（db 模式返回同一 id）。
+            new_task_id = str((created or {}).get("id") or new_task_id)
 
             # original_task 来自 task_repository.get()（dict），取值必须用下标而非属性访问。
             if isinstance(original_config, dict) and original_task["task_type"] not in ("backtest_training", "backtest_multi_product"):

@@ -192,7 +192,9 @@ class GoogleSheetTokenService:
         if not isinstance(config, dict):
             return config
 
-        token_type = config.get("token_type", "file")
+        # 配置经规范化会把缺失键补成 None；None 视为默认 file 形态（API 调用方
+        # 可能不显式携带 token_type）。
+        token_type = config.get("token_type") or "file"
         if token_type != "file":
             return config
 
@@ -218,7 +220,7 @@ class GoogleSheetTokenService:
         if not isinstance(config, dict):
             return
 
-        token_type = config.get("token_type", "file")
+        token_type = config.get("token_type") or "file"
         if token_type != "file":
             return
 

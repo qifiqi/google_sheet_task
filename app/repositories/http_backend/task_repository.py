@@ -516,12 +516,11 @@ class TaskHttpRepository(HttpRepositoryBase):
         """挂起新建实体（model_summary 重建作业消费）：ORM 实体远端落库。
 
         本地版语义为入会话（flush 可选）；HTTP 版即一次 ModifyOrAdd。
-        应用生成的字符串主键保留直写，None 主键剔除交由远端生成；
-        远端回显 id 时回写到实体。
+        任务主键由远端生成（2026-10 契约：不携带本地 uuid 插入，回执为
+        主键字符串），落库后把远端 id 回写到实体，调用方以实体 id 为准。
         """
         payload = orm_entity_payload(entity)
-        if payload.get("id") is None:
-            payload.pop("id", None)
+        payload.pop("id", None)
         saved = self.save(dump_row(
             payload,
             datetime_fields=self._DT_FIELDS,
@@ -535,7 +534,12 @@ class TaskHttpRepository(HttpRepositoryBase):
         return entity
 
     def create(self, fields, commit=True):
-        return self.save(dump_row(fields, datetime_fields=self._DT_FIELDS, json_fields=("config",)))
+        """新建任务：不携带本地生成的主键，id 由远端下发并回填返回记录。"""
+        payload = dict(fields)
+        payload.pop("id", None)
+        return self.save(dump_row(
+            payload, datetime_fields=self._DT_FIELDS, json_fields=("config",),
+        ))
 
     def update_fields(self, task_id, commit=True, **fields):
         """部分字段更新：读全行-合并-写回。

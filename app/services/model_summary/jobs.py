@@ -154,6 +154,9 @@ class SummaryJobMixin:
                 created_by_user_id=created_by_user_id,
             )
             task_repository.add_entity(rebuild_task)
+            # http 数据层模式主键由远端生成，add_entity 已回写到实体；后续日志/
+            # job 索引一律使用落库后的真实 id（db 模式为同一 uuid）。
+            job_id = str(rebuild_task.id or job_id)
             task_log_repository.add_entity(
                 TaskLog(task_id=job_id, level="info", message="索引重建任务已创建")
             )

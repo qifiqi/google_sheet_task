@@ -1,5 +1,11 @@
 # 远端缺陷登记：ParamTasks/ModifyOrAdd 插入分支失败（2026-10-17）
 
+> **2026-10-20 更新：开发实例已修复，线上未部署。**
+> `http://172.18.20.20:7070`（开发实例，与线上共用同一数据库）已按新契约工作：
+> 插入不携带 `id`，`ret_obj` 直接返回 32 位主键字符串（无连字符），
+> `id: null` 也接受。`https://stockapi.jaspil.cn`（线上）仍为旧版本、插入仍失败，
+> 待部署。消费方（本仓）已按新契约改造：任务创建不发送本地 uuid，以返回 id 为准。
+
 ## 现象
 
 `POST https://stockapi.jaspil.cn/api/ParamTasks/ModifyOrAdd`：
@@ -53,6 +59,20 @@ curl -s -X POST 'https://stockapi.jaspil.cn/api/ParamTaskLogs/ModifyOrAdd' \
 | task_type 换其它已存在值（google_sheet_C5） | 操作失败 |
 | id 传 null（由服务端生成） | 内部请求出错 |
 | DTO 层面（Swagger）：所有字段均可空、无 required | — |
+
+## 新插入契约（2026-10-20 起）
+
+```
+POST /api/ParamTasks/ModifyOrAdd
+{"name":"...","task_type":"google_sheet_C7","status":"pending","config":"{}","created_by_user_id":1}
+→ {"ret_code":200,"ret_msg":"请求(或处理)成功","ret_count":0,
+   "ret_obj":"0f88d30c59ea4685948d8fd6b65af1f1"}
+```
+
+- 插入：不携带 `id`（或 `id:null`），`ret_obj` 为主键字符串；
+- 更新：携带既有 `id`，`ret_obj` 为空（仅成功信封）；
+- 本仓 `HttpRepositoryBase.save` 统一处理三种回执（None / 主键字符串 / 完整对象），
+  字符串按仓储 `normalize_id` 规则定类型（数值表转 int，任务表保留字符串）。
 
 ## 需要远端回报
 

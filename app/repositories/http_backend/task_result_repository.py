@@ -449,8 +449,9 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         """TaskResult + TaskResultReturn 写入并回链 return_series_id。
 
         TODO(db-to-http): 远端无跨表事务，两表顺序独立提交，中途失败会留下
-        孤儿收益序列行；return_series_id 通过"写入后按 task_id 倒序回查"
-        取回（同任务并发写入时存在取错行竞态，执行链内同任务串行写入）。
+        孤儿收益序列行；return_series_id 优先取插入回执（远端生成的主键
+        字符串/对象），缺失时按 task_id 倒序回查兜底（同任务并发写入时存在
+        取错行竞态，执行链内同任务串行写入）。
         """
         return_series_id = None
         if return_fields:
@@ -459,8 +460,10 @@ class TaskResultHttpRepository(HttpRepositoryBase):
             )
             if isinstance(saved_return, dict) and saved_return.get("id") is not None:
                 return_series_id = saved_return["id"]
+            elif isinstance(saved_return, str) and saved_return.strip():
+                return_series_id = int(saved_return.strip())
             else:
-                # 远端 ModifyOrAdd 不回显记录：按 id 倒序回查该任务最新一行。
+                # 远端未回显主键：按 id 倒序回查该任务最新一行。
                 page = self.page(
                     {"task_id": return_fields.get("task_id")},
                     page_size=1,
