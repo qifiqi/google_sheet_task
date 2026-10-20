@@ -127,37 +127,6 @@
       marketTypeEl.value = config.market_type || "";
     }
 
-    // 认证方式 / Token
-    var tokenType = config.token_type || "file";
-    var tokenTypeSelect = document.getElementById("edit-token-type");
-    var fileContainer = document.getElementById("edit-token-file-container");
-    var jsonContainer = document.getElementById("edit-token-json-container");
-
-    if (tokenTypeSelect) {
-      tokenTypeSelect.value = tokenType;
-
-      // 绑定切换事件（只绑定一次）
-      if (!tokenTypeSelect._bindedForToggle) {
-        tokenTypeSelect.addEventListener("change", function () {
-          const t = this.value || "file";
-          if (fileContainer)
-            fileContainer.classList.toggle("d-none", t !== "file");
-          if (jsonContainer)
-            jsonContainer.classList.toggle("d-none", t !== "json");
-        });
-        tokenTypeSelect._bindedForToggle = true;
-      }
-    }
-
-    if (fileContainer)
-      fileContainer.classList.toggle("d-none", tokenType !== "file");
-    if (jsonContainer)
-      jsonContainer.classList.toggle("d-none", tokenType !== "json");
-
-    const editTokenFileEl = document.getElementById("edit-token-file");
-    if (editTokenFileEl) {
-      editTokenFileEl.value = config.token_file || "data/token.json";
-    }
     const editProxyUrlEl = document.getElementById("edit-proxy-url");
     if (editProxyUrlEl) {
       editProxyUrlEl.value = config.proxy_url || "";

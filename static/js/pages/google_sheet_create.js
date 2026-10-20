@@ -293,7 +293,7 @@
                 <option value="">\u6b63\u5728\u52a0\u8f7d Token...</option>
             </select>
             <input type="hidden" id="token_file" value="">
-            <div class="input-group">
+            <div class="input-group d-none">
                 <input type="text" class="form-control" id="token_import_path" placeholder="\u8f93\u5165 Token \u6587\u4ef6\u8def\u5f84\u540e\u70b9\u51fb\u5bfc\u5165">
                 <button type="button" class="btn btn-outline-primary" id="import-token-btn">\u5bfc\u5165</button>
             </div>
@@ -309,7 +309,7 @@
                 <option value="">姝ｅ湪鍔犺浇Token...</option>
             </select>
             <input type="hidden" id="token_file" value="">
-            <div class="input-group">
+            <div class="input-group d-none">
                 <input type="text" class="form-control" id="token_import_path" placeholder="杈撳叆Token鏂囦欢璺緞鍚庣偣鍑诲鍏?">
                 <button type="button" class="btn btn-outline-primary" id="import-token-btn">瀵煎叆</button>
             </div>
