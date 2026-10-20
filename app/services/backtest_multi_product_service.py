@@ -775,7 +775,13 @@ class BacktestMultiProductService(BacktestTrainingService):
         return f"{spreadsheet_id}::{sheet_name}"
 
     def _task_detail_url(self) -> str:
-        return f"{current_app.config.get('BASE_URL')}/backtest-multi-product/detail/{self.task_id}"
+        # 对外链接统一走基地址解析（DING_TALK_DETAIL_BASE_URL > PUBLIC_BASE_URL > BASE_URL）。
+        from app.utils.ding_talk_notifier import get_external_base_url
+
+        base_url = get_external_base_url()
+        if not base_url:
+            return ''
+        return f"{base_url}/backtest-multi-product/detail/{self.task_id}"
 
     def execute_task(self):
         try:

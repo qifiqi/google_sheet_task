@@ -3,6 +3,7 @@ from typing import Any, Callable, Optional
 
 from flask import current_app, has_app_context
 
+from app.utils.ding_talk_notifier import resolve_external_base_url
 from app.utils.logger import get_logger
 
 
@@ -43,7 +44,7 @@ def _resolve_task_url(target: Any) -> str:
     if not app:
         return ""
 
-    base_url = app.config.get("BASE_URL", "").rstrip("/")
+    base_url = resolve_external_base_url(app.config)
     task_id = getattr(target, "task_id", "")
     if not base_url or not task_id:
         return ""

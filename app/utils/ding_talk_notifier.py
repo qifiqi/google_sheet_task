@@ -15,6 +15,39 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def resolve_external_base_url(config) -> str:
+    """解析外部通知展示链接使用的对外访问基地址。
+
+    优先级：``DING_TALK_DETAIL_BASE_URL`` > ``PUBLIC_BASE_URL`` > ``BASE_URL``，
+    末尾斜杠统一去掉。该地址只用于生成钉钉 markdown 链接（展示），服务端不会
+    请求它，因此不涉及出站请求与 SSRF；但非 http/https 或缺主机的值会被拒绝，
+    避免把非法 scheme（如 ``javascript:``）写进通知正文。
+    """
+    if config is None:
+        return ''
+    value = (
+        config.get('DING_TALK_DETAIL_BASE_URL')
+        or config.get('PUBLIC_BASE_URL')
+        or config.get('BASE_URL')
+        or ''
+    )
+    text = str(value).strip().rstrip('/')
+    if not text:
+        return ''
+    parsed = urllib.parse.urlsplit(text)
+    if parsed.scheme.lower() not in ('http', 'https') or not parsed.netloc:
+        logger.warning("外部通知基地址不是合法的 http(s) 地址，已忽略: %r", value)
+        return ''
+    return text
+
+
+def get_external_base_url() -> str:
+    """当前应用上下文的对外访问基地址；无上下文时返回空串。"""
+    if not has_app_context():
+        return ''
+    return resolve_external_base_url(current_app.config)
+
+
 class DingTalkNotifier:
     """钉钉机器人通知器。
 
@@ -56,13 +89,7 @@ class DingTalkNotifier:
         if not has_app_context():
             return ''
 
-        config_value = (
-            current_app.config.get('DING_TALK_DETAIL_BASE_URL')
-            or current_app.config.get('PUBLIC_BASE_URL')
-            or current_app.config.get('BASE_URL')
-            or ''
-        )
-        return str(config_value).strip().rstrip('/')
+        return get_external_base_url()
 
     def _build_markdown_text(
         self,

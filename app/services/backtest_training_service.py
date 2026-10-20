@@ -47,7 +47,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     def _task_detail_url(self) -> str:
-        return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
+        # 对外链接统一走基地址解析（DING_TALK_DETAIL_BASE_URL > PUBLIC_BASE_URL > BASE_URL）。
+        from app.utils.ding_talk_notifier import get_external_base_url
+
+        base_url = get_external_base_url()
+        if not base_url:
+            return ''
+        return f"{base_url}/backtest-training/detail/{self.task_id}"
 
     @staticmethod
     def _normalize_market_type(value):
