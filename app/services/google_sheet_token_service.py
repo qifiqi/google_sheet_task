@@ -1,6 +1,5 @@
 from app.utils.json_utils import dumps, loads, JSONDecodeError
 import random
-import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -147,8 +146,6 @@ class GoogleSheetTokenService:
             token = GoogleSheetToken(
                 name=(name or "").strip() or self._build_default_name(),
                 task_type=normalized_task_type,
-                # token_file 已废弃但仍是 NOT NULL + UNIQUE 的兼容列，写入唯一占位值。
-                token_file=f"legacy-token:{uuid.uuid4().hex}",
                 token_context=normalized_context,
                 max_usage_count=max(0, int(max_usage_count or 0)),
                 is_active=True,

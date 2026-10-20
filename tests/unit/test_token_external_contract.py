@@ -22,7 +22,6 @@ class _FakeTokenRepo:
             "id": 1,
             "name": "token-a",
             "task_type": "google_sheet",
-            "token_file": "data/token-1.json",
             "token_context": FULL_CONTEXT,
             "max_usage_count": 2,
             "current_in_use_count": 1,
@@ -56,7 +55,6 @@ def _service(monkeypatch):
     repo = _FakeTokenRepo()
     monkeypatch.setattr(token_service_module, "google_sheet_token_repository", repo)
     service = token_service_module.GoogleSheetTokenService()
-    service.ensure_token_file = lambda token: token.token_file
     return service, repo
 
 

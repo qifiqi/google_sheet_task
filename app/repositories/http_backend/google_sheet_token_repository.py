@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from app.repositories.http_backend.base import (
@@ -92,6 +93,9 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
         远端回显 id 时回写到实体。
         """
         payload = entity.to_dict() if hasattr(entity, "to_dict") else dict(entity)
+        # 本地列已删除；远端表仍保留 NOT NULL + UNIQUE 的兼容列，写入唯一占位值。
+        if not payload.get("token_file"):
+            payload["token_file"] = f"legacy-token:{uuid.uuid4().hex}"
         saved = self.save(dump_row(payload, datetime_fields=self._DT_FIELDS))
         if isinstance(saved, dict) and saved.get("id") is not None and hasattr(entity, "id"):
             try:

@@ -772,7 +772,6 @@ class GoogleSheetToken(db.Model):
         index=True,
         comment="适用任务类型",
     )
-    token_file = db.Column(db.String(500), unique=True, nullable=False, comment="已废弃：兼容列，凭据不再落盘")
     token_context = db.Column(db.Text, nullable=False, comment="Token JSON原文")
     task_usage_count = db.Column(db.Integer, default=0, nullable=False, comment="累计使用次数")
     current_in_use_count = db.Column(db.Integer, default=0, nullable=False, comment="当前占用次数")
@@ -795,7 +794,6 @@ class GoogleSheetToken(db.Model):
             "id": self.id,
             "name": self.name,
             "task_type": self.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value,
-            "token_file": self.token_file,
             "task_usage_count": self.task_usage_count,
             "current_in_use_count": self.current_in_use_count,
             "max_usage_count": self.max_usage_count,

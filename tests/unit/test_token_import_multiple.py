@@ -1,4 +1,4 @@
-"""Token 去文件化后，连续导入多个 Token 不应触发 token_file 唯一冲突。"""
+"""连续导入多个 Token 不应触发兼容列/唯一约束冲突。"""
 import json
 
 from app.services.google_sheet_token_service import GoogleSheetTokenService
