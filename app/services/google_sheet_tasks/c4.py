@@ -127,10 +127,11 @@ class C4Service(BaseGoogleSheetService):
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
 
-            # 检查是否从断点恢复（按组合级别）
-            start_index = task.current_step - 1 if task.current_step >= 1 else 0
-            if start_index < 0:
-                start_index = 0
+            # 检查是否从断点恢复（current_step 为已完成组合数，与 C3/基类语义一致）
+            start_index = self._get_resume_start_index(
+                getattr(task, "current_step", 0),
+                total_combinations,
+            )
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
 
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计

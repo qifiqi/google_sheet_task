@@ -49,25 +49,11 @@ function init(V) {
                 config = normalizeC4Config(config);
                 applySheetsToForm(config.sheets);
 
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
-
                 Biz.formState.setPendingTokenSelection({
                     token_id: config.token_id || '',
-                    token_file: config.token_file || '',
                     token_selection_mode: config.token_selection_mode || ''
                 });
                 Biz.formState.applyPendingTokenSelection();
-
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
-                }
 
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
@@ -369,7 +355,6 @@ function init(V) {
         const requestData = {
             spreadsheet_id: spreadsheetId,
             token_id: tokenType === 'file' ? tokenId : undefined,
-            token_file: tokenType === 'file' ? tokenFile : undefined,
             proxy_url: proxyUrl || undefined
         };
 
@@ -612,22 +597,11 @@ function init(V) {
         applySheetsToForm(normalized.sheets);
 
         // token
-        if (normalized.token_type) {
-            document.getElementById('token_type').value = normalized.token_type;
-            document.getElementById('token_type').dispatchEvent(new Event('change'));
-        }
         Biz.formState.setPendingTokenSelection({
             token_id: normalized.token_id || '',
-            token_file: normalized.token_file || '',
             token_selection_mode: normalized.token_selection_mode || ''
         });
         Biz.formState.applyPendingTokenSelection();
-        if (normalized.token_file) {
-            document.getElementById('token_file').value = normalized.token_file;
-        }
-        if (normalized.token_json) {
-            document.getElementById('token_json').value = normalized.token_json;
-        }
         if (normalized.proxy_url) {
             document.getElementById('proxy_url').value = normalized.proxy_url;
         }
@@ -914,32 +888,11 @@ function init(V) {
         document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
         document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
 
-        // 认证方式选择变化事件
-        document.getElementById('token_type').addEventListener('change', function() {
-            const fileContainer = document.getElementById('token_file_container');
-            const jsonContainer = document.getElementById('token_json_container');
-            if (this.value === 'file') {
-                fileContainer.classList.remove('d-none');
-                jsonContainer.classList.add('d-none');
-                Biz.formState.syncSelectedTokenMeta();
-            } else {
-                fileContainer.classList.add('d-none');
-                jsonContainer.classList.remove('d-none');
-            }
-            debouncedSaveFormData();
-        });
-
         const tokenIdEl = document.getElementById('token_id');
         if (tokenIdEl) {
             tokenIdEl.addEventListener('change', function() {
-                Biz.formState.syncSelectedTokenMeta();
                 debouncedSaveFormData();
             });
-        }
-
-        const importTokenBtn = document.getElementById('import-token-btn');
-        if (importTokenBtn) {
-            importTokenBtn.addEventListener('click', Biz.formState.importGoogleSheetToken);
         }
 
         // 参数输入变化事件
@@ -1257,10 +1210,7 @@ function init(V) {
         }
 
         // 获取Google Sheet配置
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
-        const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
         const isCustomKline = klineSource === 'custom';

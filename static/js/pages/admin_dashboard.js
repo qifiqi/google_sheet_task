@@ -156,8 +156,8 @@
                 <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
-                            <div class="fw-semibold">${task.name}</div>
-                            <div class="small text-muted">${task.task_type}</div>
+                            <div class="fw-semibold">${escapeHtml(task.name)}</div>
+                            <div class="small text-muted">${escapeHtml(task.task_type)}</div>
                         </div>
                         <span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span>
                     </div>
@@ -178,7 +178,7 @@
         tbody.innerHTML = tasks.map(task => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${task.name}</div>
+                    <div class="fw-semibold">${escapeHtml(task.name)}</div>
                     <div class="small text-muted">${task.task_type}</div>
                 </td>
                 <td><span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>

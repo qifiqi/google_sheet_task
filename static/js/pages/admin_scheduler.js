@@ -55,10 +55,10 @@ function renderTasksTable() {
     currentTasks.forEach(task => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${task.id}</td>
-            <td>${task.name}</td>
-            <td>${task.description || '-'}</td>
-            <td><code>${task.cron_expression}</code></td>
+            <td>${escapeHtml(task.id)}</td>
+            <td>${escapeHtml(task.name)}</td>
+            <td>${escapeHtml(task.description || '-')}</td>
+            <td><code>${escapeHtml(task.cron_expression)}</code></td>
             <td><span class="badge bg-info">${getTaskTypeText(task.task_type)}</span></td>
             <td>
                 <span class="badge ${task.is_active ? 'bg-success' : 'bg-secondary'}">

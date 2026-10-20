@@ -16,6 +16,13 @@ class _FakeTokenRepo:
     def list_entities_ordered(self, task_type=None):
         return [RemoteRecord(row) for row in self.rows]
 
+    def list_active_entities(self, task_type=None):
+        return [
+            RemoteRecord(row)
+            for row in self.rows
+            if row.get("is_active")
+        ]
+
     def commit(self):
         pass
 
@@ -26,14 +33,33 @@ class _FakeTokenRepo:
 def _service(monkeypatch, default_token_id=None):
     repo = _FakeTokenRepo(
         [
-            {"id": 1, "name": "first", "task_type": "google_sheet", "is_active": True},
-            {"id": 2, "name": "default", "task_type": "google_sheet", "is_active": True},
+            {
+                "id": 1,
+                "name": "first",
+                "task_type": "google_sheet",
+                "is_active": True,
+                "max_usage_count": 0,
+                "current_in_use_count": 0,
+            },
+            {
+                "id": 2,
+                "name": "default",
+                "task_type": "google_sheet",
+                "is_active": True,
+                "max_usage_count": 0,
+                "current_in_use_count": 0,
+            },
         ]
     )
     monkeypatch.setattr(token_service_module, "google_sheet_token_repository", repo)
     service = token_service_module.GoogleSheetTokenService()
     monkeypatch.setattr(
         service, "_get_default_token_id", lambda: int(default_token_id or 0)
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_live_usage_snapshot",
+        lambda: {"token_usage": {}, "current_total": 0},
     )
     return service
 
@@ -54,12 +80,12 @@ def test_explicit_task_token_beats_default(monkeypatch):
     assert token.id == 1
 
 
-def test_invalid_default_falls_back_to_first_active(monkeypatch):
+def test_invalid_default_falls_back_to_available_token(monkeypatch):
     service = _service(monkeypatch, default_token_id=999)
 
     token = service.resolve_task_token({})
 
-    assert token.id == 1
+    assert token.id in {1, 2}
 
 
 def test_token_json_field_removed_from_task_config_schema():
@@ -76,8 +102,68 @@ class _FakeTaskRepo:
         return self.rows
 
 
+def _service_with_rows(monkeypatch, rows, default_token_id=None, snapshot=None):
+    repo = _FakeTokenRepo(rows)
+    monkeypatch.setattr(token_service_module, "google_sheet_token_repository", repo)
+    service = token_service_module.GoogleSheetTokenService()
+    monkeypatch.setattr(
+        service, "_get_default_token_id", lambda: int(default_token_id or 0)
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_live_usage_snapshot",
+        lambda: snapshot or {"token_usage": {}, "current_total": 0},
+    )
+    return service
+
+
+def test_default_token_at_capacity_falls_back(monkeypatch):
+    service = _service_with_rows(
+        monkeypatch,
+        [
+            {"id": 1, "name": "default", "task_type": "google_sheet", "is_active": True, "max_usage_count": 1},
+            {"id": 2, "name": "spare", "task_type": "google_sheet", "is_active": True, "max_usage_count": 0},
+        ],
+        default_token_id=1,
+        snapshot={"token_usage": {1: 1}, "current_total": 1},
+    )
+
+    token = service.resolve_task_token({})
+
+    assert token.id == 2
+
+
+def test_explicit_inactive_token_is_rejected(monkeypatch):
+    import pytest
+    from app.exceptions import ValidationError
+
+    service = _service_with_rows(
+        monkeypatch,
+        [{"id": 1, "name": "off", "task_type": "google_sheet", "is_active": False}],
+    )
+
+    with pytest.raises(ValidationError):
+        service.resolve_task_token({"token_id": 1})
+
+
+def test_explicit_token_wrong_task_type_is_rejected(monkeypatch):
+    import pytest
+    from app.exceptions import ValidationError
+
+    service = _service_with_rows(
+        monkeypatch,
+        [{"id": 1, "name": "backtest", "task_type": "backtest_training", "is_active": True}],
+    )
+
+    with pytest.raises(ValidationError):
+        service.resolve_task_token(
+            {"token_id": 1, "token_task_type": "google_sheet"}
+        )
+
+
 def test_snapshot_counts_default_token_for_task_without_token_id(monkeypatch):
-    service = _service(monkeypatch, default_token_id=2)
+    service = token_service_module.GoogleSheetTokenService()
+    monkeypatch.setattr(service, "_get_default_token_id", lambda: 2)
     monkeypatch.setattr(
         token_service_module,
         "task_repository",

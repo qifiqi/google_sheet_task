@@ -146,6 +146,9 @@ class RedisArbiter:
         batch = []
         try:
             for key in client.scan_iter(match=f"{self.namespace}:*", count=200):
+                # 运行态键 {ns}:rt:* 由启动对账负责，锁清理不得误删。
+                if ":rt:" in key:
+                    continue
                 batch.append(key)
                 if len(batch) >= 200:
                     deleted += client.delete(*batch)

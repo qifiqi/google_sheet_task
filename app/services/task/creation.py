@@ -167,6 +167,24 @@ def _hydrate_stock_name_from_metadata(config: dict[str, Any]) -> dict[str, Any]:
     return hydrated
 
 
+_C31_SHEET_META_KEYS = frozenset(
+    {"spreadsheet_id", "sheet_name", "title", "sort_n", "year_n"}
+)
+
+
+def _build_c31_child_sheet(sheet, spreadsheet_id, sheet_name, sheet_title):
+    """C31 per-sheet → C3 child sheet；保留列映射等扩展键，剔除 C31 排序元数据。"""
+    payload = {
+        key: value
+        for key, value in sheet.items()
+        if key not in _C31_SHEET_META_KEYS
+    }
+    payload["spreadsheet_id"] = spreadsheet_id
+    payload["sheet_name"] = sheet_name or "data"
+    payload["title"] = sheet_title or ""
+    return payload
+
+
 class TaskCreationMixin:
     """封装任务创建、批量拆分与配置更新。"""
 
@@ -475,12 +493,14 @@ class TaskCreationMixin:
                     child_config = dict(shared_config)
                     child_config.update(
                         {
-                            # 统一 Sheet 引用形态：C3 子任务 sheets 恰好 1 个元素
-                            "sheets": [{
-                                "spreadsheet_id": spreadsheet_id,
-                                "sheet_name": sheet_name or "data",
-                                "title": sheet_title or "",
-                            }],
+                            # 统一 Sheet 引用形态：C3 子任务 sheets 恰好 1 个元素；
+                            # 保留 per-sheet 扩展键（列映射等），只剔除 C31 排序元数据。
+                            "sheets": [_build_c31_child_sheet(
+                                sheet,
+                                spreadsheet_id,
+                                sheet_name,
+                                sheet_title,
+                            )],
                             "stock_code": stock_code,
                             "stock_name": stock_name,
                             "market_type": stock_market_type,

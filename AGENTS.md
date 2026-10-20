@@ -84,7 +84,8 @@ Get-Content .\run.py -Encoding UTF8
 - **K线字段命名**（全项目统一英文 schema）：内部行用 `open/high/low/close/volume/amount/vwap` + `stock_date/stock_code/stock_name`；推送远程的 wire 字段（`stock_open/stock_max/...`）保持不变，翻译在 `KlineService.read/write_internal_kline_data`。`price_mode → 价格字段` 唯一入口 `kline_service.get_kline_price_field()`；取价序列统一 `build_price_rows()`。C4 固定按市场取价（A股 open、美股 close）。
 - **结果载荷**：C5/C7 指标/analyze 透传字段以 `app/services/result_payload.py` 规格表为准，新增指标只改规格表。注意历史键名升级：模型指标键以规格表为准（如索提诺/超额夏普曾被旧键名坑过）。
 - **运行期中间态**：进度/日志/取消/心跳在 `app/services/task/runtime_state.py`（Redis 主存、内存降级），任务结束回灌 DB；`Task.status` 仍是里程碑事实源。
-- **Token**：唯一来源是 `GoogleSheetToken` 表的 `token_context`；不读文件、不接受内联 JSON。解析顺序：任务 `token_id` → SystemConfig `default_token_id` → 首个可用 Token。外部 API 只返回脱敏预览，内部 `get_entity()` 取全量。
+- **Token**：唯一来源是 `GoogleSheetToken` 表的 `token_context`；不读文件、不接受内联 JSON。解析顺序：任务 `token_id` → SystemConfig `default_token_id` → 最低占用可用 Token；默认 Token 满额/失效/类型不符时自动回退。外部 API 只返回脱敏预览，内部 `get_entity()` 取全量。
+- **内部命令**：钉钉微服务不再持有 `TaskManager`；重启/取消经 `POST /api/internal/task-command` + `X-Internal-Secret` 转发给 Web 进程。`INTERNAL_COMMAND_SECRET` 留空时端点 404，钉钉侧返回明确错误。
 - **看门狗** `task_watchdog.py`：代码保留但**未启动**；自动重启与 pending 唤醒暂缓（见“当前暂缓”）。不要把失败任务的可恢复性寄托在它身上。
 
 ## 网络链路
@@ -101,7 +102,8 @@ Get-Content .\run.py -Encoding UTF8
 - **负缓存**：绕过 `set_config` 直接 ORM 插入的配置行本进程可能读不到；写配置必须走 `set_config`/`update_configs` 或写后 `refresh_cache()`。
 - `get_all_configs()` 读缓存（全量字典拷贝），不要在任务参数循环内反复调用；管理端强一致显式传 `force_refresh=True`。
 - key 含 `token/secret/password/credential/apikey` 的值日志自动打码，新增敏感配置沿用命名约定。
-- `default_token_id` 是任务未显式选择 Token 时的默认 Token；留空则取首个可用 Token。
+- `default_token_id` 是任务未显式选择 Token 时的默认 Token；留空/满额/失效时回退最低占用可用 Token。
+- 配置全量加载失败后有 5 秒退避，故障期间 `get_config` 返回默认值，不再逐次触发全量远端拉取。
 
 ## 双前端
 

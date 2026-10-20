@@ -195,3 +195,15 @@ def test_cross_thread_mutual_exclusion():
     # 任意时刻只有一个线程在临界区内：in/out 严格成对相邻
     for i in range(0, len(order), 2):
         assert order[i].endswith(":in") and order[i + 1] == order[i].replace(":in", ":out")
+
+
+def test_namespace_reset_preserves_runtime_state_keys():
+    fake = FakeRedis()
+    fake.data["arb:gstask:task:1:state"] = "lock"
+    fake.data["arb:gstask:rt:task-1:state"] = "runtime"
+    arb = _arbiter(fake, namespace="arb:gstask")
+
+    arb.namespace_reset()
+
+    assert "arb:gstask:task:1:state" not in fake.data
+    assert fake.data["arb:gstask:rt:task-1:state"] == "runtime"

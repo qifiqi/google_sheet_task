@@ -2,6 +2,7 @@
 # 其余序列化统一走 app.utils.json_utils。
 import json
 import threading
+import time
 from typing import Any, Dict, Iterable
 
 from app.exceptions import BadRequestError
@@ -15,6 +16,9 @@ logger = get_logger(__name__)
 # 负缓存哨兵：标记"数据库中确认不存在"的 key，避免每次 get 都重复查库。
 # 哨兵只存在于进程内缓存，永远不会写入数据库或对外返回。
 _MISSING = object()
+
+# 远端配置全量加载失败后的退避窗口：避免故障期间每次 get 都触发全量拉取。
+_LOAD_RETRY_SECONDS = 5.0
 
 # 值里包含这些关键字的配置项，日志中打码，防止敏感信息进入日志文件。
 _SENSITIVE_KEY_HINTS = ('token', 'secret', 'password', 'credential', 'apikey')
@@ -149,6 +153,7 @@ class ConfigManager:
         self._cache: Dict[str, Any] = {}
         # _loaded 区分"库里确实没有配置"和"还没加载过"，避免空库时每次 get 都全表查询
         self._loaded = False
+        self._load_failed_at = 0.0
         self._lock = threading.RLock()
         self._app = None
 
@@ -183,14 +188,21 @@ class ConfigManager:
                     cache[row["key"]] = _deserialize_config_value(row["value"])
                 self._cache = cache
                 self._loaded = True
+                self._load_failed_at = 0.0
                 logger.debug(f"加载了 {len(rows)} 个配置项")
         except Exception as e:
+            self._load_failed_at = time.monotonic()
             logger.error(f"加载配置失败: {str(e)}")
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """获取配置值"""
         with self._lock:
             if not self._loaded:
+                if (
+                    self._load_failed_at
+                    and time.monotonic() - self._load_failed_at < _LOAD_RETRY_SECONDS
+                ):
+                    return default
                 self._load_configs()
 
             if key in self._cache:
@@ -222,7 +234,13 @@ class ConfigManager:
         """获取所有配置；force_refresh=True 时强制从数据库重新加载"""
         with self._lock:
             if force_refresh or not self._loaded:
-                self._load_configs()
+                in_backoff = (
+                    not force_refresh
+                    and self._load_failed_at
+                    and time.monotonic() - self._load_failed_at < _LOAD_RETRY_SECONDS
+                )
+                if not in_backoff:
+                    self._load_configs()
             return {k: v for k, v in self._cache.items() if v is not _MISSING}
 
     def get_cache_snapshot(self) -> Dict[str, Any]:

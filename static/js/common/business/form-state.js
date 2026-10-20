@@ -30,39 +30,17 @@
     }
   }
 
-  function syncSelectedTokenMeta() {
-    const tokenTypeEl = document.getElementById("token_type");
-    const tokenIdEl = document.getElementById("token_id");
-    const tokenFileEl = document.getElementById("token_file");
-    if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
-      return;
-    }
-
-    if (tokenTypeEl.value !== "file") {
-      tokenFileEl.value = "";
-      return;
-    }
-
-    const selected = googleSheetTokens.find(
-      (token) => String(token.id) === String(tokenIdEl.value),
-    );
-    tokenFileEl.value = selected ? selected.token_file || "" : "";
-  }
-
   function applyPendingTokenSelection() {
     if (!pendingTokenSelection) {
-      syncSelectedTokenMeta();
       return;
     }
 
     const tokenIdEl = document.getElementById("token_id");
-    const tokenFileEl = document.getElementById("token_file");
-    if (!tokenIdEl || !tokenFileEl) {
+    if (!tokenIdEl) {
       return;
     }
 
     const tokenId = pendingTokenSelection.token_id;
-    const tokenFile = pendingTokenSelection.token_file;
     let matchedValue = "";
 
     if (
@@ -72,13 +50,6 @@
       )
     ) {
       matchedValue = String(tokenId);
-    } else if (tokenFile) {
-      const matchedToken = googleSheetTokens.find(
-        (token) => token.token_file === tokenFile,
-      );
-      if (matchedToken) {
-        matchedValue = String(matchedToken.id);
-      }
     }
 
     if (
@@ -91,8 +62,6 @@
     if (matchedValue) {
       tokenIdEl.value = matchedValue;
     }
-    tokenFileEl.value = tokenFile || "";
-    syncSelectedTokenMeta();
   }
 
   function renderGoogleSheetTokenOptions(tokens) {
@@ -137,31 +106,6 @@
           tokenIdEl.innerHTML = '<option value="">加载Token失败</option>';
         }
         console.error("加载Google Sheet Token失败:", error);
-      });
-  }
-
-  function importGoogleSheetToken() {
-    const input = document.getElementById("token_import_path");
-    const tokenFile = input ? input.value.trim() : "";
-    if (!tokenFile) {
-      showNotification("请输入Token文件路径", "warning");
-      return;
-    }
-
-    Api.endpoints.googleSheet
-      .importToken({ token_file: tokenFile })
-      .then((data) => {
-        showNotification(data.message || "Token导入成功", "success");
-        pendingTokenSelection = {
-          token_id: data.token && data.token.id ? String(data.token.id) : "",
-        };
-        loadGoogleSheetTokens();
-        if (input) {
-          input.value = "";
-        }
-      })
-      .catch((error) => {
-        showNotification(`导入Token失败: ${error.message}`, "error");
       });
   }
 
@@ -298,12 +242,10 @@
 
   Biz.formState = {
     showError: showError,
-    syncSelectedTokenMeta: syncSelectedTokenMeta,
     applyPendingTokenSelection: applyPendingTokenSelection,
     setPendingTokenSelection: setPendingTokenSelection,
     renderGoogleSheetTokenOptions: renderGoogleSheetTokenOptions,
     loadGoogleSheetTokens: loadGoogleSheetTokens,
-    importGoogleSheetToken: importGoogleSheetToken,
     applyDateRangeModes: applyDateRangeModes,
     initDefaultDatesIfEmpty: initDefaultDatesIfEmpty,
     initProductCodeChipsFromParam1: initProductCodeChipsFromParam1,

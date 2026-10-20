@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -10,9 +11,10 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
+import requests
+
 from app import create_app
 from app.repositories import task_repository
-from app.services.task import task_manager
 
 from ding_stream_service.message_format import build_markdown_message
 
@@ -43,6 +45,52 @@ STOPPED_STATUSES = ["completed", "cancelled", "error",'pending']
 DEFAULT_BATCH_RESTART_LIMIT = 5
 MAX_BATCH_RESTART_LIMIT = 20
 LIST_CACHE_TTL_SECONDS = 600
+
+
+def _task_field(task, key):
+    if isinstance(task, dict):
+        return task.get(key)
+    return getattr(task, key, None)
+
+
+def _internal_command(action, task_id, resume_from_checkpoint=True):
+    """调用 Web 进程内部命令端点；钉钉进程不再直接执行任务。"""
+    base_url = (os.getenv("BASE_URL") or "http://localhost:5000").rstrip("/")
+    secret = (os.getenv("INTERNAL_COMMAND_SECRET") or "").strip()
+    if not secret:
+        return {
+            "status": "error",
+            "message": "未配置 INTERNAL_COMMAND_SECRET，无法远程执行任务命令",
+        }
+    try:
+        response = requests.post(
+            f"{base_url}/api/internal/task-command",
+            json={
+                "action": action,
+                "task_id": task_id,
+                "resume_from_checkpoint": bool(resume_from_checkpoint),
+            },
+            headers={"X-Internal-Secret": secret},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return {"status": "error", "message": f"Web 内部命令请求失败: {exc}"}
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return {
+            "status": "error",
+            "message": f"Web 内部命令返回非 JSON（HTTP {response.status_code}）",
+        }
+    if response.status_code >= 400 or payload.get("status") != "success":
+        return {
+            "status": "error",
+            "message": payload.get("message")
+            or f"Web 内部命令失败（HTTP {response.status_code}）",
+        }
+    data = payload.get("data") or {}
+    return {"status": "success", **data}
 
 
 @dataclass(frozen=True)
@@ -236,19 +284,20 @@ class TaskCommandService:
             )
             results = []
             for task in tasks:
-                task_id = task.id
-                task_name = task.name
-                task_type = task.task_type
-                original_status = task.status
+                task_id = _task_field(task, "id")
+                task_name = _task_field(task, "name")
+                task_type = _task_field(task, "task_type")
+                original_status = _task_field(task, "status")
                 logger.info(
                     "钉钉组合指令重启异常任务: task_id=%s task_name=%s type=%s",
                     task_id,
                     task_name,
                     task_type,
                 )
-                restart_result = task_manager.restart_task(
+                restart_result = _internal_command(
+                    "restart",
                     task_id,
-                    resume_from_checkpoint=command.resume_from_checkpoint,
+                    command.resume_from_checkpoint,
                 )
                 logger.info(
                     "异常任务重启结果: task_id=%s restart_status=%s message=%s",
@@ -279,13 +328,23 @@ class TaskCommandService:
     def list_tasks(self, command: ParsedListCommand) -> dict:
         app = self._get_app()
         with app.app_context():
-            query = Task.query
-            if command.status_group == "running":
-                query = query.filter(Task.status == "running")
-            else:
-                query = query.filter(Task.status.in_(STOPPED_STATUSES))
+            statuses = ["running"] if command.status_group == "running" else STOPPED_STATUSES
+            fetch_limit = max(command.page * command.per_page, command.per_page)
+            total = 0
+            rows = []
+            for status in statuses:
+                total += int(task_repository.count_by_status(status) or 0)
+                rows.extend(task_repository.list_by_status_ordered(status, fetch_limit) or [])
 
-            total = query.count()
+            rows.sort(
+                key=lambda item: (
+                    str(_task_field(item, "updated_at") or ""),
+                    str(_task_field(item, "created_at") or ""),
+                ),
+                reverse=True,
+            )
+            start = (command.page - 1) * command.per_page
+            page_rows = rows[start:start + command.per_page]
             logger.info(
                 "查询任务列表: status_group=%s page=%s per_page=%s total=%s",
                 command.status_group,
@@ -293,25 +352,19 @@ class TaskCommandService:
                 command.per_page,
                 total,
             )
-            tasks = (
-                query.order_by(Task.updated_at.desc(), Task.created_at.desc())
-                .offset((command.page - 1) * command.per_page)
-                .limit(command.per_page)
-                .all()
-            )
             return {
                 "status": "success",
                 "total": total,
                 "tasks": [
                     {
-                        "id": task.id,
-                        "name": task.name,
-                        "status": task.status,
-                        "task_type": task.task_type,
-                        "current_step": task.current_step,
-                        "total_steps": task.total_steps,
+                        "id": _task_field(task, "id"),
+                        "name": _task_field(task, "name"),
+                        "status": _task_field(task, "status"),
+                        "task_type": _task_field(task, "task_type"),
+                        "current_step": _task_field(task, "current_step"),
+                        "total_steps": _task_field(task, "total_steps"),
                     }
-                    for task in tasks
+                    for task in page_rows
                 ],
             }
 
@@ -331,10 +384,10 @@ class TaskCommandService:
                 )
                 return {"status": "error", "message": error_message}
 
-            task_id = task.id
-            task_name = task.name
-            task_status = task.status
-            task_type = task.task_type
+            task_id = _task_field(task, "id")
+            task_name = _task_field(task, "name")
+            task_status = _task_field(task, "status")
+            task_type = _task_field(task, "task_type")
             logger.info(
                 "钉钉指令触发任务断点重启: task_id=%s task_name=%s status=%s type=%s",
                 task_id,
@@ -343,9 +396,10 @@ class TaskCommandService:
                 task_type,
             )
 
-            result = task_manager.restart_task(
+            result = _internal_command(
+                "restart",
                 task_id,
-                resume_from_checkpoint=command.resume_from_checkpoint,
+                command.resume_from_checkpoint,
             )
             logger.info(
                 "单任务重启结果: task_id=%s restart_status=%s message=%s",

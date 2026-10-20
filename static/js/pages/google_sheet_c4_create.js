@@ -81,19 +81,6 @@ if (versionParam && versionParam !== 'c4') {
                     });
                 }
                 
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
-                
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-                
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
-                }
-                
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
@@ -172,9 +159,7 @@ if (versionParam && versionParam !== 'c4') {
 
         const spreadsheetInput = spreadsheetInputEl.value;
         const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
         if (!spreadsheetId) {
@@ -199,8 +184,7 @@ if (versionParam && versionParam !== 'c4') {
         // 准备请求数据
         const requestData = {
             spreadsheet_id: spreadsheetId,
-            token_id: tokenType === 'file' ? tokenId : undefined,
-            token_file: tokenType === 'file' ? tokenFile : undefined,
+            token_id: tokenId || undefined,
             proxy_url: proxyUrl || undefined
         };
 
@@ -337,8 +321,7 @@ if (versionParam && versionParam !== 'c4') {
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'custom_sheet_name',
-            'token_import_path', 'token_json', 'proxy_url'
+            'task_name', 'task_description', 'custom_sheet_name', 'proxy_url'
         ];
         
         inputFields.forEach(function(fieldId) {
@@ -435,22 +418,11 @@ if (versionParam && versionParam !== 'c4') {
                         }
                     });
                 }
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
                 Biz.formState.setPendingTokenSelection({
                     token_id: config.token_id || '',
-                    token_file: config.token_file || '',
                     token_selection_mode: config.token_selection_mode || ''
                 });
                 Biz.formState.applyPendingTokenSelection();
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
-                }
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
@@ -574,32 +546,11 @@ if (versionParam && versionParam !== 'c4') {
             debouncedSaveFormData();
         });
 
-        // 认证方式选择变化事件
-        document.getElementById('token_type').addEventListener('change', function() {
-            const fileContainer = document.getElementById('token_file_container');
-            const jsonContainer = document.getElementById('token_json_container');
-            if (this.value === 'file') {
-                fileContainer.classList.remove('d-none');
-                jsonContainer.classList.add('d-none');
-                Biz.formState.syncSelectedTokenMeta();
-            } else {
-                fileContainer.classList.add('d-none');
-                jsonContainer.classList.remove('d-none');
-            }
-            debouncedSaveFormData();
-        });
-
         const tokenIdEl = document.getElementById('token_id');
         if (tokenIdEl) {
             tokenIdEl.addEventListener('change', function() {
-                Biz.formState.syncSelectedTokenMeta();
                 debouncedSaveFormData();
             });
-        }
-
-        const importTokenBtn = document.getElementById('import-token-btn');
-        if (importTokenBtn) {
-            importTokenBtn.addEventListener('click', Biz.formState.importGoogleSheetToken);
         }
 
         // 参数输入变化事件
@@ -641,7 +592,7 @@ if (versionParam && versionParam !== 'c4') {
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
+            'spreadsheet', 'custom_sheet_name', 'proxy_url',
             'start_date', 'end_date'
         ];
         
@@ -908,10 +859,7 @@ if (versionParam && versionParam !== 'c4') {
         const sheetNameSelect = document.getElementById('sheet_name').value;
         const customSheetName = document.getElementById('custom_sheet_name').value;
         const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
-        const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
         const marketType = document.getElementById('market_type')?.value || 'cn';
@@ -931,13 +879,8 @@ if (versionParam && versionParam !== 'c4') {
             return;
         }
         
-        if (tokenType === 'file' && !tokenId) {
+        if (!tokenId) {
             showNotification('请选择Token', 'error');
-            return;
-        }
-        
-        if (tokenType === 'json' && !tokenJson) {
-            showNotification('请输入Token JSON字符串', 'error');
             return;
         }
         
@@ -1008,10 +951,7 @@ if (versionParam && versionParam !== 'c4') {
 
         // 构造任务配置（C4 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
         const taskConfig = {
-            token_type: tokenType,
-            token_id: tokenType === 'file' ? tokenId : null,
-            token_file: tokenFile,
-            token_json: tokenJson,
+            token_id: tokenId || null,
             proxy_url: proxyUrl || null,
             count_mode: countMode,
             market_type: marketType,
@@ -1090,10 +1030,7 @@ if (versionParam && versionParam !== 'c4') {
             spreadsheet_title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
             custom_sheet_name: document.getElementById('custom_sheet_name').value,
-            token_type: document.getElementById('token_type').value,
             token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
-            token_file: document.getElementById('token_file').value,
-            token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
@@ -1127,12 +1064,9 @@ if (versionParam && versionParam !== 'c4') {
                     sheetSelect.setAttribute('data-saved-value', formData.sheet_name);
                 }
                 if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
-                if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
-                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id, token_file: formData.token_file || '' });
+                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id });
                 }
-                if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
-                if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
                 const param1El = document.getElementById('param1');
                 if (formData.param1 && param1El) param1El.value = formData.param1;
@@ -1153,7 +1087,6 @@ if (versionParam && versionParam !== 'c4') {
                 
                 // 触发相关事件以更新UI状态
                 document.getElementById('sheet_name').dispatchEvent(new Event('change'));
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
                 Biz.formState.initProductCodeChipsFromParam1();
                 
                 console.log('表单数据已恢复');
@@ -1192,10 +1125,7 @@ if (versionParam && versionParam !== 'c4') {
             const sheetNameSelect = document.getElementById('sheet_name').value;
             const customSheetName = document.getElementById('custom_sheet_name').value;
             const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
-            const tokenType = document.getElementById('token_type').value;
             const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-            const tokenFile = document.getElementById('token_file').value;
-            const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const marketType = document.getElementById('market_type')?.value || 'cn';
@@ -1214,13 +1144,8 @@ if (versionParam && versionParam !== 'c4') {
                 return null;
             }
 
-            if (tokenType === 'file' && !tokenId) {
+            if (!tokenId) {
                 Biz.formState.showError('请选择Token');
-                return null;
-            }
-
-            if (tokenType === 'json' && !tokenJson) {
-                Biz.formState.showError('请输入Token JSON字符串');
                 return null;
             }
 
@@ -1280,10 +1205,7 @@ if (versionParam && versionParam !== 'c4') {
             // 构造配置对象（C4 专用结构）
             return {
                 task_type: 'google_sheet_C4',
-                token_type: tokenType,
-                token_id: tokenType === 'file' ? tokenId : null,
-                token_file: tokenFile,
-                token_json: tokenJson,
+                token_id: tokenId || null,
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
                 market_type: marketType,
@@ -1330,10 +1252,7 @@ if (versionParam && versionParam !== 'c4') {
             market_type: raw.market_type || 'cn',
             kline_adjustment: raw.kline_adjustment || 'forward',
             kline_data_source: raw.kline_data_source || 'akshare',
-            token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
-            token_file: raw.token_file || 'data/token.json',
-            token_json: raw.token_json || '',
             proxy_url: raw.proxy_url || null,
             parameters: Array.isArray(raw.parameters) ? raw.parameters : [[]],
             sheets: sheets
@@ -1400,23 +1319,11 @@ if (versionParam && versionParam !== 'c4') {
                     }
                 });
             }
-            if (restartConfig.token_type) {
-                document.getElementById('token_type').value = restartConfig.token_type;
-                // 触发change事件来显示对应的输入框
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
-            }
             Biz.formState.setPendingTokenSelection({
                 token_id: restartConfig.token_id || '',
-                token_file: restartConfig.token_file || '',
                 token_selection_mode: restartConfig.token_selection_mode || ''
             });
             Biz.formState.applyPendingTokenSelection();
-            if (restartConfig.token_file) {
-                document.getElementById('token_file').value = restartConfig.token_file;
-            }
-            if (restartConfig.token_json) {
-                document.getElementById('token_json').value = restartConfig.token_json;
-            }
             if (restartConfig.proxy_url) {
                 document.getElementById('proxy_url').value = restartConfig.proxy_url;
             }

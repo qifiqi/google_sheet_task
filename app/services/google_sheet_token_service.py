@@ -226,14 +226,23 @@ class GoogleSheetTokenService:
     def resolve_task_token(self, config: Dict[str, Any]):
         """任务执行期解析 Token：优先 token_id；旧配置无 token_id 时取首个可用 Token。"""
         data = config if isinstance(config, dict) else {}
+        task_type = self._normalize_token_task_type(data.get("token_task_type"))
         token_id = data.get("token_id")
         if token_id:
             token = google_sheet_token_repository.get_entity(int(token_id))
             if not token:
                 raise ValidationError("任务配置的 Token 不存在")
+            actual_task_type = (
+                getattr(token, "task_type", None)
+                or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+            )
+            if not bool(getattr(token, "is_active", False)):
+                raise ValidationError(f"Token [{token.name}] 已被禁用")
+            if task_type and actual_task_type != task_type:
+                raise ValidationError(f"Token [{token.name}] 不适用于当前任务类型")
             return token
 
-        task_type = self._normalize_token_task_type(data.get("token_task_type"))
+        snapshot = self._build_live_usage_snapshot()
         default_token_id = self._get_default_token_id()
         if default_token_id:
             token = google_sheet_token_repository.get_entity(int(default_token_id))
@@ -245,17 +254,20 @@ class GoogleSheetTokenService:
             if token and bool(getattr(token, "is_active", False)) and (
                 not task_type or actual_task_type == task_type
             ):
-                return token
-            logger.warning("默认 Token 不可用（id=%s），回退首个可用 Token", default_token_id)
+                current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
+                max_usage = int(getattr(token, "max_usage_count", 0) or 0)
+                if max_usage <= 0 or current_in_use < max_usage:
+                    return token
+                logger.warning(
+                    "默认 Token 已达占用上限（id=%s, %s/%s），回退可用 Token",
+                    default_token_id,
+                    current_in_use,
+                    max_usage,
+                )
+            else:
+                logger.warning("默认 Token 不可用（id=%s），回退可用 Token", default_token_id)
 
-        tokens = [
-            token
-            for token in google_sheet_token_repository.list_entities_ordered(task_type)
-            if bool(getattr(token, "is_active", False))
-        ]
-        if not tokens:
-            raise ValidationError("任务未配置 Token，且没有可用 Token，请先导入并启用 Token")
-        return tokens[0]
+        return self._pick_random_available_token(snapshot=snapshot, task_type=task_type)
 
     def prepare_task_config(self, config: Dict[str, Any]):
         if not isinstance(config, dict):
@@ -383,15 +395,15 @@ class GoogleSheetTokenService:
         tokens = sorted(
             tokens,
             key=lambda token: (
-                int(token.current_in_use_count or 0),
-                int(token.task_usage_count or 0),
-                int(token.id or 0),
+                int(getattr(token, "current_in_use_count", 0) or 0),
+                int(getattr(token, "task_usage_count", 0) or 0),
+                int(getattr(token, "id", 0) or 0),
             ),
         )
         available = []
         for token in tokens:
             current_in_use = int(token_usage.get(int(token.id), 0))
-            max_usage = int(token.max_usage_count or 0)
+            max_usage = int(getattr(token, "max_usage_count", 0) or 0)
             if max_usage <= 0 or current_in_use < max_usage:
                 available.append((token, current_in_use))
         if not available:

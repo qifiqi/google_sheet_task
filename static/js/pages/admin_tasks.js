@@ -197,10 +197,10 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         tbody.innerHTML = pageTasks.map(task => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${task.name}</div>
-                    <div class="small text-muted">${task.id.slice(0, 8)}...</div>
+                    <div class="fw-semibold">${escapeHtml(task.name)}</div>
+                    <div class="small text-muted">${escapeHtml(task.id.slice(0, 8))}...</div>
                 </td>
-                <td><span class="badge bg-info">${task.task_type}</span></td>
+                <td><span class="badge bg-info">${escapeHtml(task.task_type)}</span></td>
                 <td><span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
                 <td>${getStopBadge(task)}</td>
                 <td>${extractParameterGroupCount(task.config)}</td>

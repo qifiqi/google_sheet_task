@@ -175,11 +175,11 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
             row.innerHTML = `
                 <td>
                     <div class="fw-bold">
-                        ${task.name}
+                        ${escapeHtml(task.name)}
                         <span class="badge ${typeBadgeClass} ms-1">${typeLabel}</span>
                     </div>
                     ${tokenName ? `<div><small class="text-muted">Token: ${escapeHtml(tokenName)}</small></div>` : ''}
-                    ${task.description ? `<small class="text-muted">${task.description}</small>` : ''}
+                    ${task.description ? `<small class="text-muted">${escapeHtml(task.description)}</small>` : ''}
                 </td>
                 <td><span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
                 <td>${task.current_step}/${task.total_steps}</td>

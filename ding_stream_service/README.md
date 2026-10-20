@@ -1,6 +1,6 @@
 # DingTalk Stream 微服务
 
-这是当前项目内的独立微服务，不挂载到 Flask `run.py`，用于接收钉钉机器人消息并执行任务运维指令（查询/断点重启任务等）。
+这是当前项目内的独立微服务，不挂载到 Flask `run.py`，用于接收钉钉机器人消息并转译任务运维指令（查询/断点重启等）。**任务执行只发生在 Web 进程**：钉钉进程不持有 `TaskManager`，重启/取消经 Web 内部命令端点完成。
 
 ## 入口
 
@@ -24,7 +24,7 @@
 | `main.py` | 入口：日志、参数解析（`--client-id/--client-secret` 可覆盖 env）、注册回调处理器、`client.start_forever()` |
 | `settings.py` | `DingStreamSettings.from_env()`：读取 `.env` + `.env.{APP_ENV}`（后者 override）中的 `DING_STREAM_CLIENT_ID` / `DING_STREAM_CLIENT_SECRET` |
 | `handler.py` | `DingStreamEventHandler`：处理 `/v1.0/im/bot/messages/get` 事件，经 sessionWebhook 回复 markdown |
-| `task_commands.py` | 任务指令解析与执行：懒加载 `create_app()` 后查询/重启任务，带会话级列表缓存（10 分钟 TTL） |
+| `task_commands.py` | 任务指令解析：懒加载 `create_app()` 查询任务；重启/取消经 Web 内部命令端点转发；带会话级列表缓存（10 分钟 TTL） |
 | `message_format.py` | markdown 回复消息拼装 |
 
 ## 配置
@@ -53,6 +53,12 @@ DING_STREAM_CLIENT_SECRET=
 
 任务重启指令默认使用断点恢复。任务名必须精确匹配且唯一；如果名称重复，请使用任务 ID。
 `重启异常任务` 会批量断点重启最近的 `error` 任务，默认 5 个，单次最多 20 个。
+
+## 与 Web 的任务执行边界
+
+- 钉钉进程**不再直接执行任务**；重启/取消通过 `POST {BASE_URL}/api/internal/task-command`，请求头携带 `X-Internal-Secret`。
+- Web 与钉钉进程必须配置同一个 `INTERNAL_COMMAND_SECRET`；Web 侧留空时该端点返回 404。
+- `BASE_URL` 指向 Web 服务（容器内例如 `http://app:5000`）。未配置 secret 时，重启指令会返回明确错误，不会在钉钉进程内启动任务。
 
 当前钉钉告警 markdown 可直接作为输入的一部分，例如：
 

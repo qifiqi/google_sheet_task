@@ -32,6 +32,7 @@ def register_blueprints(app):
     # 恢复本地登录/SSO 时取消注释。
     # from app.routes.sso import sso_bp
     from app.routes.export_api import export_api_bp
+    from app.routes.internal_api import internal_api_bp
 
     # 页面蓝图（前缀在各蓝图内定义，与历史 URL 保持一致）
     app.register_blueprint(auth_pages_bp)
@@ -66,3 +67,4 @@ def register_blueprints(app):
     app.register_blueprint(legacy_identity_bp, url_prefix='/api')
     # app.register_blueprint(sso_bp, url_prefix='/api')
     app.register_blueprint(export_api_bp, url_prefix='/api/exports')
+    app.register_blueprint(internal_api_bp, url_prefix='/api/internal')

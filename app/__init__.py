@@ -88,6 +88,8 @@ def create_app():
             # 登录页/前端启动所需的公共静态配置：无鉴权可读（与本地模式一致）。
             '/api/meta/versions',
             '/api/meta/enums',
+            # 兄弟进程内部命令：路由内校验 X-Internal-Secret，不走用户 Token。
+            '/api/internal/task-command',
         }:
             return None
         auth_error = authenticate_current_request()
