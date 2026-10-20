@@ -9,7 +9,8 @@ from typing import Any, Dict
 import pandas as pd
 
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_client import GoogleSheet
+from app.services.google_sheet_client import GoogleSheet, build_google_credentials
+from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.utils.logger import get_logger
 from app.utils.value_parser import _convert_pandas_to_native
 
@@ -61,11 +62,11 @@ class GoogleSheetAnalysisMixin:
         """初始化Google Sheet连接"""
         try:
             config_data = get_config_manager().get_all_configs()
-            token_file = config_data.get('token_file',
-                                         r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json')
+            token = get_google_sheet_token_service().resolve_task_token({})
+            credentials = build_google_credentials(token.token_context)
             proxy_url = config_data.get('proxy_url', None)
 
-            google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url)
+            google_sheet = GoogleSheet(spreadsheet_id, sheet_name, credentials, proxy_url)
             if not google_sheet.worksheet:
                 raise Exception("请先选择工作表")
             return google_sheet

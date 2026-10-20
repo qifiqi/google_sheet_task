@@ -7,7 +7,6 @@ from app.schemas.common import APIModel
 
 class TokenImportSchema(APIModel):
     token_context: str | None = None
-    token_file: str | None = None
     name: str | None = None
     task_type: str | None = None
     max_usage_count: int | None = None
@@ -25,6 +24,7 @@ class WorksheetsQuerySchema(APIModel):
     """POST /api/google-sheets/worksheets。"""
 
     spreadsheet_id: str = ""
+    token_id: int | None = None
     proxy_url: str | None = None
 
 

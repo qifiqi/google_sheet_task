@@ -70,8 +70,6 @@ class TokenRefFields(BaseModel):
 
     token_type: str | None = None
     token_id: str | int | None = None
-    token_file: str | None = None
-    token_json: str | None = None
     token_name: str | None = None
     token_selection_mode: str | None = None
     token_task_type: str | None = None
@@ -237,6 +235,6 @@ def validate_task_config_shape(task_type: str, config: dict[str, Any]) -> dict[s
     if model_cls is None:
         return config
     validated = model_cls.model_validate(config)
-    # exclude_none：可空公共段字段（exchange_market/token_json 等）未提供时不落
+    # exclude_none：可空公共段字段（exchange_market 等）未提供时不落
     # 显式 null，避免 config 堆积误导性空键；读取方一律 .get()，无键存在性依赖。
     return validated.model_dump(mode="json", exclude_none=True)

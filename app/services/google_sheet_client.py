@@ -2,31 +2,59 @@ import time
 from typing import Optional
 
 import gspread
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from gspread.utils import a1_to_rowcol, rowcol_to_a1
 import functools
 
 from gspread import Cell
+from app.utils.json_utils import JSONDecodeError, loads
 from app.utils.logger import get_logger
 from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error
 
 logger = get_logger(__name__)
 
+GOOGLE_SHEET_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+
+def build_google_credentials(token_context, scopes=None):
+    """从 Token JSON 构造内存凭据；支持 OAuth 用户与服务账号两种类型。"""
+    if not token_context:
+        raise ValueError("Google Token 内容为空")
+    if isinstance(token_context, dict):
+        info = dict(token_context)
+    else:
+        try:
+            info = loads(str(token_context))
+        except JSONDecodeError as exc:
+            raise ValueError("Google Token 不是有效 JSON") from exc
+    if not isinstance(info, dict):
+        raise ValueError("Google Token 必须是 JSON 对象")
+
+    resolved_scopes = scopes or GOOGLE_SHEET_SCOPES
+    if info.get("type") == "service_account" or info.get("private_key"):
+        return service_account.Credentials.from_service_account_info(
+            info, scopes=resolved_scopes
+        )
+    try:
+        return Credentials.from_authorized_user_info(info, scopes=resolved_scopes)
+    except ValueError as exc:
+        raise ValueError(f"Google Token 凭据无效: {exc}") from exc
+
 
 class GoogleSheet:
     """Google Sheet客户端类"""
 
-    def __init__(self, spreadsheet_id, sheet_name=None, token_file="data/token.json", proxy_url=None, task_id: Optional[str] = None):
+    def __init__(self, spreadsheet_id, sheet_name=None, credentials=None, proxy_url=None, task_id: Optional[str] = None):
         """
         初始化Google Sheet连接
 
         Args:
             spreadsheet_id: 电子表格ID
             sheet_name: 工作表名称，如果不提供则不会选择具体工作表
-            token_file: 认证文件路径
+            credentials: google.oauth2 凭据对象（内存构造，不落盘）
             proxy_url: 代理URL
         """
-        SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
         self.client = None
         self.sheet = None
         self.spreadsheet_id = spreadsheet_id
@@ -36,16 +64,15 @@ class GoogleSheet:
         self._last_reconnect_exception = None
         # 保存初始化参数，用于重新连接
         self._sheet_name = sheet_name
-        self._token_file = token_file
+        self._credentials = credentials
         self._proxy_url = proxy_url
-        self._SCOPES = SCOPES
 
         try:
             self._connect_and_select_worksheet()
         except Exception as e:
             logger.error(
                 f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}\n"
-                f"连接参数 - Spreadsheet ID: {self.spreadsheet_id}, Sheet: {self._sheet_name}, Token: {self._token_file}"
+                f"连接参数 - Spreadsheet ID: {self.spreadsheet_id}, Sheet: {self._sheet_name}"
             )
             if is_retryable_network_error(e):
                 raise RetryableNetworkTaskError(f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}") from e
@@ -84,8 +111,9 @@ class GoogleSheet:
             raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
 
     def _connect_and_select_worksheet(self):
-        creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
-        self.client = gspread.authorize(credentials=creds)
+        if self._credentials is None:
+            raise ValueError("Google 凭据未提供")
+        self.client = gspread.authorize(credentials=self._credentials)
 
         self._apply_proxy_settings()
 
@@ -503,9 +531,10 @@ class GoogleSheet:
             logger.info(f"{self._log_ctx()}尝试重新连接Google Sheet")
             # 先关闭旧连接
             self.close()
-            # 重新加载凭证
-            creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
-            self.client = gspread.authorize(credentials=creds)
+            # 复用内存凭据；Credentials 会在 access_token 过期时自动刷新
+            if self._credentials is None:
+                raise ValueError("Google 凭据未提供")
+            self.client = gspread.authorize(credentials=self._credentials)
 
             self._apply_proxy_settings()
 

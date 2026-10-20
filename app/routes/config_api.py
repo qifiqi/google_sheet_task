@@ -1,7 +1,7 @@
 """配置管理 API。
 
 配置读取/更新经 config_manager（缓存与负缓存刷新语义留在该层）。
-写端点仅限管理员；受保护键（JWT_SECRET_KEY/proxy_url/token_file 等）
+写端点仅限管理员；受保护键（JWT_SECRET_KEY/proxy_url 等）
 由 config_manager 统一拒绝；所有把配置值下发到响应的路径必须脱敏。
 """
 from flask import Blueprint

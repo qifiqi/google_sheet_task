@@ -158,11 +158,6 @@
     if (editTokenFileEl) {
       editTokenFileEl.value = config.token_file || "data/token.json";
     }
-    const editTokenJsonEl = document.getElementById("edit-token-json");
-    if (editTokenJsonEl) {
-      editTokenJsonEl.value = config.token_json || "";
-    }
-
     const editProxyUrlEl = document.getElementById("edit-proxy-url");
     if (editProxyUrlEl) {
       editProxyUrlEl.value = config.proxy_url || "";

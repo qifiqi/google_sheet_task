@@ -32,10 +32,9 @@ def get_worksheets():
         raise BadRequestError("缺少spreadsheet_id参数")
 
     spreadsheet_id = data.spreadsheet_id
-    token_file = 'data/token.json'
     proxy_url = data.proxy_url
 
-    result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
+    result = get_worksheets_with_cache(spreadsheet_id, data.token_id, proxy_url)
     return success(data=result)
 
 
@@ -138,7 +137,6 @@ def google_sheet_token_detail(token_id):
 def import_google_sheet_token():
     """Add or import a Google Sheet token"""
     data = parse_body(TokenImportSchema)
-    token_file = (data.token_file or '').strip()
     token_context = data.token_context
     name = (data.name or '').strip() or None
     task_type = data.task_type
@@ -146,7 +144,6 @@ def import_google_sheet_token():
 
     token, created = get_google_sheet_token_service().import_token(
         token_context=token_context,
-        token_file=token_file,
         name=name,
         max_usage_count=max_usage_count,
         task_type=task_type,

@@ -1,7 +1,7 @@
 """安全整改回归：配置接口收权与 JWT 密钥 fail-closed（2026-10 安全审计）。
 
 覆盖点：
-- 受保护配置键（JWT_SECRET_KEY/proxy_url/token_file/SECRET_KEY）禁止经
+- 受保护配置键（JWT_SECRET_KEY/proxy_url/SECRET_KEY）禁止经
   /api/config POST 与 /system-configs PUT 的服务层写入路径更新；
 - 生产环境 JWT_SECRET_KEY 环境变量未设置时不再拒绝启动（运行期回退
   进程内随机密钥），启动校验仅告警；显式等于公开默认常量仍拒绝启动。
@@ -26,7 +26,7 @@ class TestProtectedConfigKeys:
 
     def test_update_config_row_rejects_protected_value(self):
         with pytest.raises(BadRequestError, match="受保护配置"):
-            ConfigManager().update_config_row("token_file", {"value": "/etc/passwd"})
+            ConfigManager().update_config_row("proxy_url", {"value": "http://evil.example"})
 
     def test_every_protected_key_is_blocked(self):
         for key in PROTECTED_CONFIG_KEYS:

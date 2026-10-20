@@ -197,6 +197,7 @@ class TaskCreationMixin:
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
             )
             normalized.pop("token_file", None)
+            normalized.pop("token_json", None)
             # 顶层 price_mode/kline_data_source 仅单品回测是生效值；多品生效值在
             # products[]（执行器产品级优先），顶层不合成默认值，避免详情页读到假配置。
             if task_type == "backtest_training":

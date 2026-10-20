@@ -12,7 +12,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.repositories import task_log_repository, task_repository, task_result_repository
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_client import GoogleSheet
+from app.services.google_sheet_client import GoogleSheet, build_google_credentials
+from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -1201,9 +1202,8 @@ class BaseGoogleSheetService:
         try:
             self._log_info("开始初始化Google Sheet连接")
 
-            # token_file 显式为 None 时（配置被规范化补齐为空键）回退历史默认值，
-            # 避免下游 os.path 报 "expected str ... not NoneType" 的难懂错误。
-            token_file = config_data.get('token_file') or 'data/token.json'
+            token = get_google_sheet_token_service().resolve_task_token(config_data)
+            credentials = build_google_credentials(token.token_context)
             proxy_url = config_data.get('proxy_url')
 
             sheets = config_data.get('sheets') or []
@@ -1212,7 +1212,9 @@ class BaseGoogleSheetService:
                 self._log_error(error_msg)
                 raise ValueError(error_msg)
 
-            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
+            self._log_info(f"连接参数 - sheets: {sheets}, Token: {token.name}")
+            if not config_data.get('token_id'):
+                self._log_info(f"任务未配置 token_id，使用默认 Token: {token.name}")
             if proxy_url:
                 self._log_info(f"使用代理: {proxy_url}")
 
@@ -1223,7 +1225,7 @@ class BaseGoogleSheetService:
                 google_sheet = GoogleSheet(
                     spreadsheet_id,
                     sheet_name,
-                    token_file,
+                    credentials,
                     proxy_url,
                     task_id=self.task_id,
                 )
@@ -1244,12 +1246,12 @@ class BaseGoogleSheetService:
     @staticmethod
     def get_worksheets(
         spreadsheet_id: str,
-        token_file: str = "data/token.json",
+        credentials,
         proxy_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """获取指定电子表格的标题和工作表列表。"""
         try:
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
+            with GoogleSheet(spreadsheet_id, None, credentials, proxy_url) as google_sheet:
                 worksheets = google_sheet.get_all_worksheets()
                 if not worksheets:
                     raise ValidationError("未找到任何工作表")

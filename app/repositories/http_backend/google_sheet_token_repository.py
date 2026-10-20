@@ -86,7 +86,7 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
         return [RemoteRecord(row) for row in rows if row.get("is_active")]
 
     def add_entity(self, entity, flush=True):
-        """挂起新建实体（导入流程先 flush 取 id 再补 token_file）。
+        """挂起新建实体（导入流程使用）。
 
         HTTP 版接受 ORM 实体或 dict：ORM 实体经 to_dict 序列化后远端写入，
         远端回显 id 时回写到实体。

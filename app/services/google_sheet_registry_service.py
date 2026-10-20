@@ -135,9 +135,14 @@ _WORKSHEETS_CACHE_TTL = 5 * 24 * 60 * 60
 _worksheets_logger = get_logger(__name__)
 
 
-def get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: str | None):
+def get_worksheets_with_cache(spreadsheet_id: str, token_id=None, proxy_url: str | None = None):
     """带 TTL 缓存获取 worksheet 列表（进程内，写入失败仅告警不中断）。"""
-    cache_key = (spreadsheet_id, token_file, proxy_url or "")
+    from app.services.google_sheet_client import build_google_credentials
+    from app.services.google_sheet_token_service import get_google_sheet_token_service
+
+    token = get_google_sheet_token_service().resolve_task_token({"token_id": token_id})
+    credentials = build_google_credentials(token.token_context)
+    cache_key = (spreadsheet_id, int(token.id), proxy_url or "")
     now = _time.time()
     cached = _WORKSHEETS_CACHE.get(cache_key)
     if cached:
@@ -150,7 +155,7 @@ def get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: s
                 "cached": True,
             }
 
-    data = _C3Service.get_worksheets(spreadsheet_id, token_file, proxy_url)
+    data = _C3Service.get_worksheets(spreadsheet_id, credentials, proxy_url)
     try:
         _WORKSHEETS_CACHE[cache_key] = (now, data)
     except Exception as e:

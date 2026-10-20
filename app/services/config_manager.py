@@ -23,7 +23,7 @@ _SENSITIVE_KEY_HINTS = ('token', 'secret', 'password', 'credential', 'apikey')
 # （/api/config POST 与 /system-configs PUT 一并拦截）。这些键只能由运维
 # 经环境变量或服务端脚本（set_config）设置，防止篡改 JWT 签名密钥、
 # 或把平台 Google Sheet 流量导向外部代理（凭据窃取面）。
-PROTECTED_CONFIG_KEYS = ('JWT_SECRET_KEY', 'SECRET_KEY', 'proxy_url', 'token_file')
+PROTECTED_CONFIG_KEYS = ('JWT_SECRET_KEY', 'SECRET_KEY', 'proxy_url')
 
 
 def assert_keys_writable(keys: Iterable[Any]) -> None:

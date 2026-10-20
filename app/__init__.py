@@ -10,12 +10,14 @@ from app.env_loader import load_app_environment
 load_app_environment()
 
 from app.extensions import db, limiter, migrate
-from app.routes import register_blueprints
-from app.utils.auth import is_auth_enabled, validate_auth_runtime_settings
-from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
 def create_app():
+    # 路由/鉴权/通知器延迟到 env 加载后导入，确保仓储按正确的 DATA_ACCESS_MODE 绑定。
+    from app.routes import register_blueprints
+    from app.utils.auth import is_auth_enabled
+    from app.utils.ding_talk_notifier import DingTalkNotifier
+
     # 本地 JWT 密钥/认证开关校验已随本地登录一并停用（单 Token 子服务
     # 模式不使用本地 JWT_SECRET_KEY）；恢复本地登录时一并取消注释。
     # validate_auth_runtime_settings()

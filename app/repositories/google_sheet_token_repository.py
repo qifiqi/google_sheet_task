@@ -66,7 +66,7 @@ class GoogleSheetTokenRepository(BaseRepository):
         ).all()
 
     def add_entity(self, entity, flush=True):
-        """挂起新建实体（导入流程需先 flush 取 id 再补 token_file）。"""
+        """挂起新建实体（导入流程使用）。"""
         db.session.add(entity)
         if flush:
             db.session.flush()

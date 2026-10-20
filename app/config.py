@@ -217,9 +217,9 @@ def init_config():
             'value': 'data',
             'description': '默认工作表名称。',
         },
-        'token_file': {
-            'value': 'data/token.json',
-            'description': '默认单 token 文件路径；启用 token 池后可被任务级 token_file 覆盖。',
+        'default_token_id': {
+            'value': '',
+            'description': '默认 Google Sheet Token ID；任务未显式选择 Token 时使用，留空则取首个可用 Token。',
         },
         'google_sheet_token_global_max_usage': {
             'value': 0,
