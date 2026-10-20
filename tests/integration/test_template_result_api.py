@@ -51,12 +51,17 @@ def auth_client(app_factory, monkeypatch):
 
 def test_template_crud_envelope(auth_client):
     client, headers = auth_client
+    # 模板 config 现按 task_type 走任务配置结构校验（sheets[] 为必填形态）。
+    template_config = {
+        "task_type": "google_sheet",
+        "sheets": [{"spreadsheet_id": "tpl-sheet"}],
+    }
 
     # CREATE
     resp = client.post(
         "/api/templates",
         headers=headers,
-        json={"name": "tpl-a", "description": "d", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-a", "description": "d", "config": template_config},
     )
     assert resp.status_code == 200
     body = resp.get_json()
@@ -79,7 +84,7 @@ def test_template_crud_envelope(auth_client):
     resp = client.put(
         f"/api/templates/{template_id}",
         headers=headers,
-        json={"name": "tpl-b", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-b", "config": template_config},
     )
     assert resp.get_json()["data"]["template"]["name"] == "tpl-b"
 
