@@ -331,7 +331,10 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
 
         // C4 专用渲染：按 sheets + 汇总信息展示
         const sheets = Array.isArray(config.sheets) ? config.sheets : [];
-        const dateRange = `${config.start_date || '-'} ~ ${config.end_date || '-'}`;
+        const hasKlineDateRange = Boolean(config.start_date || config.end_date);
+        const dateRange = hasKlineDateRange
+            ? `${config.start_date || '-'} ~ ${config.end_date || '-'}`
+            : '未指定';
         const dateRangeModeDisplay = Biz.configEdit.formatDateRangeMode(config.date_range_mode || 'full');
 
         // 工作表列表：每个表一行（表N + ID + 名称）
@@ -379,8 +382,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             {label: '统计方式', value: Biz.configEdit.formatCountMode(config.count_mode || 'total'), icon: 'bi-calculator'},
             {label: '价格类型', value: formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
             {label: '市场类型', value: Biz.configEdit.formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
-            {label: '市场代码', value: config.exchange_market || config.market || '-', icon: 'bi-building'},
-            {label: '数据源', value: config.kline_data_source || config.data_source || '-', icon: 'bi-database'},
+            {label: '市场代码', value: config.exchange_market || config.market || null, icon: 'bi-building'},
+            {label: '数据源', value: Biz.configEdit.formatKlineDataSource(config.kline_data_source || config.data_source), icon: 'bi-database'},
             {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
             {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},
             {label: '移除的近年区间', value: formatExcludedYears(config.exclude_recent_years), icon: 'bi-x-circle'},
@@ -391,7 +394,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             {label: '代理地址', value: config.proxy_url || '-', icon: 'bi-globe'}
         ];
 
-        configItems.forEach(item => {
+        // value 为 null 的行（如 C 系不落库的市场代码）整行隐藏
+        configItems.filter(item => item.value !== null).forEach(item => {
             list.appendChild(Biz.configEdit.createConfigGridItem(item));
         });
 
@@ -1320,30 +1324,11 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     return;
                 }
 
-                // sheets：从多行输入收集
-                const list = document.getElementById('edit-sheets-list');
-                const sheets = [];
-                if (list) {
-                    list.querySelectorAll('.edit-sheet-row').forEach(row => {
-                        const sidEl = row.querySelector('.edit-sheet-spreadsheet-id');
-                        const titleEl = row.querySelector('.edit-sheet-title');
-                        const nameEl = row.querySelector('.edit-sheet-name');
-                        const sid = sidEl ? sidEl.value.trim() : '';
-                        const sname = nameEl ? nameEl.value.trim() : '';
-                        const title = titleEl ? titleEl.value.trim() : '';
-                        if (sid || sname || title) {
-                            const item = {
-                                spreadsheet_id: sid || null,
-                                sheet_name: sname || null
-                            };
-                            if (title) item.title = title;
-                            sheets.push(item);
-                        }
-                    });
-                }
+                // sheets：从多行输入收集（逐表附加键 c7_model_version/google_sheet_id 随行保留）
+                const sheets = Biz.configEdit.collectEditSheetsRows();
 
                 // 其它参数
-                const countMode = document.getElementById('edit-count-mode').value || 'n_plus_1';
+                const countMode = document.getElementById('edit-count-mode').value || 'total';
                 const fullModeEl = document.getElementById('edit-date-range-full');
                 const recentModeEl = document.getElementById('edit-date-range-recent');
                 const dateRangeModeList = [];
@@ -1383,7 +1368,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     start_date: startDate,
                     end_date: endDate,
                     market_type: marketType,
-                    parameters: [params0],
+                    // parameters[0] 以产品代码为准；其余参数组原样保留（打开弹窗时暂存）
+                    parameters: [params0].concat(Biz.configEdit.takeEditExtraParameters()),
                     sheets: sheets,
                     proxy_url: proxyUrl || null,
                     token_type: tokenType,

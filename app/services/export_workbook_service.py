@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -699,7 +699,7 @@ def json_cell(value: Any) -> str:
         return ""
     if isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False, default=str)
+    return dumps(value, ensure_ascii=False, default=str)
 
 
 def format_time(value: Any) -> str:

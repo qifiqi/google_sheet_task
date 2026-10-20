@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 
 from sqlalchemy import event, Text
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -15,8 +15,8 @@ def _json_object_or_empty(raw):
     if not raw:
         return {}
     try:
-        parsed = json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
+        parsed = loads(raw)
+    except (TypeError, JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

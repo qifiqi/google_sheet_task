@@ -69,6 +69,10 @@ def create_app():
     )
     app.config.from_object(config_class)
 
+    # jsonify / request.get_json 统一走 orjson（见 app/utils/json_utils.py）。
+    from app.utils.json_utils import OrjsonJSONProvider
+    app.json = OrjsonJSONProvider(app)
+
     # 默认关闭 sqlalchemy.engine 的 SQL 语句日志，避免运行期日志被大量 SQL 输出淹没。
     # 如需排查数据库问题，可通过 SQLALCHEMY_ENGINE_LOG_ENABLED=true 临时打开。
     sqlalchemy_engine_logger = logging.getLogger("sqlalchemy.engine")

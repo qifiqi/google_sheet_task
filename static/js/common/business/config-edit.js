@@ -6,6 +6,9 @@
 (function () {
   window.Biz = window.Biz || {};
 
+  // 打开弹窗时暂存的 parameters[1..]（保存时原样回写）
+  var originalExtraParameters = [];
+
   function openEditConfigModal() {
     if (!currentTaskData) {
       showNotification("任务数据未加载", "error");
@@ -38,6 +41,12 @@
       : [];
     renderEditProductCodeChips(mainParams);
 
+    // parameters[1..] 本弹窗不提供编辑，打开时暂存，保存时经 takeEditExtraParameters 原样回写
+    //（防止 payload 整体覆盖导致参数组缩水）
+    originalExtraParameters = Array.isArray(config.parameters)
+      ? config.parameters.slice(1)
+      : [];
+
     // 完整 parameters 只读展示
     const paramsRawEl = document.getElementById("edit-parameters-raw");
     if (paramsRawEl) {
@@ -54,10 +63,10 @@
     const sheets = Array.isArray(config.sheets) ? config.sheets : [];
     renderEditSheetsRows(sheets);
 
-    // 更多参数区域
+    // 更多参数区域（缺省对齐 C 系创建页/详情页口径 total）
     const countModeEl = document.getElementById("edit-count-mode");
     if (countModeEl) {
-      countModeEl.value = config.count_mode || "n_plus_1";
+      countModeEl.value = config.count_mode || "total";
     }
 
     const fullModeEl = document.getElementById("edit-date-range-full");
@@ -222,8 +231,64 @@
                     <input type="text" class="form-control form-control-sm edit-sheet-name" value="${s.sheet_name || ""}">
                 </div>
             `;
+      // 逐表附加键（c7_model_version/google_sheet_id 等）不在弹窗编辑，
+      // 随行暂存，collectEditSheetsRows 时回写，避免保存后丢失
+      const extra = {};
+      Object.keys(s || {}).forEach((key) => {
+        if (!["spreadsheet_id", "title", "sheet_name"].includes(key)) {
+          extra[key] = s[key];
+        }
+      });
+      if (Object.keys(extra).length) {
+        row.dataset.extraKeys = JSON.stringify(extra);
+      }
+      if (s && s.c7_model_version) {
+        const badge = document.createElement("span");
+        badge.className = "badge bg-info text-dark ms-1 mb-2";
+        badge.textContent = s.c7_model_version;
+        row.appendChild(badge);
+      }
       list.appendChild(row);
     });
+  }
+
+  // 收集弹窗内 sheets 多行：三个可编辑字段覆盖行内值，逐表附加键原样带回
+  function collectEditSheetsRows() {
+    const list = document.getElementById("edit-sheets-list");
+    const sheets = [];
+    if (!list) return sheets;
+    list.querySelectorAll(".edit-sheet-row").forEach((row) => {
+      const sidEl = row.querySelector(".edit-sheet-spreadsheet-id");
+      const titleEl = row.querySelector(".edit-sheet-title");
+      const nameEl = row.querySelector(".edit-sheet-name");
+      const sid = sidEl ? sidEl.value.trim() : "";
+      const sname = nameEl ? nameEl.value.trim() : "";
+      const title = titleEl ? titleEl.value.trim() : "";
+      if (sid || sname || title) {
+        let extra = {};
+        if (row.dataset.extraKeys) {
+          try {
+            extra = JSON.parse(row.dataset.extraKeys) || {};
+          } catch (e) {
+            extra = {};
+          }
+        }
+        const item = Object.assign({}, extra, {
+          spreadsheet_id: sid || null,
+          sheet_name: sname || null,
+        });
+        if (title) {
+          item.title = title;
+        }
+        sheets.push(item);
+      }
+    });
+    return sheets;
+  }
+
+  // 取回打开弹窗时暂存的 parameters[1..]（每次打开弹窗重新暂存）
+  function takeEditExtraParameters() {
+    return originalExtraParameters.slice();
   }
 
   function collectEditProductCodesFromChips() {
@@ -298,10 +363,24 @@
     });
   }
 
+  // K线数据源标签（与创建页数据源下拉口径一致，database 为内置K线库）
+  function formatKlineDataSource(value) {
+    return formatConfigDisplayValue(value, {
+      akshare: "AKShare",
+      dfcf: "东方财富",
+      qq: "腾讯",
+      yahoo: "Yahoo",
+      tdx: "通达信",
+      database: "内置K线库",
+    });
+  }
+
   Biz.configEdit = {
     openEditConfigModal: openEditConfigModal,
     renderEditProductCodeChips: renderEditProductCodeChips,
     renderEditSheetsRows: renderEditSheetsRows,
+    collectEditSheetsRows: collectEditSheetsRows,
+    takeEditExtraParameters: takeEditExtraParameters,
     collectEditProductCodesFromChips: collectEditProductCodesFromChips,
     createConfigGridItem: createConfigGridItem,
     formatConfigDisplayValue: formatConfigDisplayValue,
@@ -309,5 +388,6 @@
     formatDateRangeMode: formatDateRangeMode,
     formatMarketType: formatMarketType,
     formatTokenType: formatTokenType,
+    formatKlineDataSource: formatKlineDataSource,
   };
 })();

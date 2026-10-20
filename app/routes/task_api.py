@@ -6,7 +6,7 @@
 - 服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
   BadRequestError，待服务层改抛语义异常后移除。
 """
-import json
+from app.utils.json_utils import dumps
 
 from flask import Blueprint, g, request
 
@@ -72,7 +72,7 @@ def tasks():
 def batch_create_tasks():
     """C31 批量创建接口"""
     data = parse_body(TasksBatchCreateSchema).root
-    logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
+    logger.info("C31 batch create request: %s", dumps(data, ensure_ascii=False, default=str))
 
     # 服务层抛 ValidationError（400）/NotFoundError，由全局处理器渲染信封。
     result = task_manager.batch_create_and_start_task(

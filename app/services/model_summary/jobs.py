@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps
 import threading
 import uuid
 from datetime import datetime
@@ -140,7 +140,7 @@ class SummaryJobMixin:
                 description="后台扫描历史 task_results，重建任务/股票汇总查询索引",
                 task_type=extractor.MODEL_SUMMARY_REBUILD_TASK_TYPE,
                 status="pending",
-                config=json.dumps(
+                config=dumps(
                     {
                         "task_type": task_type,
                         "task_id": task_id,

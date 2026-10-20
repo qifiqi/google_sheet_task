@@ -1450,9 +1450,21 @@
                 return;
             }
             
-            // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态
+            // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态；
+            // 首表附加键（google_sheet_id 等）随行保留，仅覆盖三个可编辑字段
+            let originalConfig = {};
+            try {
+                originalConfig = typeof currentTaskData.config === 'string'
+                    ? (JSON.parse(currentTaskData.config) || {})
+                    : (currentTaskData.config || {});
+            } catch (e) {
+                originalConfig = {};
+            }
+            const originalSheets = Array.isArray(originalConfig.sheets) ? originalConfig.sheets : [];
+            const originalFirstSheet = originalSheets[0] || {};
             const config = {
                 sheets: [{
+                    ...originalFirstSheet,
                     spreadsheet_id: spreadsheetId,
                     sheet_name: sheetName,
                     title: sheetTitle || ''

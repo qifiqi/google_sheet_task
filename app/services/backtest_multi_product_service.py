@@ -19,6 +19,7 @@ from app.repositories import backtest_repository, task_repository, task_result_r
 from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
+from app.services.kline_service import KlineService
 from app.services.task.error_handling import (
     format_task_error_message,
     record_task_exception,
@@ -28,6 +29,7 @@ from app.services.task.runtime_state import get_runtime_state_store
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.formatting import max_yearly_repair_days, parse_lenient_json, sanitize_json_value
+from app.utils.json_utils import dumps, loads
 from app.utils.return_series import parse_return_series_fields
 from app.utils.market import (
     infer_market_type,
@@ -90,7 +92,7 @@ def normalize_ratio_display(value: Any) -> str:
 
 
 def _hash_text(value: Any) -> str:
-    raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    raw = value if isinstance(value, str) else dumps(value, sort_keys=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
@@ -177,7 +179,7 @@ def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
     # normalize_multi_product_config 现直接抛 ValidationError（400 语义一致）
     config = normalize_multi_product_config({**config, "products": products})
 
-    task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
+    task_repository.update_fields(task_id, config=dumps(config))
     return config
 
 
@@ -240,6 +242,12 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
                 )
             price_mode = "ohlc_price"
 
+        # 产品级数据源过白名单归一（非法值创建期即 400，不留给执行期取数失败）；
+        # 兜底顺序 产品级 → 顶层遗留值 → akshare，与执行器 _build_product_kline 一致。
+        product_data_source = KlineService.normalize_data_source(
+            product.get("kline_data_source") or config.get("kline_data_source") or "akshare"
+        )
+
         normalized_products.append({
             **product,
             "product_index": index - 1,
@@ -248,7 +256,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "market_type": market_type,
             "price_mode": price_mode,
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
-            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
+            "kline_data_source": product_data_source,
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
             "sheet": sheet,
@@ -383,6 +391,8 @@ def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
         dates.append(item.get("date") or item.get("stock_date"))
         index_returns.append(item.get("index_return"))
         start_returns.append(item.get("start_return"))
+    # NaN/Inf 守卫：allow_nan=False 遇 NaN 抛 ValueError；orjson 会静默序列化为
+    # null，无法等价表达，故保留 stdlib json（见 app/utils/json_utils.py）。
     return json.dumps({
         "dates": dates,
         "index_returns": index_returns,
@@ -496,7 +506,7 @@ def _build_portfolio_metrics(
     calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
         return_date, runtime_params=runtime_params
     )
-    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
+    return loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _build_weighted_product_metrics(
@@ -515,7 +525,7 @@ def _build_weighted_product_metrics(
     calculate_metrics = performance_analyzer.get_calculate_metrics_v1(
         weighted_return_date, runtime_params=runtime_params
     )
-    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
+    return loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
@@ -691,6 +701,8 @@ class BacktestMultiProductService(BacktestTrainingService):
             batch_id,
             cache_key,
             {
+                # NaN/Inf 守卫：allow_nan=False 遇 NaN 抛 ValueError；orjson 会静默序列化
+                # 为 null，无法等价表达，故保留 stdlib json（见 app/utils/json_utils.py）。
                 "result_json": json.dumps(sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
                 "returns_json": _build_returns_json(return_date or []) if return_date else None,
                 "source_task_id": self.task_id,

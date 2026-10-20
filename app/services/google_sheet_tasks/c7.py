@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps
 import re
 from typing import Dict, Any
 
@@ -234,7 +234,7 @@ class C7Service(BaseGoogleSheetService):
             {
                 "stock_code": combination.get("stock_code"),
                 "ml": combination.get("B1"),
-                "kline_range": json.dumps(combination['kline']),
+                "kline_range": dumps(combination['kline']),
             },
         )
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None

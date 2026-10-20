@@ -1,5 +1,8 @@
 import calendar
+# stdlib json 仅保留 allow_nan=False 的 NaN/Inf 守卫用途（orjson 会静默序列化为
+# null，无法等价表达，见 app/utils/json_utils.py）；其余统一走 json_utils。
 import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 import random
 import time
 from typing import Any, Dict, Optional
@@ -88,7 +91,7 @@ class BaseGoogleSheetService:
                 task_config = (
                     self.task.config
                     if isinstance(self.task.config, dict)
-                    else json.loads(self.task.config)
+                    else loads(self.task.config)
                 )
                 stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
             except (TypeError, ValueError):
@@ -119,7 +122,7 @@ class BaseGoogleSheetService:
                 task_config = (
                     self.task.config
                     if isinstance(self.task.config, dict)
-                    else json.loads(self.task.config)
+                    else loads(self.task.config)
                 )
                 if isinstance(task_config, dict):
                     return task_config.get(key)
@@ -302,7 +305,7 @@ class BaseGoogleSheetService:
                 summary[key] = f"<{type(value).__name__}, len={len(value)}>"
             else:
                 summary[key] = value
-        return json.dumps(
+        return dumps(
             sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
@@ -934,8 +937,8 @@ class BaseGoogleSheetService:
                 # 解析配置
                 if isinstance(task.config, str):
                     try:
-                        config_data = json.loads(task.config)
-                    except json.JSONDecodeError as e:
+                        config_data = loads(task.config)
+                    except JSONDecodeError as e:
                         self._log_error(f"配置解析失败: {str(e)}")
                         return 'error'
                 else:
@@ -1039,6 +1042,7 @@ class BaseGoogleSheetService:
             result_fields = {
                 "task_id": self.task_id,
                 "step_index": step_index,
+                # NaN/Inf 守卫：结果落库遇 NaN 抛 ValueError，禁止静默写 null。
                 "parameters": json.dumps(safe_parameters, allow_nan=False),
                 "result": json.dumps(safe_result, allow_nan=False),
                 "success": success,
@@ -1139,7 +1143,7 @@ class BaseGoogleSheetService:
             "bordering": 0,
             "ml": str(config_data.get("ml") or ""),
             "task_index": task_index,
-            "kline_range": json.dumps(config_data.get("kline",[]),ensure_ascii=False),
+            "kline_range": dumps(config_data.get("kline",[]),ensure_ascii=False),
             "return_rate": 0,
             "annualized_rate": 0,
             "maxdd": 0,

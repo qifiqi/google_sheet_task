@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps
 import operator
 import time
 import uuid
@@ -197,14 +197,17 @@ class TaskCreationMixin:
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
             )
             normalized.pop("token_file", None)
-            normalized["price_mode"] = (
-                normalized.get("price_mode")
-                if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
-                else "vwap_price"
-            )
-            normalized["kline_data_source"] = KlineService.normalize_data_source(
-                normalized.get("kline_data_source", normalized.get("data_source"))
-            )
+            # 顶层 price_mode/kline_data_source 仅单品回测是生效值；多品生效值在
+            # products[]（执行器产品级优先），顶层不合成默认值，避免详情页读到假配置。
+            if task_type == "backtest_training":
+                normalized["price_mode"] = (
+                    normalized.get("price_mode")
+                    if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
+                    else "vwap_price"
+                )
+                normalized["kline_data_source"] = KlineService.normalize_data_source(
+                    normalized.get("kline_data_source", normalized.get("data_source"))
+                )
 
         if task_type == "backtest_multi_product":
             from app.services.backtest_multi_product_service import (
@@ -261,7 +264,7 @@ class TaskCreationMixin:
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
-        config_str = json.dumps(config) if isinstance(config, dict) else str(config)
+        config_str = dumps(config) if isinstance(config, dict) else str(config)
         created = task_repository.create(
             {
                 "id": local_task_id,
@@ -644,7 +647,7 @@ class TaskCreationMixin:
                 if new_sheet_ids:
                     self.ensure_google_sheet_occupancy(task_id, effective_config)
 
-            fields = {"config": json.dumps(effective_config)}
+            fields = {"config": dumps(effective_config)}
             if update_name:
                 fields["name"] = update_name
             if update_description is not None:
@@ -698,7 +701,7 @@ class TaskCreationMixin:
                 "name": f"{original_task['name']} (重启)",
                 "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
                 "task_type": original_task["task_type"],
-                "config": json.dumps(original_config),
+                "config": dumps(original_config),
                 "status": "pending",
                 "created_by_user_id": original_task["created_by_user_id"],
             })

@@ -4,7 +4,7 @@
 兼容尚未完成迁移的历史数据库，避免服务因为缺少新增列或索引而无法启动。
 """
 
-import json
+from app.utils.json_utils import loads
 import os
 
 from sqlalchemy import Boolean, String, Text, cast, case, func, inspect, text, update
@@ -519,7 +519,7 @@ def init_navigation_menu():
 
     if nav_config and nav_config.value:
         try:
-            nav_data = json.loads(nav_config.value)
+            nav_data = loads(nav_config.value)
             if isinstance(nav_data, list) and nav_data:
                 source_menu = nav_data
                 should_seed_missing = True

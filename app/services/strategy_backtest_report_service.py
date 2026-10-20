@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads
 import math
 import re
 from dataclasses import dataclass
@@ -156,7 +156,7 @@ class StrategyBacktestReportService:
         task = task_repository.get_entity(task_id)
         if task is not None:
             try:
-                parsed = json.loads(task.config) if task.config else {}
+                parsed = loads(task.config) if task.config else {}
             except (TypeError, ValueError):
                 parsed = {}
             if isinstance(parsed, dict):
@@ -509,7 +509,8 @@ class StrategyBacktestReportService:
             {"label": "总交易日", "value": f"{len(result.index_df)} 天"},
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
-        amount_texts = self._weight_metric_texts(payload, last_date)
+        # 平均成交额窗口终点取导出当天（而非回测数据最后一天），往前推 182 天。
+        amount_texts = self._weight_metric_texts(payload, generated_at.strftime("%Y-%m-%d"))
         asset_texts, etf_flags = self._etf_total_assets_texts(payload)
         # 全部为个股（资产值均来自总市值回退或缺失、无任何 ETF 资产值）时，列头按净资产表述。
         assets_header = "净资产" if asset_texts and not any(etf_flags.values()) else "ETF资产总数"
@@ -627,19 +628,19 @@ class StrategyBacktestReportService:
     def _weight_metric_texts(
         self,
         payload: StrategyBacktestReportSchema,
-        last_date: str,
+        end_date: str,
     ) -> dict[str, str]:
         """单次 K 线取数产出权重表的平均成交额文本映射。
 
         同一标的只取数一次（同码的策略行/指数行/多比例行共享结果），
-        统计窗口为报告截止日往前推近半年，指数行标签为 "代码 (指数)"。
+        统计窗口为导出日往前推近半年，指数行标签为 "代码 (指数)"。
         """
         amount_texts: dict[str, str] = {}
         kline_texts: dict[str, str] = {}
 
         def amount_text_for(code: str, product: dict[str, Any]) -> str:
             if code not in kline_texts:
-                kline_texts[code] = self._kline_average_amount_text(product, last_date)
+                kline_texts[code] = self._kline_average_amount_text(product, end_date)
             return kline_texts[code]
 
         for product in self._active_report_products(payload.products):
@@ -649,7 +650,7 @@ class StrategyBacktestReportService:
             if not code or code in kline_texts:
                 continue
             amount_texts[code] = kline_texts[code] = self._kline_average_amount_text(
-                product, last_date,
+                product, end_date,
             )
         for code, _weight in self._benchmark_entries(payload):
             label = f"{code} (指数)"
@@ -668,11 +669,11 @@ class StrategyBacktestReportService:
     def _kline_average_amount_text(
         self,
         product: dict[str, Any],
-        last_date: str,
+        end_date: str,
     ) -> str:
         """单次 K 线取数计算权重表平均成交额展示文本；失败降级 "-"。
 
-        只统计截止日往前 182 天（近半年）窗口内的 K 线。K 线行缺成交额
+        只统计导出日往前 182 天（近半年）窗口内的 K 线。K 线行缺成交额
         （如 Yahoo 源未返回）时按 成交量×收盘价 逐行估算。market_type 取
         任务配置透传值并作为 get_kline_data 的推断缺省：标准代码后缀推断
         优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
@@ -682,13 +683,13 @@ class StrategyBacktestReportService:
             return "-"
         try:
             market_type = str(product.get("market_type") or "").strip() or "cn"
-            start_date = (parse_date(last_date) - timedelta(days=182)).isoformat()
+            start_date = (parse_date(end_date) - timedelta(days=182)).isoformat()
             klines = _report_kline_service().get_kline_data(
                 stock_code,
                 market_type,
                 300,  # 半年窗口约 130 根 K 线，300 条已留足余量
                 start_date=start_date,
-                end_date=last_date,
+                end_date=end_date,
                 exchange_market=product.get("exchange_market"),
             )
             rows = klines or []

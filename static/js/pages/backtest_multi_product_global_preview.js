@@ -858,6 +858,121 @@ document.getElementById('confirmExportWordBtn')?.addEventListener('click', async
 });
 
 
+// ===== 填表复制（导出 Word 后人工填表用）=====
+
+// 与后端 split_stock_code 同规则：仅剥离标准市场后缀得到裸代码，
+// 数据源自带的非标准点号（如 BRK.B）不受影响。
+const FILL_STANDARD_CODE_SUFFIXES = new Set([
+  ".SS", ".SH", ".SZ", ".BJ", ".US", ".TO", ".KS", ".T", ".HK",
+  ".L", ".PA", ".DE", ".SI", ".AX", ".KL",
+]);
+
+function stripMarketSuffix(stockCode) {
+  const code = String(stockCode || "").trim().toUpperCase();
+  const dot = code.lastIndexOf(".");
+  if (dot <= 0) {
+    return code;
+  }
+  const suffix = code.slice(dot);
+  return FILL_STANDARD_CODE_SUFFIXES.has(suffix) ? code.slice(0, dot) : code;
+}
+
+// 与后端 get_backtest_model_version 同规则：从产品 Sheet 标题解析模型版本，
+// 展示为大写（C7 家族保留小版本号，与 Word 报告 metadata 口径一致）。
+function resolveProductModelLabel(product) {
+  const sheet = product.sheet && typeof product.sheet === "object" ? product.sheet : {};
+  const title = String(sheet.title || product.title || "").toUpperCase();
+  if (title.includes("C7.0.3")) return "C7.0.3";
+  if (title.includes("C7")) return "C7.0.2";
+  if (title.includes("C5")) return "C5";
+  if (title.includes("C4")) return "C4";
+  if (title.includes("C3") || title.includes("CHARTING:3")) return "C3";
+  return "";
+}
+
+// 比例取页面上当前输入框的实时值（与用户看到的一致），只保留比例 > 0 的产品。
+function collectActiveFillEntries() {
+  if (!previewPayload) {
+    return null;
+  }
+  const products = Array.isArray(previewPayload.products)
+    ? previewPayload.products
+    : [];
+  const ratios = collectRatioValues();
+  return products
+    .map((product, index) => {
+      const ratio = Number(ratios[index] ?? product.ratio ?? 0);
+      return {
+        code: stripMarketSuffix(product.stock_code),
+        ratio: Number.isFinite(ratio) ? ratio : 0,
+        model: resolveProductModelLabel(product),
+      };
+    })
+    .filter((item) => item.code && item.ratio > 0);
+}
+
+// 剪贴板写入：HTTPS/localhost 走异步 API；内网 HTTP 无 secure context，降级 execCommand。
+async function copyTextForFill(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("当前浏览器不支持复制到剪贴板");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyFillContent(button, buildText) {
+  const entries = collectActiveFillEntries();
+  if (!entries) {
+    alert("预览数据尚未加载");
+    return;
+  }
+  if (!entries.length) {
+    alert("没有比例大于 0 的产品可复制");
+    return;
+  }
+  try {
+    await copyTextForFill(buildText(entries));
+    const original = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-check2 me-1"></i>已复制';
+    setTimeout(() => {
+      button.innerHTML = original;
+    }, 1200);
+  } catch (error) {
+    alert(error.message || "复制失败");
+  }
+}
+
+async function copyActiveStockCodes() {
+  await copyFillContent(this, (entries) =>
+    entries.map((item) => item.code).join("/"),
+  );
+}
+
+// 单行 TSV（Tab 分列）：代码\t比例%\t模型 × N，贴入 Excel 直接成一行各列。
+async function copyActiveRatioModelTsv() {
+  await copyFillContent(this, (entries) =>
+    entries
+      .map(
+        (item) =>
+          `${item.code}\t${String(Number(item.ratio.toFixed(6)))}%\t${item.model}`,
+      )
+      .join("\t"),
+  );
+}
+
 document.getElementById("groupSelect").addEventListener("change", (event) => {
   activeGroupKey = event.target.value;
   renderActiveGroup();
@@ -884,4 +999,10 @@ document
 document
   .getElementById("exportWordBtn")
   .addEventListener("click", openExportWordModal);
+document
+  .getElementById("copyStockCodesBtn")
+  .addEventListener("click", copyActiveStockCodes);
+document
+  .getElementById("copyRatioModelBtn")
+  .addEventListener("click", copyActiveRatioModelTsv);
 loadGlobalPreview();

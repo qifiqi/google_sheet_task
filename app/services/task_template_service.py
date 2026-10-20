@@ -5,10 +5,11 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_template_repository
+from app.schemas.task_configs import validate_task_config_shape
 
 
 class TaskTemplateService:
@@ -16,14 +17,27 @@ class TaskTemplateService:
 
     @staticmethod
     def _serialize_config_str(config) -> str:
-        """前端 config 可传 JSON 字符串或对象，统一落库为规范化 JSON 字符串。"""
+        """前端 config 可传 JSON 字符串或对象，统一落库为规范化 JSON 字符串。
+
+        模板 config 带 task_type 键（列表按它过滤），据此走任务配置模型收口
+        （sheets[] 形态归一、结构校验），与创建入口同一规范；缺失/未知
+        task_type 时透传不校验。
+        """
         if isinstance(config, str):
             try:
-                config_json = json.loads(config)
-            except json.JSONDecodeError:
+                config_json = loads(config)
+            except JSONDecodeError:
                 raise BadRequestError("配置信息不是有效的JSON格式")
-            return json.dumps(config_json)
-        return json.dumps(config)
+        else:
+            config_json = config
+        if isinstance(config_json, dict) and config_json.get("task_type"):
+            try:
+                config_json = validate_task_config_shape(
+                    str(config_json["task_type"]), config_json
+                )
+            except Exception as exc:
+                raise BadRequestError(f"模板配置结构不正确: {exc}") from exc
+        return dumps(config_json, ensure_ascii=False)
 
     def list_templates(self, task_type: str | None = None):
         return task_template_repository.list_all(task_type=task_type)

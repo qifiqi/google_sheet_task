@@ -2,11 +2,15 @@
 
 调用方只需按 ``title + blocks`` 协议传入数据，本模块负责统一的 DOCX 样式，
 不包含任何业务报告、指标或回测字段。
+
+默认以 ``app/assets/report_template.docx``（水印/页眉/页脚底板）为基础文档，
+正文内容照常渲染；模板文件缺失时回退空白文档，由本模块自管页面与页脚。
 """
 
 from __future__ import annotations
 from app.utils.logger import get_logger
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -49,21 +53,34 @@ WORD_STYLE = {
     "caption_font_size": 9,
 }
 
+# 水印/页眉/页脚底板模板与导出件文档作者；模板缺失时导出器回退空白文档。
+WORD_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "report_template.docx"
+WORD_DOC_AUTHOR = "迦柏资本"
 
-def generate_word_document(document_data: dict[str, Any], output_path: str | Path) -> Path:
+
+def generate_word_document(
+    document_data: dict[str, Any],
+    output_path: str | Path,
+    template_path: str | Path | None = None,
+) -> Path:
     """按通用 JSON 协议生成统一样式的 DOCX 文件。
 
     协议示例：
     ``{"title": "报告", "blocks": [{"type": "paragraph", "text": "正文"}]}``。
+
+    ``template_path`` 缺省用 ``WORD_TEMPLATE_PATH``；指定的模板不存在时回退
+    空白文档（页面与页脚由本模块自管）。
     """
     _validate_document_data(document_data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    document = Document()
-    _configure_document(document, str(document_data["title"]), str(document_data.get("footer") or document_data["title"]))
-    _add_title(document, str(document_data["title"]))
+    title = str(document_data["title"])
+    document, from_template = _open_document(template_path)
+    _configure_document(document, title, str(document_data.get("footer") or title), from_template)
+    _add_title(document, title)
     _render_blocks(document, document_data["blocks"])
+    _reset_core_properties(document, title)
     document.save(output_path)
     logger.info("已生成 Word 文档: %s", output_path)
     return output_path
@@ -131,16 +148,39 @@ def _validate_table_block(block: dict[str, Any], index: int) -> None:
         raise ValueError(f"第 {index} 个 table 区块的 title 必须是字符串")
 
 
-def _configure_document(document: Document, title: str, footer_text: str) -> None:
-    """配置通用 Word 文档的页面、字体、标题和页脚样式。"""
-    section = document.sections[0]
-    section.page_width = Inches(WORD_STYLE["page_width_inches"])
-    section.page_height = Inches(WORD_STYLE["page_height_inches"])
-    margins = WORD_STYLE["margins_inches"]
-    section.left_margin = Inches(margins["left"])
-    section.right_margin = Inches(margins["right"])
-    section.top_margin = Inches(margins["top"])
-    section.bottom_margin = Inches(margins["bottom"])
+def _open_document(template_path: str | Path | None) -> tuple[Document, bool]:
+    """优先以水印/页眉页脚模板为底打开，返回文档与是否使用模板。"""
+    candidate = Path(template_path) if template_path else WORD_TEMPLATE_PATH
+    if candidate.is_file():
+        return Document(str(candidate)), True
+    logger.warning("Word 模板不存在，回退空白文档: %s", candidate)
+    return Document(), False
+
+
+def _configure_document(document: Document, title: str, footer_text: str, from_template: bool) -> None:
+    """配置通用 Word 文档的页面、字体、标题和页脚样式。
+
+    模板模式下页面几何与页眉页脚以模板为准：页脚仅把报告名文本原位替换为
+    ``footer_text``（保留模板字号颜色与页码域），不再写入灰色居中页脚。
+    """
+    if from_template:
+        _replace_template_footer_text(document, footer_text or title)
+    else:
+        section = document.sections[0]
+        section.page_width = Inches(WORD_STYLE["page_width_inches"])
+        section.page_height = Inches(WORD_STYLE["page_height_inches"])
+        margins = WORD_STYLE["margins_inches"]
+        section.left_margin = Inches(margins["left"])
+        section.right_margin = Inches(margins["right"])
+        section.top_margin = Inches(margins["top"])
+        section.bottom_margin = Inches(margins["bottom"])
+
+        footer = section.footer.paragraphs[0]
+        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        footer_run = footer.add_run(footer_text or title)
+        _set_font_family(footer_run, WORD_STYLE["font_name"])
+        footer_run.font.size = Pt(WORD_STYLE["footer"]["font_size"])
+        footer_run.font.color.rgb = RGBColor.from_string(WORD_STYLE["footer"]["color"])
 
     normal = document.styles["Normal"]
     _set_font_family(normal, WORD_STYLE["font_name"])
@@ -162,12 +202,39 @@ def _configure_document(document: Document, title: str, footer_text: str) -> Non
     _set_font_family(bullet, WORD_STYLE["font_name"])
     bullet.font.size = Pt(WORD_STYLE["normal_font_size"])
 
-    footer = section.footer.paragraphs[0]
-    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer_run = footer.add_run(footer_text or title)
-    _set_font_family(footer_run, WORD_STYLE["font_name"])
-    footer_run.font.size = Pt(WORD_STYLE["footer"]["font_size"])
-    footer_run.font.color.rgb = RGBColor.from_string(WORD_STYLE["footer"]["color"])
+
+def _replace_template_footer_text(document: Document, footer_text: str) -> None:
+    """把模板页脚的报告名文本原位替换为当前报告，保留模板样式与页码域。"""
+    footer = document.sections[0].footer
+    paragraphs = footer.paragraphs
+    paragraph = paragraphs[0] if paragraphs else footer.add_paragraph()
+    if paragraph.runs:
+        paragraph.runs[0].text = footer_text
+        for run in paragraph.runs[1:]:
+            run.text = ""
+    else:
+        run = paragraph.add_run(footer_text)
+        _set_font_family(run, WORD_STYLE["font_name"])
+        run.font.size = Pt(WORD_STYLE["footer"]["font_size"])
+        run.font.color.rgb = RGBColor.from_string(WORD_STYLE["footer"]["color"])
+
+
+def _reset_core_properties(document: Document, title: str) -> None:
+    """重写文档元数据，避免模板残留的作者、修订与打印记录进入导出件。"""
+    properties = document.core_properties
+    now = datetime.now(timezone.utc)
+    properties.title = title
+    properties.author = WORD_DOC_AUTHOR
+    properties.last_modified_by = WORD_DOC_AUTHOR
+    properties.comments = ""
+    properties.revision = 1
+    properties.created = now
+    properties.modified = now
+    # python-docx 的 last_printed 赋值不接受 None，按 XML 摘除模板残留的打印时间
+    core_properties_element = properties._element
+    last_printed = core_properties_element.find(qn("cp:lastPrinted"))
+    if last_printed is not None:
+        core_properties_element.remove(last_printed)
 
 
 def _add_title(document: Document, title: str) -> None:

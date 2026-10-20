@@ -1,5 +1,5 @@
 """TaskResult / TaskResultReturn 仓储（契约见 docs/design/data-layer-refactor/02 §2.2）。"""
-import json
+from app.utils.json_utils import loads
 from typing import Any
 
 from sqlalchemy import case, func, or_
@@ -41,7 +41,7 @@ def _json_dict(value):
     if isinstance(value, dict):
         return value
     try:
-        parsed = json.loads(value) if value else {}
+        parsed = loads(value) if value else {}
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
@@ -153,7 +153,7 @@ class TaskResultRepository(BaseRepository):
     def _parse_stock_dates(stock_date) -> list[str]:
         """stock_date JSON 数组解析（坏 JSON 静默降级空列表）。"""
         try:
-            dates = json.loads(stock_date) if stock_date else []
+            dates = loads(stock_date) if stock_date else []
         except (TypeError, ValueError):
             return []
         return [date for date in dates if date]

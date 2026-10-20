@@ -4,7 +4,7 @@
 分析入口所需的数据；具体绩效指标仍复用本包的计算组件。
 """
 
-import json
+from app.utils.json_utils import dumps
 import re
 from typing import Any, Dict, List
 
@@ -197,9 +197,9 @@ class TextReturnAnalysisMixin:
 
             # 打印调试信息
             # Print debug information
-            logger.debug("Maximum Drawdown: %s", json.dumps(maximum_drawdown, indent=4, default=str))
-            logger.debug("Monthly Returns: %s", json.dumps(returns_rate, indent=4, default=str))
-            logger.debug("Sharpe Ratios: %s", json.dumps(sharpe_ratios, indent=4, default=str))
+            logger.debug("Maximum Drawdown: %s", dumps(maximum_drawdown, indent=4, default=str))
+            logger.debug("Monthly Returns: %s", dumps(returns_rate, indent=4, default=str))
+            logger.debug("Sharpe Ratios: %s", dumps(sharpe_ratios, indent=4, default=str))
 
             return result
 

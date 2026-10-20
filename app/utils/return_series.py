@@ -6,6 +6,7 @@ import json
 from datetime import date, datetime
 from typing import Any, Iterable
 
+from app.utils.json_utils import loads
 from app.utils.market import normalize_market_type, normalize_stock_code
 
 
@@ -57,6 +58,8 @@ def build_return_series_fields(
         "start_return_date": min(valid_dates),
         "end_return_date": max(valid_dates),
         "return_length": len(rows),
+        # NaN/Inf 守卫：allow_nan=False 遇 NaN 抛 ValueError；orjson 会静默序列化为
+        # null，无法等价表达，故此三处保留 stdlib json（见 app/utils/json_utils.py）。
         "stock_date": json.dumps(dates, ensure_ascii=False, allow_nan=False),
         "index_return": json.dumps(index_returns, ensure_ascii=False, allow_nan=False),
         "start_return": json.dumps(start_returns, ensure_ascii=False, allow_nan=False),
@@ -69,7 +72,7 @@ def parse_return_series_fields(series: Any) -> list[dict[str, Any]]:
         if isinstance(value, list):
             return value
         try:
-            parsed = json.loads(value) if value else []
+            parsed = loads(value) if value else []
         except (TypeError, ValueError):
             return []
         return parsed if isinstance(parsed, list) else []

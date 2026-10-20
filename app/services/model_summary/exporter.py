@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-import json
+from app.utils.json_utils import dumps
 import re
 from datetime import datetime
 from typing import Any
@@ -32,7 +32,7 @@ def _csv_text(value: Any) -> str:
     if value in (None, ""):
         return ""
     if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+        return dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
     return str(value)
 
 

@@ -933,7 +933,7 @@ def test_correlation_matrix_skipped_without_products():
 
 
 def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
-    """单次 K 线取数产出平均成交额；同标的策略/指数行共享，窗口为截止日前半年。"""
+    """单次 K 线取数产出平均成交额；同标的策略/指数行共享，窗口为导出日前半年。"""
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
         _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
@@ -952,7 +952,7 @@ def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
         "0700.HK (指数)": "10.00亿",
     }
     # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果；
-    # start_date = 截止日 2024-01-04 往前推 182 天。
+    # start_date = 导出日 2024-01-04 往前推 182 天。
     assert [call["stock_code"] for call in stub.calls] == ["600519.SS", "0700.HK"]
     assert [(call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
         ("cn", "2023-07-06", "2024-01-04"),

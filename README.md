@@ -1,6 +1,8 @@
     # Google Sheet 参数批量校验系统
 
-一个前后端分离（Flask + Vue 3）的任务平台，支持 Google Sheet 参数批量校验、任务调度、RBAC 权限控制与 JWT 登录鉴权。
+一个基于 Flask 的任务平台（静态前端 + JWT 鉴权），支持 Google Sheet 参数批量校验、任务调度与回测报告。
+
+> **现状（2026-10）**：Vue 3 SPA（`frontend/`）已从仓库移除（源码存根目录 `frontend.7z`），当前唯一前端为静态页面（`templates/` + `static/`）。本文部分章节为历史描述；项目文档以 [docs/README.md](docs/README.md) 与 AGENTS.md 为准。
 
 ## 功能特性
 
@@ -23,7 +25,7 @@
 
 ### 🎨 界面特性
 - **响应式设计**: 支持桌面和移动设备
-- **现代化 UI**: Vue 3 前端基于 Element Plus + Naive UI；Jinja 模板页面配套 static/ 样式
+- **现代化 UI**: Bootstrap 5 静态页面（`templates/` + `static/`），支持暗色主题
 - **实时更新**: 无需刷新页面的实时数据更新
 - **用户友好**: 直观的操作界面和交互体验
 
@@ -56,7 +58,7 @@ templates/               # 纯静态 HTML 页面（零 Jinja 语法）
 static/
 ├── js/common/           # 共享层（api.js 接口唯一出口、business、components）
 └── js/pages/            # 页面逻辑（普通 script 原位置加载）
-frontend/                # Vue 3 SPA（Vite + Element Plus/Naive UI，开发中）
+# （Vue 3 SPA frontend/ 已于 2026-10 移除，源码存根目录 frontend.7z）
 ```
 
 ## 安装和配置
@@ -152,7 +154,7 @@ APP_ENV=production
 DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
 ```
 
-本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/本地开发指南.md`。
+本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/guides/本地开发指南.md`。
 
 ## 登录与鉴权（前后端）
 
@@ -202,10 +204,9 @@ JWT_SECRET_KEY=请替换为生产随机密钥
 - `PUT /api/auth/password`：修改密码
 
 更多细节见：
-- `docs/登录与鉴权指南.md`
-- `docs/前端Vue工程.md`
-- `docs/架构总览.md`
-- `docs/目录索引.md`（全部文档索引）
+- `docs/guides/登录与鉴权指南.md`
+- `docs/project-memory/架构总览.md`
+- `docs/README.md`（全部文档索引；原 `docs/前端Vue工程.md` 已归档至 `docs/archive/`）
 
 ## 使用指南
 

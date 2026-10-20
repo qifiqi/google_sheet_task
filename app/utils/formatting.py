@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 import math
 import re
 from datetime import date, datetime
@@ -59,8 +59,8 @@ def parse_lenient_json(raw: Any, default: Any) -> Any:
     if isinstance(raw, (dict, list)):
         return raw
     try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
+        return loads(raw) if raw else default
+    except (TypeError, JSONDecodeError):
         return default
 
 

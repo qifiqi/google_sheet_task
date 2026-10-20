@@ -1,6 +1,6 @@
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.utils.logger import get_logger
 
 from app.utils.kline_adjustment import normalize_kline_adjustment
@@ -15,15 +15,26 @@ class YFApi:
         self.kline_data = []
         self.logger = get_logger(self.__class__.__name__)
 
-    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', adjust_type=None):
+    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', adjust_type=None, start_date=None, end_date=None):
         # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。
+        # start/end 传入时 yfinance 忽略 period；yfinance 的 end 为开区间，业务区间为闭区间，统一 +1 天。
+        start = str(start_date).strip() if start_date else None
+        end = str(end_date).strip() if end_date else None
+        if end:
+            end = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        # 只传其一端时补齐另一端（取全部历史），避免 yfinance 对单端参数的未定义行为
+        if start or end:
+            start = start or "1900-01-01"
+            download_params = {"start": start, "end": end}
+        else:
+            download_params = {"period": period}
         data = yf.download(
             stock_code,
-            period=period,
             interval=interval,
             progress=False,
             auto_adjust=False,
             back_adjust=False,
+            **download_params,
         )
         data = self.parse_multiple_tickers(data, adjust_type=adjust_type, ticker_hint=stock_code)
         return data

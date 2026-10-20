@@ -1,7 +1,7 @@
 """任务配置（Task.config / TaskTemplate.config）结构统一迁移脚本。
 
 背景：
-    2026-10 配置结构统一（见 docs/model_update/2026-10-09-任务配置Pydantic统一.md）
+    2026-10 配置结构统一（详见 docs/model_update/2026-10-月度汇总.md 同日条目）
     把 Google Sheet 引用收敛为唯一形态 ``sheets: [{spreadsheet_id, sheet_name,
     title, ...}]``，并为每类任务建立 Pydantic 配置模型
     （app/schemas/task_configs.py）。此前的三种引用形态——C3 顶层平铺
@@ -15,8 +15,8 @@
     - backtest_training：嵌套 ``sheet{}`` 平移为 ``sheets:[1]``（含
       google_sheet_id/c7_model_version 附加键）；
     - 其余已知类型：直接过类型模型结构收口（sheet_name 缺省、类型矫正）。
-    迁移后写入仍用 ``json.dumps`` 默认序列化，与 create_task 落库格式一致
-    （列表页 stock_code LIKE 文本匹配依赖该格式）。
+    迁移后写入仍用统一封装（app.utils.json_utils，orjson 紧凑输出）序列化，
+    与 create_task 落库格式一致（列表页 stock_code LIKE 文本匹配依赖该格式）。
 
 用法（项目根目录执行；线上库先 set DATABASE_URL=...）：
     .venv\\Scripts\\python scripts\\migrate_task_config_schema.py            # dry-run
@@ -30,7 +30,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+from app.utils.json_utils import dumps, loads
 import sys
 from pathlib import Path
 from typing import Any
@@ -153,7 +153,7 @@ def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict
     for row in rows:
         stats["total"] += 1
         try:
-            config = json.loads(row.config) if row.config else None
+            config = loads(row.config) if row.config else None
         except (TypeError, ValueError) as exc:
             stats["skipped"] += 1
             logger.warning("[%s] %s config 解析失败，跳过: %s", label, row.id, exc)
@@ -178,7 +178,7 @@ def _migrate_rows(session, rows, label: str, apply: bool, verbose: bool) -> dict
             if verbose:
                 logger.info("[%s] %s %s", label, row.id, status)
             if apply:
-                row.config = json.dumps(new_config)
+                row.config = dumps(new_config)
                 session.add(row)
         else:
             stats["unchanged"] += 1

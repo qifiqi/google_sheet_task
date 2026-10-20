@@ -98,11 +98,13 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
     calls = {}
 
     class FakeYFApi:
-        def get_kline_data(self, stock_code, period, adjust_type=None):
+        def get_kline_data(self, stock_code, period, adjust_type=None, start_date=None, end_date=None):
             calls["yf"] = {
                 "stock_code": stock_code,
                 "period": period,
                 "adjust_type": adjust_type,
+                "start_date": start_date,
+                "end_date": end_date,
             }
             # 请求窗口内需满足 require_kline_rows 的最少 30 根守卫
             return [
@@ -148,6 +150,8 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
         "stock_code": "AAPL",
         "period": "10y",
         "adjust_type": "back",
+        "start_date": "2024-01-01",
+        "end_date": "2024-02-15",
     }
     assert "dfcf_search" not in calls
     assert "dfcf_kline" not in calls
@@ -238,3 +242,35 @@ def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje()
             "timestamp": rows[0]["timestamp"],
         }
     ]
+
+
+def test_yf_api_passes_date_range_to_download(monkeypatch):
+    captured = {}
+
+    def fake_download(stock_code, **kwargs):
+        captured["stock_code"] = stock_code
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    monkeypatch.setattr("app.utils.yf_api.yf.download", fake_download)
+    YFApi().get_kline_data("QQQ", start_date="1999-01-01", end_date="1999-12-31")
+
+    assert captured["stock_code"] == "QQQ"
+    assert captured["start"] == "1999-01-01"
+    # yfinance 的 end 为开区间，业务闭区间语义 +1 天
+    assert captured["end"] == "2000-01-01"
+    assert "period" not in captured
+
+
+def test_yf_api_without_dates_keeps_period(monkeypatch):
+    captured = {}
+
+    def fake_download(stock_code, **kwargs):
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    monkeypatch.setattr("app.utils.yf_api.yf.download", fake_download)
+    YFApi().get_kline_data("QQQ", "10y")
+
+    assert captured["period"] == "10y"
+    assert "start" not in captured and "end" not in captured

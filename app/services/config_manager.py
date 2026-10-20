@@ -1,9 +1,12 @@
+# stdlib json 仅保留 parse_constant 解析钩子用途（orjson 不支持解析钩子）；
+# 其余序列化统一走 app.utils.json_utils。
 import json
 import threading
 from typing import Any, Dict, Iterable
 
 from app.exceptions import BadRequestError
 from app.repositories import system_config_repository
+from app.utils.json_utils import dumps
 from app.utils.logger import get_logger
 from app.utils.value_parser import coerce_bool as _coerce_bool_value
 
@@ -71,7 +74,7 @@ def _serialize_config_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     try:
-        return json.dumps(value, ensure_ascii=False)
+        return dumps(value)
     except (TypeError, ValueError):
         return str(value)
 
