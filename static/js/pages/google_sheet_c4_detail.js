@@ -340,8 +340,6 @@ if (versionParam && versionParam !== 'c4') {
             { label: '数据源', value: Biz.configEdit.formatKlineDataSource(config.kline_data_source || config.data_source), icon: 'bi-database' },
             { label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history' },
             { label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range' },
-            { label: '认证方式', value: Biz.configEdit.formatTokenType(config.token_type || 'file'), icon: 'bi-shield-lock' },
-            { label: 'Token 路径', value: config.token_file || '-', icon: 'bi-file-earmark-text' },
             { label: '代理地址', value: config.proxy_url || '-', icon: 'bi-globe' }
         ];
 

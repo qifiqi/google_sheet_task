@@ -138,40 +138,15 @@
                                     </button>
                                 </div>
                                 <div id="advanced-config" class="d-none">
-                                    <div class="row mt-2">
-                                        <div class="col-md-6 mb-3 d-none">
-                                            <label for="token_type" class="form-label">
-                                                <i class="bi bi-shield-lock"></i> 认证方式
-                                            </label>
-                                            <select class="form-select" id="token_type">
-                                                <option value="file">Token文件路径</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6 mb-3" id="token_file_container">
+                                    <div class="row mt-2"><div class="col-md-6 mb-3" id="token_file_container">
                                             <label for="token_id" class="form-label">
                                                 <i class="bi bi-file-earmark-lock"></i> Token选择
                                             </label>
                                             <select class="form-select mb-2" id="token_id">
                                                 <option value="">正在加载Token...</option>
                                             </select>
-                                            <input type="hidden" id="token_file" value="">
-                                            <div class="input-group d-none">
-                                                <input type="text" class="form-control" id="token_import_path"
-                                                       placeholder="输入Token文件路径后点击导入">
-                                                <button type="button" class="btn btn-outline-primary" id="import-token-btn">
-                                                    导入
-                                                </button>
-                                            </div>
                                             <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
-                                        </div>
-                                        <div class="col-md-6 mb-3 d-none" id="token_json_container">
-                                            <label for="token_json" class="form-label">
-                                                <i class="bi bi-code-square"></i> Token JSON字符串
-                                            </label>
-                                            <textarea class="form-control" id="token_json" rows="3" 
-                                                      placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
-                                        </div>
-                                        <div class="col-md-6 mb-3">
+                                        </div><div class="col-md-6 mb-3">
                                             <label for="proxy_url" class="form-label">
                                                 <i class="bi bi-globe"></i> 代理URL (可选)
                                             </label>

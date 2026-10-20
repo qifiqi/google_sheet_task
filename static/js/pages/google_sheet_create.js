@@ -33,25 +33,12 @@
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
                 // }
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
                 if (config.token_id) {
                     pendingTokenSelection = {
                         token_id: config.token_id,
-                        token_file: config.token_file || '',
                         token_selection_mode: config.token_selection_mode || ''
                     };
                     applyPendingTokenSelection();
-                }
-                
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-                
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
                 }
                 
                 if (config.proxy_url) {
@@ -181,10 +168,7 @@
 
     function loadWorksheets(isManualRefresh = false) {
         const spreadsheetId = extractSpreadsheetId(document.getElementById('spreadsheet').value || '');
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
-        const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const titleInput = document.getElementById('spreadsheet_title');
         const sheetNameInput = document.getElementById('sheet_name');
@@ -204,8 +188,7 @@
 
         const requestData = {
             spreadsheet_id: spreadsheetId,
-            token_id: tokenType === 'file' ? tokenId : undefined,
-            token_file: tokenType === 'file' ? tokenFile : undefined,
+            token_id: tokenId || undefined,
             proxy_url: proxyUrl || undefined
         };
 
@@ -245,130 +228,40 @@
 
     // 页面加载完成后绑定事件
     function initTokenSelectorUI() {
-        const tokenTypeEl = document.getElementById('token_type');
         const container = document.getElementById('token_file_container');
-        const tokenJsonContainer = document.getElementById('token_json_container');
-        const proxyUrlEl = document.getElementById('proxy_url');
-        const cardBody = tokenTypeEl ? tokenTypeEl.closest('.card-body') : null;
-        if (!container || !tokenJsonContainer || !proxyUrlEl || !cardBody) {
+        if (!container || container.getAttribute('data-token-selector-ready') === '1') {
             return;
         }
-
-        const existingAdvanced = document.getElementById('advanced-config');
-        if (!existingAdvanced) {
-            const advancedWrapper = document.createElement('div');
-            advancedWrapper.className = 'border-top pt-3 mt-3';
-            advancedWrapper.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="fw-semibold"><i class="bi bi-sliders"></i> \u66f4\u591a\u914d\u7f6e</span>
-                    <button type="button" class="btn btn-link btn-sm p-0" id="toggle-advanced-config-btn">
-                        <span id="advanced-config-toggle-text">\u5c55\u5f00</span>
-                        <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
-                    </button>
-                </div>
-                <div id="advanced-config" class="d-none">
-                    <div class="row mt-2"></div>
-                </div>
-            `;
-            cardBody.appendChild(advancedWrapper);
-
-            const advancedRow = advancedWrapper.querySelector('.row');
-            const tokenTypeGroup = tokenTypeEl.closest('.col-md-6.mb-3');
-            const proxyGroup = proxyUrlEl.closest('.col-md-6.mb-3');
-            [tokenTypeGroup, container, tokenJsonContainer, proxyGroup]
-                .filter(Boolean)
-                .forEach(element => advancedRow.appendChild(element));
-        }
-
-        if (container.getAttribute('data-token-selector-ready') === '1') {
-            return;
-        }
-
         container.setAttribute('data-token-selector-ready', '1');
         container.innerHTML = `
             <label for="token_id" class="form-label">
-                <i class="bi bi-file-earmark-lock"></i> Token \u9009\u62e9
+                <i class="bi bi-file-earmark-lock"></i> Token 选择
             </label>
             <select class="form-select mb-2" id="token_id">
-                <option value="">\u6b63\u5728\u52a0\u8f7d Token...</option>
+                <option value="">正在加载 Token...</option>
             </select>
-            <input type="hidden" id="token_file" value="">
-            <div class="input-group d-none">
-                <input type="text" class="form-control" id="token_import_path" placeholder="\u8f93\u5165 Token \u6587\u4ef6\u8def\u5f84\u540e\u70b9\u51fb\u5bfc\u5165">
-                <button type="button" class="btn btn-outline-primary" id="import-token-btn">\u5bfc\u5165</button>
-            </div>
-            <div class="form-text">\u652f\u6301\u6307\u5b9a Token\uff0c\u6216\u9009\u62e9\u968f\u673a Token\u3002</div>
+            <div class="form-text">支持指定 Token，或选择随机 Token。</div>
         `;
-        return;
-
-        container.innerHTML = `
-            <label for="token_id" class="form-label">
-                <i class="bi bi-file-earmark-lock"></i> Token閫夋嫨
-            </label>
-            <select class="form-select mb-2" id="token_id">
-                <option value="">姝ｅ湪鍔犺浇Token...</option>
-            </select>
-            <input type="hidden" id="token_file" value="">
-            <div class="input-group d-none">
-                <input type="text" class="form-control" id="token_import_path" placeholder="杈撳叆Token鏂囦欢璺緞鍚庣偣鍑诲鍏?">
-                <button type="button" class="btn btn-outline-primary" id="import-token-btn">瀵煎叆</button>
-            </div>
-            <div class="form-text">鏀寔閫夋嫨宸叉湁Token锛屼篃鍙€夋嫨闅忔満Token鎸夊綋鍓嶄娇鐢ㄦ暟鍧囪　鍒嗛厤</div>
-        `;
-    }
-
-    function syncSelectedTokenMeta() {
-        const tokenTypeEl = document.getElementById('token_type');
-        const tokenIdEl = document.getElementById('token_id');
-        const tokenFileEl = document.getElementById('token_file');
-        if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
-            return;
-        }
-
-        if (tokenTypeEl.value !== 'file') {
-            tokenFileEl.value = '';
-            return;
-        }
-
-        const selected = googleSheetTokens.find(token => String(token.id) === String(tokenIdEl.value));
-        tokenFileEl.value = selected ? (selected.token_file || '') : '';
     }
 
     function applyPendingTokenSelection() {
         const tokenIdEl = document.getElementById('token_id');
-        const tokenFileEl = document.getElementById('token_file');
-        if (!tokenIdEl || !tokenFileEl) {
-            return;
-        }
-
-        if (!pendingTokenSelection) {
-            syncSelectedTokenMeta();
+        if (!tokenIdEl || !pendingTokenSelection) {
             return;
         }
 
         const tokenId = pendingTokenSelection.token_id;
-        const tokenFile = pendingTokenSelection.token_file;
         let matchedValue = '';
 
         if (tokenId && Array.from(tokenIdEl.options).some(option => option.value === String(tokenId))) {
             matchedValue = String(tokenId);
-        } else if (tokenFile) {
-            const matchedToken = googleSheetTokens.find(token => token.token_file === tokenFile);
-            if (matchedToken) {
-                matchedValue = String(matchedToken.id);
-            }
         }
-
         if (!matchedValue && pendingTokenSelection.token_selection_mode === googleSheetRandomValue) {
             matchedValue = googleSheetRandomValue;
         }
-
         if (matchedValue) {
             tokenIdEl.value = matchedValue;
         }
-
-        tokenFileEl.value = tokenFile || '';
-        syncSelectedTokenMeta();
     }
 
     function renderGoogleSheetTokenOptions(tokens) {
@@ -432,27 +325,7 @@
             });
     }
 
-    function importGoogleSheetToken() {
-        const input = document.getElementById('token_import_path');
-        const tokenFile = input ? input.value.trim() : '';
-        if (!tokenFile) {
-            showNotification('\u8bf7\u8f93\u5165 Token \u6587\u4ef6\u8def\u5f84', 'warning');
-            return;
-        }
 
-        Api.endpoints.googleSheet.importToken({ token_file: tokenFile })
-            .then(data => {
-                showNotification(data.message || 'Token 导入成功', 'success');
-                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
-                loadGoogleSheetTokens();
-                if (input) {
-                    input.value = '';
-                }
-            })
-            .catch(error => {
-                showNotification(`导入 Token 失败: ${error.message}`, 'error');
-            });
-    }
 
     document.addEventListener('DOMContentLoaded', function() {
         initTokenSelectorUI();
@@ -482,8 +355,7 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'spreadsheet_title', /* 'stock_code', */
-            'token_file', 'token_json', 'proxy_url'
+            'task_name', 'task_description', 'spreadsheet_title', 'proxy_url'
         ];
         
         inputFields.forEach(function(fieldId) {
@@ -579,23 +451,12 @@
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
                 // }
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
                 if (config.token_id) {
                     pendingTokenSelection = {
                         token_id: config.token_id,
-                        token_file: config.token_file || '',
                         token_selection_mode: config.token_selection_mode || ''
                     };
                     applyPendingTokenSelection();
-                }
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
                 }
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
@@ -645,32 +506,11 @@
             debouncedSaveFormData();
         });
 
-        // 认证方式选择变化事件
-        document.getElementById('token_type').addEventListener('change', function() {
-            const fileContainer = document.getElementById('token_file_container');
-            const jsonContainer = document.getElementById('token_json_container');
-            if (this.value === 'file') {
-                fileContainer.classList.remove('d-none');
-                jsonContainer.classList.add('d-none');
-            } else {
-                fileContainer.classList.add('d-none');
-                jsonContainer.classList.remove('d-none');
-            }
-            syncSelectedTokenMeta();
-            debouncedSaveFormData();
-        });
-
         const tokenIdEl = document.getElementById('token_id');
         if (tokenIdEl) {
             tokenIdEl.addEventListener('change', function() {
-                syncSelectedTokenMeta();
                 debouncedSaveFormData();
             });
-        }
-
-        const importTokenBtn = document.getElementById('import-token-btn');
-        if (importTokenBtn) {
-            importTokenBtn.addEventListener('click', importGoogleSheetToken);
         }
         const toggleAdvancedBtn = document.getElementById('toggle-advanced-config-btn');
         if (toggleAdvancedBtn) {
@@ -698,7 +538,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'spreadsheet_title', 'token_import_path', 'token_json', 'proxy_url'
+            'spreadsheet_title', 'proxy_url'
         ];
         
         inputFields.forEach(function(fieldId) {
@@ -882,10 +722,7 @@
         const spreadsheetId = extractSpreadsheetId(document.getElementById('spreadsheet').value || '');
         const spreadsheetTitle = document.getElementById('spreadsheet_title').value.trim();
         const sheetName = document.getElementById('sheet_name').value.trim();
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
-        const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         
         // 验证必要字段
@@ -898,13 +735,8 @@
             return;
         }
         
-        if (tokenType === 'file' && !tokenId) {
-            showNotification('请输入Token文件路径', 'error');
-            return;
-        }
-        
-        if (tokenType === 'json' && !tokenJson) {
-            showNotification('请输入Token JSON字符串', 'error');
+        if (!tokenId) {
+            showNotification('请选择Token', 'error');
             return;
         }
         
@@ -932,11 +764,7 @@
                 sheet_name: sheetName,
                 title: spreadsheetTitle || ''
             }],
-            // stock_code: document.getElementById('stock_code').value.trim() || null,
-            token_type: tokenType,
-            token_id: tokenType === 'file' ? tokenId : null,
-            token_file: tokenFile,
-            token_json: tokenJson,
+            token_id: tokenId || null,
             proxy_url: proxyUrl || null,
             kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             parameters: parameters
@@ -1019,10 +847,7 @@
             title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
             // stock_code: document.getElementById('stock_code').value,
-            token_type: document.getElementById('token_type').value,
             token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
-            token_file: document.getElementById('token_file').value,
-            token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             param1: document.getElementById('param1').value,
@@ -1053,13 +878,10 @@
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.title || formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.title || formData.spreadsheet_title;
                 // if (formData.stock_code) document.getElementById('stock_code').value = formData.stock_code;
-                if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
-                    pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
+                    pendingTokenSelection = { token_id: formData.token_id };
                     applyPendingTokenSelection();
                 }
-                if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
-                if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
                 if (formData.kline_data_source) document.getElementById('kline_data_source').value = formData.kline_data_source;
                 if (formData.spreadsheet) {
@@ -1073,7 +895,6 @@
                 if (formData.param6) document.getElementById('param6').value = formData.param6;
                 
                 // 触发相关事件以更新UI状态
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
                 updateWorksheetSelectionUI();
                 
                 console.log('表单数据已恢复');
@@ -1128,10 +949,7 @@
             const spreadsheetId = extractSpreadsheetId(document.getElementById('spreadsheet').value || '');
             const spreadsheetTitle = document.getElementById('spreadsheet_title').value.trim();
             const sheetName = document.getElementById('sheet_name').value.trim();
-            const tokenType = document.getElementById('token_type').value;
             const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-            const tokenFile = document.getElementById('token_file').value;
-            const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
 
             // 验证必要字段
@@ -1144,13 +962,8 @@
                 return null;
             }
 
-            if (tokenType === 'file' && !tokenId) {
-                showError('请输入Token文件路径');
-                return null;
-            }
-
-            if (tokenType === 'json' && !tokenJson) {
-                showError('请输入Token JSON字符串');
+            if (!tokenId) {
+                showError('请选择Token');
                 return null;
             }
 
@@ -1177,10 +990,7 @@
                     title: spreadsheetTitle || ''
                 }],
                 // stock_code: document.getElementById('stock_code').value.trim() || null,
-                token_type: tokenType,
-                token_id: tokenType === 'file' ? tokenId : null,
-                token_file: tokenFile,
-                token_json: tokenJson,
+                token_id: tokenId || null,
                 proxy_url: proxyUrl || null,
                 kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 parameters: [param1, param2, param3, param4, param5, param6]
@@ -1249,24 +1059,12 @@
             // if (restartConfig.stock_code) {
             //     document.getElementById('stock_code').value = restartConfig.stock_code;
             // }
-            if (restartConfig.token_type) {
-                document.getElementById('token_type').value = restartConfig.token_type;
-                // 触发change事件来显示对应的输入框
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
-            }
             if (restartConfig.token_id) {
                 pendingTokenSelection = {
                     token_id: restartConfig.token_id,
-                    token_file: restartConfig.token_file || '',
                     token_selection_mode: restartConfig.token_selection_mode || ''
                 };
                 applyPendingTokenSelection();
-            }
-            if (restartConfig.token_file) {
-                document.getElementById('token_file').value = restartConfig.token_file;
-            }
-            if (restartConfig.token_json) {
-                document.getElementById('token_json').value = restartConfig.token_json;
             }
             if (restartConfig.proxy_url) {
                 document.getElementById('proxy_url').value = restartConfig.proxy_url;

@@ -459,9 +459,7 @@
         }
 
         const spreadsheetId = extractSpreadsheetId(spreadsheetSelect.value || '');
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
         if (!spreadsheetId) {
@@ -472,8 +470,7 @@
 
         const requestData = {
             spreadsheet_id: spreadsheetId,
-            token_id: tokenType === 'file' ? tokenId : undefined,
-            token_file: tokenType === 'file' ? tokenFile : undefined,
+            token_id: tokenId || undefined,
             proxy_url: proxyUrl || undefined
         };
 
@@ -511,46 +508,21 @@
         return firstItem ? loadWorksheetsForItem(firstItem, isManualRefresh) : Promise.resolve();
     }
 
-    function syncSelectedTokenMeta() {
-        const tokenTypeEl = document.getElementById('token_type');
-        const tokenIdEl = document.getElementById('token_id');
-        const tokenFileEl = document.getElementById('token_file');
-        if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
-            return;
-        }
-
-        if (tokenTypeEl.value !== 'file') {
-            tokenFileEl.value = '';
-            return;
-        }
-
-        const selected = googleSheetTokens.find(token => String(token.id) === String(tokenIdEl.value));
-        tokenFileEl.value = selected ? (selected.token_file || '') : '';
-    }
-
     function applyPendingTokenSelection() {
         if (!pendingTokenSelection) {
-            syncSelectedTokenMeta();
             return;
         }
 
         const tokenIdEl = document.getElementById('token_id');
-        const tokenFileEl = document.getElementById('token_file');
-        if (!tokenIdEl || !tokenFileEl) {
+        if (!tokenIdEl) {
             return;
         }
 
         const tokenId = pendingTokenSelection.token_id;
-        const tokenFile = pendingTokenSelection.token_file;
         let matchedValue = '';
 
         if (tokenId && Array.from(tokenIdEl.options).some(option => option.value === String(tokenId))) {
             matchedValue = String(tokenId);
-        } else if (tokenFile) {
-            const matchedToken = googleSheetTokens.find(token => token.token_file === tokenFile);
-            if (matchedToken) {
-                matchedValue = String(matchedToken.id);
-            }
         }
 
         if (!matchedValue && pendingTokenSelection.token_selection_mode === googleSheetRandomValue) {
@@ -560,8 +532,6 @@
         if (matchedValue) {
             tokenIdEl.value = matchedValue;
         }
-        tokenFileEl.value = tokenFile || '';
-        syncSelectedTokenMeta();
     }
 
     function renderGoogleSheetTokenOptions(tokens) {
@@ -608,28 +578,6 @@
             });
     }
 
-    function importGoogleSheetToken() {
-        const input = document.getElementById('token_import_path');
-        const tokenFile = input ? input.value.trim() : '';
-        if (!tokenFile) {
-            showNotification('请输入Token文件路径', 'warning');
-            return;
-        }
-
-        Api.endpoints.googleSheet.importToken({ token_file: tokenFile })
-            .then(data => {
-                showNotification(data.message || 'Token导入成功', 'success');
-                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
-                loadGoogleSheetTokens();
-                if (input) {
-                    input.value = '';
-                }
-            })
-            .catch(error => {
-                showNotification(`导入Token失败: ${error.message}`, 'error');
-            });
-    }
-
     // 页面加载完成后绑定事件
     document.addEventListener('DOMContentLoaded', async function() {
         await loadStockMarkets();
@@ -668,8 +616,7 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description',
-            'token_import_path', 'token_json', 'proxy_url'
+            'task_name', 'task_description', 'proxy_url'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1164,14 +1111,8 @@
         const tokenIdEl = document.getElementById('token_id');
         if (tokenIdEl) {
             tokenIdEl.addEventListener('change', function() {
-                syncSelectedTokenMeta();
                 debouncedSaveFormData();
             });
-        }
-
-        const importTokenBtn = document.getElementById('import-token-btn');
-        if (importTokenBtn) {
-            importTokenBtn.addEventListener('click', importGoogleSheetToken);
         }
 
         // 参数输入变化事件

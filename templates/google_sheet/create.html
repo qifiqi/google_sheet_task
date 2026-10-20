@@ -118,14 +118,6 @@
                                            placeholder="请输入股票代码">
                                     <div class="form-text">用于标识股票的代码</div>
                                 </div> -->
-                                <div class="col-md-6 mb-3 d-none">
-                                    <label for="token_type" class="form-label">
-                                        <i class="bi bi-shield-lock"></i> 认证方式
-                                    </label>
-                                    <select class="form-select" id="token_type">
-                                        <option value="file">Token文件路径</option>
-                                    </select>
-                                </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="kline_data_source" class="form-label">K线数据源</label>
                                     <select class="form-select" id="kline_data_source">
@@ -137,17 +129,12 @@
                                 </div>
                                 <div class="col-md-6 mb-3" id="token_file_container">
                                     <label for="token_id" class="form-label">
-                                        <i class="bi bi-file-earmark-text"></i> Token文件路径
+                                        <i class="bi bi-file-earmark-lock"></i> Token 选择
                                     </label>
-                                    <input type="text" class="form-control" id="token_file" 
-                                           placeholder="请输入Token文件路径" value="data/token.json">
-                                </div>
-                                <div class="col-md-6 mb-3 d-none" id="token_json_container">
-                                    <label for="token_json" class="form-label">
-                                        <i class="bi bi-code-square"></i> Token JSON字符串
-                                    </label>
-                                    <textarea class="form-control" id="token_json" rows="3" 
-                                              placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
+                                    <select class="form-select mb-2" id="token_id">
+                                        <option value="">正在加载 Token...</option>
+                                    </select>
+                                    <div class="form-text">支持指定 Token，或选择随机 Token。</div>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="proxy_url" class="form-label">

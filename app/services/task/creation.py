@@ -253,6 +253,10 @@ class TaskCreationMixin:
             if token_id not in (None, "", 0, "0"):
                 normalized["token_type"] = normalized.get("token_type", "file")
                 normalized["token_id"] = token_id
+        if isinstance(normalized, dict):
+            # 旧表单/历史配置可能仍回传这两项；统一在配置入口剥离，避免再次落库。
+            normalized.pop("token_file", None)
+            normalized.pop("token_json", None)
         return normalized
 
     @transaction_required

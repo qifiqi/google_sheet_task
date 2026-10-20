@@ -387,10 +387,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
             {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},
             {label: '移除的近年区间', value: formatExcludedYears(config.exclude_recent_years), icon: 'bi-x-circle'},
-            {label: '认证方式', value: Biz.configEdit.formatTokenType(config.token_type || 'file'), icon: 'bi-shield-lock'},
             {label: 'Token \u540d\u79f0', value: config.token_name || '-', icon: 'bi-tag'},
             {label: 'Token \u9009\u62e9\u6a21\u5f0f', value: formatTokenSelectionMode(config.token_selection_mode), icon: 'bi-shuffle'},
-            {label: 'Token 路径', value: config.token_file || '-', icon: 'bi-file-earmark-text'},
             {label: '代理地址', value: config.proxy_url || '-', icon: 'bi-globe'}
         ];
 

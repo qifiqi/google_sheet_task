@@ -341,9 +341,7 @@ function init(V) {
         }
 
         const spreadsheetId = extractSpreadsheetId(spreadsheetSelect.value || '');
-        const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-        const tokenFile = document.getElementById('token_file').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
         if (!spreadsheetId) {
@@ -354,7 +352,7 @@ function init(V) {
 
         const requestData = {
             spreadsheet_id: spreadsheetId,
-            token_id: tokenType === 'file' ? tokenId : undefined,
+            token_id: tokenId || undefined,
             proxy_url: proxyUrl || undefined
         };
 
@@ -453,7 +451,7 @@ function init(V) {
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
             'task_name', 'task_description',
-            'token_import_path', 'token_json', 'proxy_url'
+            'proxy_url'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -934,7 +932,7 @@ function init(V) {
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'token_file', 'token_json', 'proxy_url',
+            'proxy_url',
             'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'kline_adjustment'
         ];
 
@@ -1228,13 +1226,8 @@ function init(V) {
             return;
         }
 
-        if (tokenType === 'file' && !tokenId) {
+        if (!tokenId) {
             showNotification('请选择Token', 'error');
-            return;
-        }
-
-        if (tokenType === 'json' && !tokenJson) {
-            showNotification('请输入Token JSON字符串', 'error');
             return;
         }
 
@@ -1302,10 +1295,7 @@ function init(V) {
 
         // 构造任务配置（c7 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
         const taskConfig = {
-            token_type: tokenType,
-            token_id: tokenType === 'file' ? tokenId : null,
-            token_file: tokenFile,
-            token_json: tokenJson,
+            token_id: tokenId || null,
             proxy_url: proxyUrl || null,
             kline_source: klineSource,
             count_mode: countMode,
@@ -1388,10 +1378,7 @@ function init(V) {
             spreadsheet: document.getElementById('spreadsheet').value,
             spreadsheet_title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
-            token_type: document.getElementById('token_type').value,
             token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
-            token_file: document.getElementById('token_file').value,
-            token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             kline_source: document.querySelector('input[name="kline_source"]:checked')?.value || 'auto',
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
@@ -1445,12 +1432,9 @@ function init(V) {
                 }
                 if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
                 if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
-                if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
-                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id, token_file: formData.token_file || '' });
+                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id });
                 }
-                if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
-                if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
                 const param1El = document.getElementById('param1');
                 if (formData.param1 && param1El) param1El.value = formData.param1;
@@ -1494,7 +1478,6 @@ function init(V) {
                 }
 
                 // 触发相关事件以更新UI状态
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
                 Biz.formState.initProductCodeChipsFromParam1();
                 updateCustomKlineModeAvailability();
 
@@ -1534,10 +1517,7 @@ function init(V) {
             const spreadsheetInput = document.getElementById('spreadsheet').value;
             const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
             const sheetName = document.getElementById('sheet_name').value.trim();
-            const tokenType = document.getElementById('token_type').value;
             const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
-            const tokenFile = document.getElementById('token_file').value;
-            const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
             const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
             const isCustomKline = klineSource === 'custom';
@@ -1561,13 +1541,8 @@ function init(V) {
                 return null;
             }
 
-            if (tokenType === 'file' && !tokenId) {
+            if (!tokenId) {
                 Biz.formState.showError('请选择Token');
-                return null;
-            }
-
-            if (tokenType === 'json' && !tokenJson) {
-                Biz.formState.showError('请输入Token JSON字符串');
                 return null;
             }
 
@@ -1636,10 +1611,7 @@ function init(V) {
             // 构造配置对象（含 task_type，供模板过滤）
             return {
                 task_type: V.templateTaskType,
-                token_type: tokenType,
-                token_id: tokenType === 'file' ? tokenId : null,
-                token_file: tokenFile,
-                token_json: tokenJson,
+                token_id: tokenId || null,
                 proxy_url: proxyUrl || null,
                 kline_source: klineSource,
                 count_mode: countMode,
@@ -1699,10 +1671,7 @@ function init(V) {
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
             kline_adjustment: raw.kline_adjustment || 'forward',
-            token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
-            token_file: raw.token_file || 'data/token.json',
-            token_json: raw.token_json || '',
             proxy_url: raw.proxy_url || null,
             parameters: Array.isArray(raw.parameters) ? raw.parameters : [[]],
             sheets: sheets
