@@ -772,7 +772,7 @@ class GoogleSheetToken(db.Model):
         index=True,
         comment="适用任务类型",
     )
-    token_file = db.Column(db.String(500), unique=True, nullable=False, comment="运行时落地文件路径")
+    token_file = db.Column(db.String(500), unique=True, nullable=False, comment="已废弃：兼容列，凭据不再落盘")
     token_context = db.Column(db.Text, nullable=False, comment="Token JSON原文")
     task_usage_count = db.Column(db.Integer, default=0, nullable=False, comment="累计使用次数")
     current_in_use_count = db.Column(db.Integer, default=0, nullable=False, comment="当前占用次数")
