@@ -14,6 +14,7 @@ http_backend/，同签名）。默认 http（全量走远程 DY.Stock.Api）；d
 - auth_repository：用户/角色/权限管理已上收主 Web（单 Token 子服务模式），
   本地实现仅保留供 db 模式与历史脚手架使用。
 """
+import logging
 import os
 
 from app.repositories.backtest_repository import BacktestRepository
@@ -60,7 +61,16 @@ __all__ = [
 
 # 仅启动期读取一次；与 app/config.py 的 DATA_ACCESS_MODE 同源同默认。
 _DATA_ACCESS_MODE = os.environ.get('DATA_ACCESS_MODE', 'http').strip().lower()
+if _DATA_ACCESS_MODE not in ('http', 'db'):
+    raise RuntimeError(
+        f"DATA_ACCESS_MODE 必须是 'http' 或 'db'，当前为 {_DATA_ACCESS_MODE!r}"
+    )
 _USE_HTTP_BACKEND = _DATA_ACCESS_MODE == 'http'
+logging.getLogger(__name__).info(
+    "数据访问后端: %s (DATA_ACCESS_MODE=%s)",
+    'http' if _USE_HTTP_BACKEND else 'db',
+    _DATA_ACCESS_MODE,
+)
 
 backtest_repository = (
     BacktestHttpRepository() if _USE_HTTP_BACKEND else BacktestRepository()

@@ -542,20 +542,16 @@ class TaskHttpRepository(HttpRepositoryBase):
         ))
 
     def update_fields(self, task_id, commit=True, **fields):
-        """部分字段更新：读全行-合并-写回。
-
-        TODO(db-to-http): 读-改-写窗口存在丢失更新竞态（任务线程并发更新
-        status/current_step 场景）；单任务写入方在执行链内串行，实际冲突
-        面为 任务线程 vs API 请求。Redis 裁决层接入后收敛。
-        """
-        row = self._get_raw(task_id)
-        if row is None:
-            return None
-        return self.save(dump_row(
-            {**row, **fields},
-            datetime_fields=self._DT_FIELDS,
-            json_fields=("config",),
-        ))
+        """部分字段更新：任务级仲裁锁内读全行-合并-写回。"""
+        with get_arbiter().mutex(f"task:{task_id}:state", ttl_seconds=15):
+            row = self._get_raw(task_id)
+            if row is None:
+                return None
+            return self.save(dump_row(
+                {**row, **fields},
+                datetime_fields=self._DT_FIELDS,
+                json_fields=("config",),
+            ))
 
     def clear_created_by(self, user_id, commit=False):
         """删用户时置空其创建的任务引用；返回受影响行数。

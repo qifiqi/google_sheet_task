@@ -77,7 +77,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     _BOOL_FIELDS = ("success",)
 
     def normalize_record(self, record):
-        return normalize_bool_fields(dict(record), *self._BOOL_FIELDS)
+        return RemoteRecord(normalize_bool_fields(dict(record), *self._BOOL_FIELDS))
 
     def _normalize_return(self, record):
         return RemoteRecord(dict(record))

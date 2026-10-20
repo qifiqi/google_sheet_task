@@ -633,41 +633,41 @@ class TaskRuntimeMixin:
         return True
 
     def _mark_task_running(self, task_id: str, task_logger, app, start_message: str) -> Task | None:
-        """将任务置为运行中。
-
-        Google Sheet 普通任务保留旧行为；其它任务使用原子更新防止并发重复启动。
-        """
+        """将任务置为运行中（统一 CAS pending→running，避免覆盖取消/重启终态）。"""
         task = task_repository.get_entity(task_id)
         if not task:
             task_logger.error("任务不存在")
             return None
 
-        if task.task_type == "google_sheet":
-            task_repository.update_fields(task_id, status="running", start_time=datetime.now())
-        else:
-            if task.status == "running":
-                if not task.start_time:
-                    task_repository.update_fields(task_id, start_time=datetime.now())
-            else:
-                rows = task_repository.mark_running_if_not_running(
-                    task_id,
-                    start_time=datetime.now(),
-                )
-                if rows == 0:
-                    duplicate_message = self._build_duplicate_start_message(task.task_type)
-                    task_logger.warning(duplicate_message)
-                    self.add_task_log(task_id, "warn", duplicate_message, app)
-                    return None
-                task = task_repository.get_entity(task_id)
+        # 统一 CAS pending→running：取消/重启等终态写入后，worker 不得再覆盖回 running。
+        rows = task_repository.mark_running_if_pending(
+            task_id,
+            start_time=datetime.now(),
+        )
+        if rows == 0:
+            duplicate_message = (
+                self._build_duplicate_start_message(task.task_type)
+                if task.status == "running"
+                else f"任务状态为 {task.status}，拒绝启动"
+            )
+            task_logger.warning(duplicate_message)
+            self.add_task_log(task_id, "warn", duplicate_message, app)
+            return None
+        task = task_repository.get_entity(task_id)
 
         # 方案 B：运行期中间态进 Redis 运行态存储（进度/日志/取消/心跳载体）；
         # 进度以任务行当前值播种，保证断点恢复窗口的崩溃对账不回退。
-        get_runtime_state_store().mark_running(
+        store = get_runtime_state_store()
+        store.mark_running(
             task_id,
             start_time=datetime.now(),
             current_step=getattr(task, "current_step", 0) or 0,
             total_steps=getattr(task, "total_steps", 0) or 0,
         )
+        if self._is_stop_requested(task_id):
+            # cancel 在 CAS 之后、运行态建态之前到达：恢复取消标志，避免被 running 覆盖。
+            store.request_cancel(task_id)
+            return None
 
         self.add_task_log(task_id, "info", start_message, app)
         return task

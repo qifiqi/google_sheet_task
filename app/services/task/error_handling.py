@@ -134,11 +134,14 @@ def record_task_exception(
 
     def write_record() -> None:
         with task_log_repository.transaction():
-            task = task_repository.get_entity(task_id)
-            if task and mark_error:
-                task.status = "error"
-                task.error_message = error_message
-                task.end_time = datetime.now()
+            if mark_error:
+                task_repository.update_fields(
+                    task_id,
+                    commit=False,
+                    status="error",
+                    error_message=error_message,
+                    end_time=datetime.now(),
+                )
             if should_write_log:
                 task_log_repository.create_log(task_id, "error", log_message, commit=False)
         if should_write_log:

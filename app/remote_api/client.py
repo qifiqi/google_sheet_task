@@ -32,6 +32,7 @@ import requests
 
 from app.remote_api.exceptions import (
     RemoteApiConfigError,
+    RemoteApiDuplicateKeyError,
     RemoteApiError,
     RemoteApiNotFoundError,
     RemoteApiOperationError,

@@ -23,7 +23,7 @@
   见 ``app/routes/meta_api.py``。
 """
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, request
 from app.utils.auth import AUTH_COOKIE_NAME, login_required
 from app.utils.api_response import error, success
 from app.services.token_identity_service import (
@@ -99,11 +99,10 @@ def login():
         'userid': info.get('userid'),
         'username': info.get('username') or username,
     }
-    response = jsonify({
-        'code': 0,
-        'data': {'access_token': token, 'token': token, 'user': user},
-        'message': '登录成功',
-    })
+    response, status = success(
+        data={'access_token': token, 'token': token, 'user': user},
+        message='登录成功',
+    )
     # Cookie 供静态模板前端的页面导航在网关侧完成认证；API 调用仍可
     # 自行携带 ``Token`` 请求头。
     response.set_cookie(
@@ -114,7 +113,7 @@ def login():
         samesite='Lax',
         path='/',
     )
-    return response
+    return response, status
 
 
 @auth_api_bp.route('/auth/me', methods=['GET'])
@@ -137,9 +136,9 @@ def logout():
     远程颁发的 Token 本服务无法吊销，退出后 Token 在主 Web 侧仍有效；
     页面跳转由前端（template-auth.js）完成。
     """
-    response = success(message='退出登录成功')
+    response, status = success(message='退出登录成功')
     response.delete_cookie(AUTH_COOKIE_NAME, path='/')
-    return response
+    return response, status
 
 
 # ==================== 旧本地认证 / RBAC 实现（全部注释保留，便于恢复） ====================

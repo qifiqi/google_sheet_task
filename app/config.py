@@ -516,11 +516,12 @@ def init_config():
 
     # db-to-http：存量键从数据层仓储读（http 模式即远端），与运行期同源；
     # 不再直读本地 SystemConfig 表——纯 http 部署无本地库也可完成播种。
+    # 用 list_rows（本地/http 孪生同名方法），不可用 http 基座独有的 list_all。
     from app.repositories import system_config_repository
 
     existing_configs = {
         row["key"]: row.get("description")
-        for row in system_config_repository.list_all()
+        for row in system_config_repository.list_rows()
     }
     for key, item in default_configs.items():
         value = item['value']

@@ -44,7 +44,12 @@ def register_error_handlers(app):
                 exc.http_status, http_exceptions.InternalServerError
             )
             return exc_cls(description=exc.message)
-        return error(exc.message, code=exc.code, http_status=exc.http_status)
+        return error(
+            exc.message,
+            code=exc.code,
+            http_status=exc.http_status,
+            data=getattr(exc, "data", None),
+        )
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(exc):

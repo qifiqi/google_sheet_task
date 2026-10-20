@@ -79,6 +79,17 @@ class GoogleSheetTokenRepository(BaseRepository):
             task_type=task_type,
         ).first()
 
+    def update_fields(self, token_id, commit=True, **fields):
+        """按主键更新字段（实体属性回写在 HTTP 模式不会落库）。"""
+        token = db.session.get(GoogleSheetToken, int(token_id))
+        if token is None:
+            return None
+        for key, value in fields.items():
+            setattr(token, key, value)
+        if commit:
+            self._commit()
+        return token.to_dict()
+
     def count_active(self):
         return GoogleSheetToken.query.filter_by(is_active=True).count()
 

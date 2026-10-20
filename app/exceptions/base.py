@@ -20,7 +20,16 @@ class AppException(Exception):
 
     http_status = 500
 
-    def __init__(self, message="", *, code=None, http_status=None, detail=None, log_level=None):
+    def __init__(
+        self,
+        message="",
+        *,
+        code=None,
+        http_status=None,
+        detail=None,
+        log_level=None,
+        data=None,
+    ):
         text = message or self.__class__.__name__
         super().__init__(text)
         self.message = text
@@ -28,6 +37,7 @@ class AppException(Exception):
         self.code = code if code is not None else self.http_status
         self.detail = detail
         self.log_level = log_level or ("warning" if self.http_status < 500 else "error")
+        self.data = data
 
 
 class BadRequestError(AppException):

@@ -21,7 +21,8 @@
         return;
     }
 
-    Api.endpoints.task.detail(restartId).then(function (task) {
+    Api.endpoints.task.detail(restartId).then(function (payload) {
+        const task = (payload && payload.task) || payload;
         const version = taskTypeToVersion(task && task.task_type);
         const sp = new URLSearchParams(window.location.search);
         if (version) {

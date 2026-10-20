@@ -9,10 +9,25 @@ from app.exceptions import NotFoundError, ValidationError
 from app.repositories import google_sheet_token_repository, task_repository
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
+from app.utils.secret_masking import is_masked_token_context, mask_token_context
 
 logger = get_logger(__name__)
 
 RANDOM_TOKEN_VALUE = "__random__"
+
+_TOKEN_PUBLIC_FIELDS = (
+    "id",
+    "name",
+    "task_type",
+    "token_file",
+    "task_usage_count",
+    "current_in_use_count",
+    "max_usage_count",
+    "is_active",
+    "last_used_at",
+    "created_at",
+    "updated_at",
+)
 
 
 def _token_is_available(token) -> bool:
@@ -27,6 +42,30 @@ class GoogleSheetTokenService:
     @staticmethod
     def _normalize_token_task_type(task_type: Optional[str], default: Optional[str] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value) -> Optional[str]:
         return GoogleSheetTokenTaskType.normalize(task_type, default=default)
+
+    def _serialize_token(self, token, include_context: bool = False) -> dict[str, Any]:
+        """外部输出统一走白名单；token_context 仅在显式请求时返回脱敏预览。"""
+        if isinstance(token, dict):
+            data = dict(token)
+            raw_context = data.pop("token_context", "") or ""
+        else:
+            data = token.to_dict()
+            raw_context = getattr(token, "token_context", "") or ""
+
+        payload = {
+            key: data.get(key)
+            for key in _TOKEN_PUBLIC_FIELDS
+            if key in data
+        }
+        payload["token_context_size"] = len(raw_context)
+        max_usage = int(data.get("max_usage_count") or 0)
+        in_use = int(data.get("current_in_use_count") or 0)
+        payload["is_available"] = bool(data.get("is_active")) and (
+            max_usage <= 0 or in_use < max_usage
+        )
+        if include_context:
+            payload["token_context"] = mask_token_context(raw_context)
+        return payload
 
     def _build_live_usage_snapshot(self):
         token_usage: Dict[int, int] = {}
@@ -83,13 +122,13 @@ class GoogleSheetTokenService:
     def list_tokens(self, task_type: Optional[str] = None):
         normalized_task_type = self._normalize_token_task_type(task_type, default=None)
         tokens = google_sheet_token_repository.list_entities_ordered(normalized_task_type)
-        return [token.to_dict() for token in tokens]
+        return [self._serialize_token(token) for token in tokens]
 
     def get_token(self, token_id: int, include_context: bool = False):
         token = google_sheet_token_repository.get_entity(int(token_id))
         if not token:
             raise NotFoundError("所选 Token 不存在")
-        return token.to_dict(include_context=include_context)
+        return self._serialize_token(token, include_context=include_context)
 
     def import_token(
         self,
@@ -135,13 +174,14 @@ class GoogleSheetTokenService:
         google_sheet_token_repository.commit()
 
         logger.info("Imported Google Sheet token successfully: %s", token.name)
-        return token.to_dict(), is_new
+        return self._serialize_token(token), is_new
 
     def update_token(self, token_id: int, **payload):
         token = google_sheet_token_repository.get_entity(int(token_id))
         if not token:
             raise NotFoundError("所选 Token 不存在")
 
+        fields = {}
         name = payload.get("name")
         max_usage_count = payload.get("max_usage_count")
         is_active = payload.get("is_active")
@@ -149,23 +189,30 @@ class GoogleSheetTokenService:
         task_type = payload.get("task_type")
 
         if name is not None:
-            token.name = str(name).strip() or token.name
+            fields["name"] = str(name).strip() or token.name
         if max_usage_count is not None:
-            token.max_usage_count = max(0, int(max_usage_count))
+            fields["max_usage_count"] = max(0, int(max_usage_count))
         if is_active is not None:
-            token.is_active = bool(is_active)
+            fields["is_active"] = bool(is_active)
         if task_type is not None:
-            token.task_type = self._normalize_token_task_type(task_type)
-        if token_context is not None:
-            token.token_context = self._load_token_context(token_context=token_context)
+            fields["task_type"] = self._normalize_token_task_type(task_type)
+        if (
+            token_context is not None
+            and str(token_context).strip()
+            and not is_masked_token_context(token_context)
+        ):
+            fields["token_context"] = self._load_token_context(token_context=token_context)
         if not token.token_file:
-            google_sheet_token_repository.flush()
-            token.token_file = self._build_runtime_token_file(token.id)
+            fields["token_file"] = self._build_runtime_token_file(token.id)
+
+        if fields:
+            google_sheet_token_repository.update_fields(int(token_id), **fields)
+            token = google_sheet_token_repository.get_entity(int(token_id))
 
         google_sheet_token_repository.flush()
         self.ensure_token_file(token)
         google_sheet_token_repository.commit()
-        return token.to_dict()
+        return self._serialize_token(token)
 
     def delete_token(self, token_id: int) -> bool:
         """删除 Token（google-sheet-tokens DELETE 端点）；不存在返回 False。"""
@@ -254,11 +301,13 @@ class GoogleSheetTokenService:
         current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
         self._assert_token_usage_available(token, current_in_use)
 
-        token.task_usage_count = int(token.task_usage_count or 0) + 1
-        token.current_in_use_count = current_in_use + 1
-        token.last_used_at = datetime.now()
-        google_sheet_token_repository.commit()
-        return token
+        google_sheet_token_repository.update_fields(
+            int(token_id),
+            task_usage_count=int(token.task_usage_count or 0) + 1,
+            current_in_use_count=current_in_use + 1,
+            last_used_at=datetime.now(),
+        )
+        return google_sheet_token_repository.get_entity(int(token_id))
 
     def release_usage(self, token_id: Optional[int]):
         if not token_id:
@@ -268,10 +317,12 @@ class GoogleSheetTokenService:
         if not token:
             return None
 
-        token.current_in_use_count = max(0, int(token.current_in_use_count or 0) - 1)
-        token.last_used_at = datetime.now()
-        google_sheet_token_repository.commit()
-        return token
+        google_sheet_token_repository.update_fields(
+            int(token_id),
+            current_in_use_count=max(0, int(token.current_in_use_count or 0) - 1),
+            last_used_at=datetime.now(),
+        )
+        return google_sheet_token_repository.get_entity(int(token_id))
 
     def _load_token_context(self, token_context: Optional[str] = None, token_file: Optional[str] = None):
         raw_context = (token_context or "").strip()
@@ -285,6 +336,8 @@ class GoogleSheetTokenService:
 
         if not raw_context:
             raise ValidationError("token内容不能为空")
+        if is_masked_token_context(raw_context):
+            raise ValidationError("Token 内容为脱敏展示，请粘贴完整 Token JSON")
 
         try:
             parsed = loads(raw_context)

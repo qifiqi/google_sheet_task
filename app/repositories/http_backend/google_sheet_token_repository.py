@@ -107,6 +107,13 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
                 return RemoteRecord(row)
         return None
 
+    def update_fields(self, token_id, commit=True, **fields):
+        """按主键更新字段；HTTP 每次调用独立提交。"""
+        row = self.get(token_id)
+        if row is None:
+            return None
+        return self.save({**row, **fields})
+
     def count_active(self):
         return len(self.list_active_entities())
 
