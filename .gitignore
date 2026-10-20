@@ -175,3 +175,7 @@ token.json
 .png
 # 前端源码备份包（本地保留，不入库）
 frontend_source_backup_*.zip
+
+# 本地联调临时凭据（禁止入库）
+.run_service_token
+.run_app.log
