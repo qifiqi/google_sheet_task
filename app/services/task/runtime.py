@@ -9,6 +9,7 @@ from typing import Any
 
 from flask import current_app
 
+from app.exceptions import ValidationError
 from app.repositories import backtest_repository, task_repository
 from app.services.task.registry import (
     GLOBAL_MAX_DEFAULT,
@@ -521,12 +522,18 @@ class TaskRuntimeMixin:
             else:
                 self.ensure_google_sheet_occupancy(task_id, config_data)
 
-            token_id = config_data.get("token_id")
-            if token_id:
-                token_service = get_google_sheet_token_service()
-                token_service.validate_task_start(config_data)
-                token_service.increment_usage(token_id)
-                acquired_token_id = int(token_id)
+            token_service = get_google_sheet_token_service()
+            try:
+                effective_token = token_service.resolve_task_token(config_data)
+            except ValidationError as exc:
+                # 未导入 Token 的环境不在启动期阻塞；执行期 _init_google_sheet 会给出明确错误。
+                logger.warning("Token 解析失败，任务将在执行期报错: %s", exc)
+                effective_token = None
+            if effective_token:
+                resolved_config = {**config_data, "token_id": effective_token.id}
+                token_service.validate_task_start(resolved_config)
+                token_service.increment_usage(int(effective_token.id))
+                acquired_token_id = int(effective_token.id)
                 self.task_token_occupancy[task_id] = acquired_token_id
         except Exception as exc:
             error_msg = str(exc)

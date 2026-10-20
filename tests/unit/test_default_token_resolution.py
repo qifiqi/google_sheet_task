@@ -66,3 +66,25 @@ def test_token_json_field_removed_from_task_config_schema():
     from app.schemas.task_configs import TokenRefFields
 
     assert "token_json" not in TokenRefFields.model_fields
+
+
+class _FakeTaskRepo:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def list_id_config_by_status(self, status):
+        return self.rows
+
+
+def test_snapshot_counts_default_token_for_task_without_token_id(monkeypatch):
+    service = _service(monkeypatch, default_token_id=2)
+    monkeypatch.setattr(
+        token_service_module,
+        "task_repository",
+        _FakeTaskRepo([{"config": '{"token_type": "file"}'}]),
+    )
+
+    snapshot = service._build_live_usage_snapshot()
+
+    assert snapshot["token_usage"] == {2: 1}
+    assert snapshot["current_total"] == 1

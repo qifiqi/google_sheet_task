@@ -69,6 +69,7 @@ class GoogleSheetTokenService:
     def _build_live_usage_snapshot(self):
         token_usage: Dict[int, int] = {}
         current_total = 0
+        default_token_id = self._get_default_token_id()
 
         for row in task_repository.list_id_config_by_status("running"):
             try:
@@ -78,10 +79,8 @@ class GoogleSheetTokenService:
 
             if not isinstance(config, dict):
                 continue
-            if config.get("token_type", "file") != "file":
-                continue
 
-            token_id = config.get("token_id")
+            token_id = config.get("token_id") or default_token_id
             if not token_id:
                 continue
 
@@ -292,10 +291,6 @@ class GoogleSheetTokenService:
 
     def validate_task_start(self, config: Dict[str, Any]):
         if not isinstance(config, dict):
-            return
-
-        token_type = config.get("token_type") or "file"
-        if token_type != "file":
             return
 
         snapshot = self._build_live_usage_snapshot()
