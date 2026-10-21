@@ -17,6 +17,7 @@ from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
+from app.services.task_kline_snapshot_service import task_kline_snapshot_service
 from app.utils.db_retry import safe_db_operation
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_stock_api import StockAPIClient
@@ -571,33 +572,89 @@ class BaseGoogleSheetService:
             data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
-        """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。"""
+    def _expand_random_price_groups(
+        self,
+        combinations,
+        kline_data_map,
+        price_mode,
+        random_price_range,
+        random_group_count,
+        snapshot_meta=None,
+    ):
+        """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。
+
+        有 Flask app context 且传入 snapshot_meta 时落库并复用随机K线快照；
+        纯生成单测无上下文时保留原内存路径，不写库。
+        """
         if price_mode != "random_price":
             return combinations, kline_data_map
+        persist_snapshots = snapshot_meta is not None and has_app_context()
         grouped_data = []
         grouped_map = {}
+        group_series_ids = {}
+        sources_by_key = {}
         for combination in combinations:
             source_key = combination["Kline_key"]
             source_kline = kline_data_map[source_key]
+            stock_code = str(combination.get("stock_code") or "").strip()
+            source = None
+            if persist_snapshots:
+                source_cache_key = (stock_code, source_key)
+                if source_cache_key not in sources_by_key:
+                    sources_by_key[source_cache_key] = (
+                        task_kline_snapshot_service.get_or_create_source(
+                            task_id=self.task_id,
+                            stock_code=stock_code,
+                            stock_name=(
+                                snapshot_meta.get("stock_name")
+                                or combination.get("stock_name")
+                            ),
+                            market_type=snapshot_meta.get("market_type"),
+                            kline_key=source_key,
+                            data_source=snapshot_meta.get("data_source"),
+                            adjust_type=snapshot_meta.get("adjust_type"),
+                            rows=source_kline,
+                        )
+                    )
+                source = sources_by_key[source_cache_key]
             for random_group in range(1, int(random_group_count or 1) + 1):
                 group_key = f"{source_key}:random-{random_group}"
                 if group_key not in grouped_map:
-                    random_generator = random.Random(
-                        f"{self.task_id}:{combination.get('stock_code', '')}:"
+                    seed = (
+                        f"{self.task_id}:{stock_code}:"
                         f"{source_key}:{random_price_range}:{random_group}"
                     )
-                    grouped_map[group_key] = KlineService.build_price_rows(
-                        source_kline,
-                        price_mode,
-                        include_ohlc=True,
-                        random_price_range=random_price_range,
-                        random_generator=random_generator,
-                    )
+                    if persist_snapshots:
+                        series = task_kline_snapshot_service.get_or_create_series(
+                            source=source,
+                            task_id=self.task_id,
+                            stock_code=stock_code,
+                            kline_key=source_key,
+                            random_group=random_group,
+                            price_mode=price_mode,
+                            random_price_range=random_price_range,
+                            seed=seed,
+                            rows=source_kline,
+                        )
+                        grouped_map[group_key] = (
+                            task_kline_snapshot_service.merge_rows(source, series)
+                        )
+                        group_series_ids[group_key] = series["id"]
+                    else:
+                        random_generator = random.Random(seed)
+                        grouped_map[group_key] = KlineService.build_price_rows(
+                            source_kline,
+                            price_mode,
+                            include_ohlc=True,
+                            random_price_range=random_price_range,
+                            random_generator=random_generator,
+                        )
                 item = dict(combination)
                 item["Kline_key"] = group_key
                 item["year"] = group_key
                 item["random_group"] = random_group
+                if persist_snapshots:
+                    item["kline_series_id"] = group_series_ids[group_key]
                 grouped_data.append(item)
         return grouped_data, grouped_map
 
@@ -714,6 +771,12 @@ class BaseGoogleSheetService:
             data_end_date=data_end_date,
             include_ohlc=include_ohlc,
         )
+        snapshot_meta = {
+            "stock_name": stock_name,
+            "market_type": market_type,
+            "data_source": data_source,
+            "adjust_type": adjust_type,
+        }
         data = []
 
         kline_data_map = {}
@@ -733,7 +796,12 @@ class BaseGoogleSheetService:
 
         if count_mode != 'n_plus_1':
             data, kline_data_map = self._expand_random_price_groups(
-                data, kline_data_map, price_mode, random_price_range, random_group_count
+                data,
+                kline_data_map,
+                price_mode,
+                random_price_range,
+                random_group_count,
+                snapshot_meta=snapshot_meta,
             )
             data = self._deduplicate_parameter_combinations(data, kline_data_map)
             return data, len(all_kline) + 20,kline_data_map
@@ -807,7 +875,12 @@ class BaseGoogleSheetService:
                         data.append(d)
 
         data, kline_data_map = self._expand_random_price_groups(
-            data, kline_data_map, price_mode, random_price_range, random_group_count
+            data,
+            kline_data_map,
+            price_mode,
+            random_price_range,
+            random_group_count,
+            snapshot_meta=snapshot_meta,
         )
 
         if not data:
@@ -1145,7 +1218,11 @@ class BaseGoogleSheetService:
                 "success": success,
             }
             return_fields = {"task_id": self.task_id, **series_fields} if series_fields else None
-            task_result_repository.create_with_return(result_fields, return_fields)
+            task_result_repository.create_with_return(
+                result_fields,
+                return_fields,
+                kline_series_id=safe_parameters.get("kline_series_id"),
+            )
 
         try:
             if self.app:

@@ -10,9 +10,10 @@
 from flask import Blueprint, request
 
 from app.services.task import task_manager
+from app.services.task_kline_snapshot_service import task_kline_snapshot_service
 from app.exceptions import NotFoundError
 from app.schemas.task import TaskResultListQuery, TaskResultsQuerySchema
-from app.utils.api_response import success
+from app.utils.api_response import csv_response, success
 from app.utils.request_parsing import parse_query
 from app.utils.auth import login_required
 
@@ -97,6 +98,25 @@ def get_result(result_id):
     if record is None:
         raise NotFoundError("结果不存在")
     return success(data=record)
+
+
+@result_api_bp.route('/results/<int:result_id>/kline-snapshot', methods=['GET'])
+@login_required
+def get_result_kline_snapshot(result_id):
+    """按任务结果反查它实际使用的随机K线快照；format=csv 时下载完整行。"""
+    record = task_manager.get_result_detail(result_id)
+    if record is None:
+        raise NotFoundError("结果不存在")
+    series_id = record.get("kline_series_id")
+    if not series_id:
+        raise NotFoundError("该结果没有随机K线快照")
+    detail = task_kline_snapshot_service.get_series_detail(
+        series_id, task_id=record["task_id"]
+    )
+    if request.args.get('format', '').strip().lower() == 'csv':
+        filename, text = task_kline_snapshot_service.export_csv(detail)
+        return csv_response(filename, text)
+    return success(data=detail)
 
 
 @result_api_bp.route('/results/<int:result_id>', methods=['DELETE'])
