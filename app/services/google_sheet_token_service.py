@@ -224,7 +224,7 @@ class GoogleSheetTokenService:
         }
 
     def resolve_task_token(self, config: Dict[str, Any]):
-        """任务执行期解析 Token：优先 token_id；旧配置无 token_id 时取首个可用 Token。"""
+        """任务执行期解析 Token：token_id → 默认 Token → 最低占用可用 Token。"""
         data = config if isinstance(config, dict) else {}
         task_type = self._normalize_token_task_type(data.get("token_task_type"))
         token_id = data.get("token_id")

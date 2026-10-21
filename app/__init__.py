@@ -15,7 +15,7 @@ from app.extensions import db, limiter, migrate
 def create_app():
     # 路由/鉴权/通知器延迟到 env 加载后导入，确保仓储按正确的 DATA_ACCESS_MODE 绑定。
     from app.routes import register_blueprints
-    from app.utils.auth import is_auth_enabled
+    from app.utils.auth import get_app_env, is_auth_enabled
     from app.utils.ding_talk_notifier import DingTalkNotifier
 
     # 本地 JWT 密钥/认证开关校验已随本地登录一并停用（单 Token 子服务
@@ -61,6 +61,11 @@ def create_app():
     get_config_manager().init_app(app)
 
     register_blueprints(app)
+
+    if not is_auth_enabled() and get_app_env() not in ("development", "testing"):
+        logging.getLogger(__name__).warning(
+            "AUTH_ENABLED=false：全局网关将注入匿名用户并放行所有请求，仅限本地/测试环境"
+        )
 
     @app.before_request
     def require_gateway_jwt():
