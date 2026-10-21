@@ -32,6 +32,8 @@ def create():
         return send_page('google_sheet_c5/create.html')
     if version == 'c7':
         return send_page('google_sheet_c7/create.html')
+    if version == 'c11':
+        return send_page('google_sheet_c11/create.html')
     if version == 'c4':
         return send_page('google_sheet_c4/create.html')
     return send_page('google_sheet/create.html')
@@ -48,6 +50,8 @@ def detail():
         return send_page('google_sheet_c5/detail.html')
     if version == 'c7':
         return send_page('google_sheet_c7/detail.html')
+    if version == 'c11':
+        return send_page('google_sheet_c11/detail.html')
     if version == 'c4':
         return send_page('google_sheet_c4/detail.html')
     return send_page('google_sheet/detail.html')

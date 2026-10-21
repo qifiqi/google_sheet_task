@@ -86,20 +86,8 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
     return normalized
 
 
-def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(config)
-    price_mode = normalized.get("price_mode") or "vwap_price"
-    if price_mode != "random_price":
-        normalized.pop("random_price_range", None)
-        normalized.pop("random_group_count", None)
-        return normalized
-
-    versions = {
-        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
-        for sheet in normalized.get("sheets") or []
-    }
-    if "c7_0_3" in versions:
-        raise ValidationError("随机价格仅支持 C7.0.2")
+def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]:
+    """random_price 模式的随机范围/组数公共校验（C7/C11 共用）。"""
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
     if random_range not in {"high_low", "open_close"}:
         raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
@@ -115,6 +103,35 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized["random_price_range"] = random_range
     normalized["random_group_count"] = group_count
     return normalized
+
+
+def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    price_mode = normalized.get("price_mode") or "vwap_price"
+    if price_mode != "random_price":
+        normalized.pop("random_price_range", None)
+        normalized.pop("random_group_count", None)
+        return normalized
+
+    versions = {
+        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
+        for sheet in normalized.get("sheets") or []
+    }
+    if "c7_0_3" in versions:
+        raise ValidationError("随机价格仅支持 C7.0.2")
+    return _validate_random_price_options(normalized)
+
+
+def _normalize_c11_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    """C11 固定随机价格：price_mode 强制 random_price 后校验随机选项。
+
+    custom 模式无 price_mode（K线读自表格），ext 随机价在执行期按组生成，不在此强制。
+    """
+    normalized = dict(config)
+    if str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower() == KLINE_SOURCE_CUSTOM:
+        return normalized
+    normalized["price_mode"] = "random_price"
+    return _validate_random_price_options(normalized)
 
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
@@ -183,15 +200,17 @@ class TaskCreationMixin:
                 market_type or infer_market_type(normalized["stock_code"]),
                 normalized.get("exchange_market"),
             )
-        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
+        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7","google_sheet_c11"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
             normalized["kline_data_source"] = KlineService.normalize_data_source(
                 normalized.get("kline_data_source", normalized.get("data_source"))
             )
-            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7"):
+            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c11"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
             if task_type.lower() == "google_sheet_c7":
                 normalized = _normalize_c7_random_price_config(normalized)
+            if task_type.lower() == "google_sheet_c11":
+                normalized = _normalize_c11_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value

@@ -26,6 +26,7 @@ def _preview_status(task):
         "google_sheet_c4",
         "google_sheet_c5",
         "google_sheet_c7",
+        "google_sheet_c11",
     }:
         return {"supported": True, "message": "C 系列单品回测全局预览已就绪"}
     if task_type == "backtest_multi_product":

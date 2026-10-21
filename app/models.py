@@ -153,6 +153,7 @@ class GoogleSheetTableType(str, Enum):
     C4 = "c4"
     C5 = "c5"
     C7 = "c7"
+    C11 = "c11"
     BACKTEST_TRAINING = "backtest_training"
 
     @classmethod
@@ -172,6 +173,7 @@ class GoogleSheetTableType(str, Enum):
             cls.C4: "C4",
             cls.C5: "C5",
             cls.C7: "C7",
+            cls.C11: "C11",
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]
@@ -232,6 +234,7 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
         GoogleSheetTableType.C4.value,
         GoogleSheetTableType.C5.value,
         GoogleSheetTableType.C7.value,
+        GoogleSheetTableType.C11.value,
     }:
         return "c_series"
     return normalized

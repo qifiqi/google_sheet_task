@@ -19,7 +19,7 @@ function init(V) {
             backLink.href = '/google-sheet/?version=' + encodeURIComponent(versionParam);
         }
     }
-    const GOOGLE_SHEET_TABLE_TYPE = 'c7';
+    const GOOGLE_SHEET_TABLE_TYPE = V.tableType || 'c7';
 
     // 表单共享状态（token 列表/待回填选择/产品代码）由 Biz.formState 持有，本页经其 API 访问
     let currentTaskId = null;
@@ -482,8 +482,8 @@ function init(V) {
 
     // 加载模板列表
     function loadTemplates() {
-        // 只加载 c7 类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
-        Api.endpoints.template.list('task_type=google_sheet_c7')
+        // 只加载本任务类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
+        Api.endpoints.template.list('task_type=' + (V.templateTaskType || 'google_sheet_c7'))
             .then(data => {
                 if (!data || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
@@ -714,7 +714,7 @@ function init(V) {
 
     // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
     function getSelectedDateRangeModes() {
-        if (isCustomKlineMode()) {
+        if (isCustomKlineMode() || V.noParams) {
             return [];
         }
         const modes = [];
@@ -1175,10 +1175,15 @@ function init(V) {
     }
 
     // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
+    function readParamValue(id) {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    }
+
     function calculateCombinations() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
 
         const spreadsheetInput = document.getElementById('spreadsheet');
         const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
@@ -1211,8 +1216,8 @@ function init(V) {
     // 显示参数组合预览
     function showCombinationPreview() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
 
         const parameters = [param1];
         if (param2.length) parameters.push(param2);
@@ -1288,13 +1293,13 @@ function init(V) {
             return;
         }
 
-        // 获取参数配置
+        // 获取参数配置（V.noParams 页面无 param2/3 元素，参数只送产品代码）
         const param1 = parseJsonArray(document.getElementById('param1').value);
-        const param2 = parseJsonArray(document.getElementById('param2').value);
-        const param3 = parseJsonArray(document.getElementById('param3').value);
+        const param2 = parseJsonArray(readParamValue('param2'));
+        const param3 = parseJsonArray(readParamValue('param3'));
 
         // 检查是否有解析错误
-        if (param1 === null || param2 === null || param3 === null) {
+        if (param1 === null || (!V.noParams && (param2 === null || param3 === null))) {
             showNotification('参数格式错误，请检查 JSON 数组格式', 'error');
             return;
         }
@@ -1409,7 +1414,7 @@ function init(V) {
 
             // 延迟1秒后跳转到详情页面（c7 模式）
             setTimeout(function() {
-                window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c7`;
+                window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=${V.versionQuery || 'c7'}`;
             }, 1000);
         }).catch(function(err) {
             executeBtn.disabled = false;
@@ -1453,9 +1458,9 @@ function init(V) {
             kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
-            param1: document.getElementById('param1').value,
-            param2: document.getElementById('param2').value,
-            param3: document.getElementById('param3').value
+            param1: readParamValue('param1'),
+            param2: readParamValue('param2'),
+            param3: readParamValue('param3')
         };
         if (V.modelVersion.enabled) {
             formData.sheet_configs = Array.from(document.querySelectorAll('#sheet-config-list .sheet-config-item')).map(item => {
@@ -1480,7 +1485,7 @@ function init(V) {
     // 从localStorage加载表单数据
     function loadSavedFormData() {
         try {
-            const savedData = localStorage.getItem('google_sheet_c7_form_data');
+            const savedData = localStorage.getItem(V.formStorageKey || 'google_sheet_c7_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
 
@@ -1561,7 +1566,7 @@ function init(V) {
     // 清除保存的表单数据（仅清理 c7 自己的缓存）
     function clearSavedFormData() {
         try {
-            localStorage.removeItem('google_sheet_c7_form_data');
+            localStorage.removeItem(V.formStorageKey || 'google_sheet_c7_form_data');
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
@@ -1621,13 +1626,13 @@ function init(V) {
                 return null;
             }
 
-            // 获取参数配置
+            // 获取参数配置（V.noParams 页面无 param2/3 元素）
             const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-            const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-            const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+            const param2 = parseJsonArray(readParamValue('param2')) || [];
+            const param3 = parseJsonArray(readParamValue('param3')) || [];
 
             // 检查是否有解析错误
-            if (param1 === null || param2 === null || param3 === null) {
+            if (param1 === null || (!V.noParams && (param2 === null || param3 === null))) {
                 Biz.formState.showError('参数格式错误，请检查 JSON 数组格式');
                 return null;
             }

@@ -4,6 +4,7 @@ import calendar
 import json
 from app.utils.json_utils import dumps, loads, JSONDecodeError
 import random
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -63,6 +64,34 @@ def _shift_date_months(date_str, months):
     last_day = calendar.monthrange(total // 12, total % 12 + 1)[1]
     day = min(int(date_str[8:10]), last_day)
     return f"{total // 12:04d}-{total % 12 + 1:02d}-{day:02d}"
+
+
+def parse_range_start(range_a1: str) -> tuple[str, int]:
+    """解析 A1 范围的起始单元格，返回 (列字母, 起始行号)；非法范围抛 ValueError。"""
+    match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
+    if not match:
+        raise ValueError(f"无效的结果范围: {range_a1}")
+    return match.group(1), int(match.group(2))
+
+
+def calculate_index_returns_from_closes(kline_rows) -> list[float]:
+    """以真实收盘价计算相对首日的累计指数收益（C7.0.3/C11 共用）。"""
+    base_close = None
+    index_returns = []
+
+    for index, row in enumerate(kline_rows, start=1):
+        try:
+            close_price = float(row["close"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"K线第 {index} 条收盘价无效") from error
+        if close_price <= 0:
+            raise ValueError(f"K线第 {index} 条收盘价必须大于 0")
+
+        if base_close is None:
+            base_close = close_price
+        index_returns.append(close_price / base_close - 1)
+
+    return index_returns
 
 
 def resolve_min_kline_rows(default: int = DEFAULT_MIN_KLINE_ROWS, log_warning=None) -> int:
@@ -932,7 +961,7 @@ class BaseGoogleSheetService:
 
                         cache_parameters['combination'] = combination
                         kline = kline_data_map.get(combination['Kline_key'], None)
-                        combination['']
+                        # combination['']
                         combination['kline'] = [kline[0], kline[-1]]
 
                         self.send_stock_param_result_data(

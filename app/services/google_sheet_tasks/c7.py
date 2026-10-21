@@ -1,8 +1,13 @@
 from app.utils.json_utils import dumps
-import re
 from typing import Dict, Any
 
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    build_execute_task_alert,
+    calculate_index_returns_from_closes,
+    parse_range_start,
+    should_alert_execute_task_result,
+)
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.dfcf_api import DFCJStockApi
@@ -184,10 +189,7 @@ class C7Service(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_range_start(range_a1: str) -> tuple[str, int]:
-        match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
-        if not match:
-            raise ValueError(f"无效的 C7 结果范围: {range_a1}")
-        return match.group(1), int(match.group(2))
+        return parse_range_start(range_a1)
 
     @staticmethod
     def _validate_c7_ohlc_rows(rows):
@@ -199,22 +201,7 @@ class C7Service(BaseGoogleSheetService):
     @staticmethod
     def _calculate_c7_0_3_index_returns(kline_rows):
         """以 C7.0.3 OHLC 收盘价计算相对首日的累计指数收益。"""
-        base_close = None
-        index_returns = []
-
-        for index, row in enumerate(kline_rows, start=1):
-            try:
-                close_price = float(row["close"])
-            except (KeyError, TypeError, ValueError) as error:
-                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价无效") from error
-            if close_price <= 0:
-                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价必须大于 0")
-
-            if base_close is None:
-                base_close = close_price
-            index_returns.append(close_price / base_close - 1)
-
-        return index_returns
+        return calculate_index_returns_from_closes(kline_rows)
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,

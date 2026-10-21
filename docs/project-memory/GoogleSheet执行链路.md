@@ -1,4 +1,4 @@
-> **治理注记 2026-10-15**：C 系服务文件已重组为 `app/services/google_sheet_tasks/{base,c3,c4,c5,c7}.py`（原文 `google_sheet_service*.py`/`_C4.py` 等旧文件名已不存在）；`app/exceptions/c5_exceptions.py` 已并入 `app/exceptions/base.py`。其余链路描述经核验与代码一致。
+> **治理注记 2026-10-15**：C 系服务文件已重组为 `app/services/google_sheet_tasks/{base,c3,c4,c5,c7,c11}.py`（原文 `google_sheet_service*.py`/`_C4.py` 等旧文件名已不存在）；`app/exceptions/c5_exceptions.py` 已并入 `app/exceptions/base.py`。其余链路描述经核验与代码一致。
 
 # Google Sheet 执行链路
 
@@ -26,14 +26,14 @@
 
 ## Sheet 注册表（google_sheet_registry_service.py）
 
-`GoogleSheet` 表按 `spreadsheet_id + registry_scope` 唯一：C 系列（c3/c4/c5/c7）共用 scope `c_series`，`backtest_training` 独立 scope。`table_type` 标记用途。执行前 `acquire_for_task`（is_in_use / current_task_id），结束释放；单品回测必须使用 `table_type=backtest_training` 的 Sheet（`validate_backtest_training_sheet`）。
+`GoogleSheet` 表按 `spreadsheet_id + registry_scope` 唯一：C 系列（c3/c4/c5/c7/c11）共用 scope `c_series`，`backtest_training` 独立 scope。`table_type` 标记用途。执行前 `acquire_for_task`（is_in_use / current_task_id），结束释放；单品回测必须使用 `table_type=backtest_training` 的 Sheet（`validate_backtest_training_sheet`）。
 
 ## C 系列执行器
 
 全部继承 `google_sheet_service_base.py::BaseGoogleSheetService`，公共能力：
 
 - `_init_google_sheet`（兼容单表/多表/嵌套 sheet 配置）、可中断睡眠 `_interruptible_sleep`（响应取消）、轮询延迟 `execution_delay_min/max`（20~30s）
-- 清空/重写输入后的稳定等待 `sheet_settle_seconds`（默认 20s，0~300）；轮询刷新触发点 `sheet_refresh_attempts` + `sheet_refresh_interval_attempts`（默认 [5,15,25,35] + 每 10 次，C3/C4/C5/C7/回测共用）
+- 清空/重写输入后的稳定等待 `sheet_settle_seconds`（默认 20s，0~300）；轮询刷新触发点 `sheet_refresh_attempts` + `sheet_refresh_interval_attempts`（默认 [5,15,25,35] + 每 10 次，C3/C4/C5/C7/C11/回测共用）
 - 日志（任务日志 + DB TaskLog）、钉钉通知（`error_dd` / `task_ok_to_dd`）
 - 收益序列落库 `send_stock_param_result_data`（→ `TaskResultReturn`）、模型汇总索引刷新 `_refresh_model_summary_index`
 - JSON 安全化 `_sanitize_json_value`、结果摘要 `_summarize_result_for_log`
@@ -44,14 +44,15 @@
 | C4 | _C4.py | 列驱动模板（`c4_input_column_a/b`，输出 range_1/2 + J/L 列）；无断点参数 |
 | C5 | _C5.py | 断点续跑（`_get_resume_start_index`）、自定义 K 线（`_get_custom_kline_data`）、参数去重、百分比归一 `_to_decimal_ratio` |
 | C7 | _C7.py | 多模型版本（c7_0_3 与 legacy layout）；C7.0.3 直接读 Sheet OHLC 列（CC..CG，`c7_0_3_kline_start_row=2`）本地算指数收益；随机价格扩展（price_mode / random_price_range / random_group_count） |
+| C11 | c11.py | 无参数组合（F2:F26 模板预置只读回，`c11_parameter_range`）；强制随机价（price_mode=random_price，`_normalize_c11_random_price_config` 强制 + 服务端守卫）；K线写 AA..AG 七列 date/o/h/l/c/vwap/ext（`c11_kline_*_column`，ext=随机价）；结果读单列块 `c11_output_range`（默认 AI2:AI26，列位占位待线上配置）+ K 列 start return（`c11_output_column_k`）；组合维度=K线窗口×随机分组，A1/B1 不落组合 |
 
 C5 专用异常体系在 `app/exceptions/c5_exceptions.py`（Network/RateLimit/Execution/Validation/Timeout/Data 六类，带 error_code）。C7 结果归一在 `app/utils/c7_result_normalizer.py`。
 
-### custom K 线模式（C5/C7）
+### custom K 线模式（C5/C7/C11）
 
 `config.kline_source = custom` 表示用户已在 Sheet 输入列维护好 K 线，任务级约定：
 
-- 只在 `get_bdl()` 预计算阶段读一次现有输入列，构造 `Kline_key=custom` 组合；执行时只写 xm/ml 等参数，**不清空、不重写 K 线输入列**。
+- 只在 `get_bdl()` 预计算阶段读一次现有输入列，构造 `Kline_key=custom` 组合；执行时只写 xm/ml 等参数（C11 只写 ext 随机价列并按随机分组展开），**不清空、不重写 K 线输入列**。
 - 仍读取现有 K 线行数以确定收益读取范围和结果的 K 线首尾日期。
 - `TaskCreationMixin._normalize_task_config_for_type()` 会把 `market_type` 归一为 `custom` 并禁用 price_mode/kline_adjustment/date_range_mode/exclude_recent_years/start_date/end_date。
 - **不要**把 custom 分支放进 `_get_all_parameters()` 内部判断——那会重新进入自动行情获取/转换链路，违背任务级语义。
@@ -70,7 +71,7 @@ C31 页面市场值传英文：`A股→cn`、`美股→en`。新增 C31 字段�
 ## K 线获取与东方财富
 
 - **K 线字段标准命名**（全项目统一英文 schema，无兼容层）：数据行使用 `open` 开盘、`high` 最高、`low` 最低、`close` 收盘、`volume` 成交量、`amount` 成交额、`vwap` 加权平均价；`stock_date`/`stock_code`/`stock_name` 保留。推送远程的 wire 字段名不变（`stock_open`/`stock_max`/`stock_min`/`stock_close`/...），由 `KlineService.read_internal_kline_data`/`write_internal_kline_data` 负责两套命名翻译。
-- **价格类型唯一映射入口**：`app/services/kline_service.py::get_kline_price_field()`（`kp_price→open`、`sp_price→close`、`vwap_price→vwap`、`ohlc_price→close`，未知兜底 `vwap`）；按价格取序列统一走 `KlineService.build_price_rows()`（取价 + 年份/区间过滤 + 投影 stock_val，可选 OHLC/随机价），不要在 service 里再写取价/投影包装。C4 不走 price_mode，固定按市场取价（A股 `open`、美股 `close`）直传字段。
+- **价格类型唯一映射入口**：`app/services/kline_service.py::get_kline_price_field()`（`kp_price→open`、`sp_price→close`、`vwap_price→vwap`、`ohlc_price→close`，未知兜底 `vwap`）；按价格取序列统一走 `KlineService.build_price_rows()`（取价 + 年份/区间过滤 + 投影 stock_val，可选 OHLC/随机价），不要在 service 里再写取价/投影包装。C4 不走 price_mode，固定按市场取价（A股 `open`、美股 `close`）直传字段。随机价格模式（random_price）的随机值统一 `round(…, 3)` 保留 3 位小数（唯一生成点在 `build_price_rows`，分组种子不变，序列仍可复现）。
 - 统一入口 `app/services/kline_service.py`（装配 DFCF/腾讯 `qq_api.py`/Yahoo `yf_api.py`）；K 线服务自身持有 `StockClient`（地址单一来源 `STOCK_BASE_URL` 环境变量，未配置用 SDK 默认）；复权映射 `app/utils/kline_adjustment.py`；行数校验 `kline_validation.py::require_kline_rows`。
 - `app/utils/dfcf_api.py::DFCJStockApi`：
   - K 线 `get_stock_kline_data`（push2his.eastmoney.com，fqt 由 kline_adjustment 映射）；tenacity `@retry(stop_after_attempt(5), wait_exponential(1,2,30))`；是否走代理由 SystemConfig `dfcf_kline_proxy_enabled` 控制，失败时 `_refresh_proxy_after_failure` 重建 session。

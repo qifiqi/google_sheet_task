@@ -159,6 +159,10 @@ class C7TaskConfig(C5TaskConfig):
     """C7 批量校验任务（版本标记在 sheets[].c7_model_version 上）。"""
 
 
+class C11TaskConfig(C5TaskConfig):
+    """C11 批量校验任务（无参数组合：F2:F26 模板预置，随机价 ext 列驱动）。"""
+
+
 class BacktestTrainingConfig(_SingleSheetMixin, _BaseTaskConfig):
     """单品回测训练任务（sheet 引用统一为 sheets[1]）。"""
 
@@ -215,6 +219,7 @@ TASK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
     "google_sheet_C4": C4TaskConfig,
     "google_sheet_C5": C5TaskConfig,
     "google_sheet_C7": C7TaskConfig,
+    "google_sheet_C11": C11TaskConfig,
     "backtest_training": BacktestTrainingConfig,
     "backtest_multi_product": MultiProductConfig,
 }

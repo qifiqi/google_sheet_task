@@ -24,6 +24,7 @@ from app.services.google_sheet_tasks.c3 import C3Service
 from app.services.google_sheet_tasks.c4 import C4Service
 from app.services.google_sheet_tasks.c5 import C5Service
 from app.services.google_sheet_tasks.c7 import C7Service
+from app.services.google_sheet_tasks.c11 import C11Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
@@ -781,6 +782,17 @@ class TaskRuntimeMixin:
             service_class=C7Service,
             business_message="开始执行 C7 任务业务逻辑",
             failure_label="执行 C7 任务失败",
+        )
+
+    def _execute_google_sheet_c11_task(self, task_id: str, app) -> None:
+        self._execute_service_task(
+            task_id,
+            app,
+            logger_name=f"{__name__}.C11.{task_id}",
+            start_message="开始执行Google Sheet C11 任务",
+            service_class=C11Service,
+            business_message="开始执行 C11 任务业务逻辑",
+            failure_label="执行 C11 任务失败",
         )
 
     def _execute_backtest_training_task(self, task_id: str, app) -> None:

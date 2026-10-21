@@ -280,12 +280,19 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
     assert [item["random_group"] for item in combinations] == [1, 2]
     assert len(kline_map) == 2
     assert all(8 <= row["stock_val"] <= 14 for kline in kline_map.values() for row in kline)
+    assert all(round(row["stock_val"], 3) == row["stock_val"] for kline in kline_map.values() for row in kline)
 
 
 def test_c7_random_open_close_handles_close_above_open(monkeypatch):
+    captured = {}
+
+    def fake_uniform(low, high):
+        captured["bounds"] = (low, high)
+        return low
+
     monkeypatch.setattr(
         "app.services.kline_service.random.uniform",
-        lambda low, high: (low, high),
+        fake_uniform,
     )
 
     projected = KlineService.build_price_rows(
@@ -303,7 +310,8 @@ def test_c7_random_open_close_handles_close_above_open(monkeypatch):
         random_price_range="open_close",
     )[0]
 
-    assert projected["stock_val"] == (10, 12)
+    assert captured["bounds"] == (10, 12)
+    assert projected["stock_val"] == 10
 
 
 def test_c7_random_groups_are_stable_for_task_restart():

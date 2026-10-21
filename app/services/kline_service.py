@@ -145,10 +145,10 @@ class KlineService:
     ) -> list[dict[str, Any]]:
         """按 price_mode 取价，把 K 线行投影成可直接写入表格的价格序列。
 
-        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close。
+        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close/vwap。
         price_field 为空时按 price_mode 映射价格字段；year 非空按年份过滤（与 int(stock_date[:4]) 直接比较），
         否则 start_date/end_date 任一非空按闭区间过滤；都未传则不过滤。
-        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，
+        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，统一保留 3 位小数，
         random_generator 用于随机价格分组复现同一序列。
         """
         resolved_field = price_field or get_kline_price_field(price_mode)
@@ -166,7 +166,7 @@ class KlineService:
                 lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
                 lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
                 generator = random_generator or random
-                stock_val = generator.uniform(lower, upper)
+                stock_val = round(generator.uniform(lower, upper), 3)
             else:
                 stock_val = kline[resolved_field]
             row = {"stock_date": date, "stock_val": stock_val}
@@ -176,6 +176,7 @@ class KlineService:
                     "high": kline.get("high"),
                     "low": kline.get("low"),
                     "close": kline.get("close"),
+                    "vwap": kline.get("vwap"),
                 })
             projected.append(row)
         return projected
