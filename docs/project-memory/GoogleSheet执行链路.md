@@ -45,7 +45,7 @@
 | C4 | _C4.py | 列驱动模板（`c4_input_column_a/b`，输出 range_1/2 + J/L 列）；无断点参数 |
 | C5 | _C5.py | 断点续跑（`_get_resume_start_index`）、自定义 K 线（`_get_custom_kline_data`）、参数去重、百分比归一 `_to_decimal_ratio` |
 | C7 | _C7.py | 多模型版本（c7_0_3 与 legacy layout）；C7.0.3 直接读 Sheet OHLC 列（CC..CG，`c7_0_3_kline_start_row=2`）本地算指数收益；随机价格扩展（price_mode / random_price_range / random_group_count） |
-| C11 | c11.py | 无参数组合（F2:F26 模板预置只读回，`c11_parameter_range`）；强制随机价（price_mode=random_price，`_normalize_c11_random_price_config` 强制 + 服务端守卫）；K线写 AA..AG 七列 date/o/h/l/c/vwap/ext（`c11_kline_*_column`，ext=随机价）；结果读单列块 `c11_output_range`（默认 AI2:AI26，列位占位待线上配置）+ K 列 start return（`c11_output_column_k`）；组合维度=K线窗口×随机分组，A1/B1 不落组合 |
+| C11 | c11.py | 无参数组合（F2:F26 模板预置只读回，`c11_parameter_range`）；强制随机价（price_mode=random_price，`_normalize_c11_random_price_config` 强制 + 服务端守卫）；K线写 AA..AG 七列 date/o/h/l/c/vwap/ext（`c11_kline_*_column`，ext=随机价）；结果读单列块 `c11_output_range`（默认 AI2:AI26，列位占位待线上配置）+ K 列 start return（`c11_output_column_k`）；组合维度=K线窗口×随机分组，A1/B1 不落组合；`c11_vwap_enabled`（默认 True）关闭时行情不派生 vwap、AF 列不写（清空仍覆盖 date..ext 全列），custom 源在执行入口剔除 vwap |
 
 C5 专用异常体系在 `app/exceptions/c5_exceptions.py`（Network/RateLimit/Execution/Validation/Timeout/Data 六类，带 error_code）。C7 结果归一在 `app/utils/c7_result_normalizer.py`。
 

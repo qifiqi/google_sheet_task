@@ -325,6 +325,7 @@ class KlineService:
         exchange_market: str | None = None,
         stock_name: str | None = None,
         kline_type: str = DAILY_KLINE_TYPE,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         source = self.normalize_data_source(data_source, self.sources)
         raw_code = str(stock_code or "").strip().upper()
@@ -357,6 +358,7 @@ class KlineService:
                 DATA_SOURCE_DATABASE,
                 market_type=market_type,
                 exchange_market=exchange_market,
+                include_vwap=include_vwap,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
             return self._filter_rows_by_date_range(internal_rows, start_date, end_date, limit)
@@ -390,6 +392,7 @@ class KlineService:
             rows, code, resolved_name, source,
             market_type=market_type,
             exchange_market=exchange_market,
+            include_vwap=include_vwap,
         )
         if aggregate_from_daily:
             normalized_rows = self._aggregate_klines(normalized_rows, kline_type)
@@ -698,6 +701,7 @@ class KlineService:
         source: str,
         market_type: str | None = None,
         exchange_market: str | None = None,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for raw in rows or []:
@@ -743,13 +747,17 @@ class KlineService:
                 amount = float(amount)
             except (TypeError, ValueError):
                 amount = 0.0
-            vwap_raw = raw.get("vwap")
-            try:
-                vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
-                    amount / volume if volume else values["close"]
-                )
-            except (TypeError, ValueError):
-                vwap = values["close"]
+            if not include_vwap:
+                # C11 关闭 vwap 开关：不派生加权平均价，行内恒为 None
+                vwap = None
+            else:
+                vwap_raw = raw.get("vwap")
+                try:
+                    vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
+                        amount / volume if volume else values["close"]
+                    )
+                except (TypeError, ValueError):
+                    vwap = values["close"]
             row.update(
                 {
                     **values,

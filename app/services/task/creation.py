@@ -24,6 +24,7 @@ from app.utils.backtest_parameter_utils import normalize_backtest_training_confi
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.services.kline_service import KlineService
 from app.repositories import task_repository
+from app.utils.value_parser import coerce_bool
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
@@ -126,8 +127,12 @@ def _normalize_c11_random_price_config(config: dict[str, Any]) -> dict[str, Any]
     """C11 固定随机价格：price_mode 强制 random_price 后校验随机选项。
 
     custom 模式无 price_mode（K线读自表格），ext 随机价在执行期按组生成，不在此强制。
+    c11_vwap_enabled 控制是否计算并写入 vwap 列，缺省计算（True）。
     """
     normalized = dict(config)
+    normalized["c11_vwap_enabled"] = coerce_bool(
+        normalized.get("c11_vwap_enabled"), True
+    )
     if str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower() == KLINE_SOURCE_CUSTOM:
         return normalized
     normalized["price_mode"] = "random_price"

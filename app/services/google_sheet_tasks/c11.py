@@ -10,6 +10,7 @@ from app.services.google_sheet_tasks.base import (
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.value_parser import coerce_bool
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
@@ -39,6 +40,9 @@ class C11Service(BaseGoogleSheetService):
 
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C11"
+
+    # 是否计算并写入 vwap 列；_prepare_batch 按任务配置覆盖（缺省计算）。
+    _vwap_enabled = True
 
     def _dedupe_extra_signature(self, combination: dict) -> tuple:
         """C11 随机价分组参与去重签名（同组同K线视为重复）。"""
@@ -101,7 +105,10 @@ class C11Service(BaseGoogleSheetService):
     # ---- get_bdl 模板钩子覆盖（默认实现见基类）----
 
     def _prepare_batch(self, config_data: dict) -> dict:
+        # vwap 开关先落实例：基类 _prepare_batch 会经 _load_custom_kline_map 读 custom 源
+        self._vwap_enabled = coerce_bool(config_data.get("c11_vwap_enabled"), True)
         batch = super()._prepare_batch(config_data)
+        batch["vwap_enabled"] = self._vwap_enabled
         if batch["kline_source"] == "auto" and batch["price_mode"] != "random_price":
             raise ValueError("C11 必须使用随机价格（price_mode=random_price）")
         random_price_range = str(batch.get("random_price_range") or "high_low").strip().lower()
@@ -132,6 +139,7 @@ class C11Service(BaseGoogleSheetService):
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
             data_source=batch["data_source"],
+            include_vwap=batch["vwap_enabled"],
         )
         for combination in data:
             combination.pop("A1", None)
@@ -141,6 +149,9 @@ class C11Service(BaseGoogleSheetService):
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         """custom K线模式：单窗口占位组合 × 随机分组（ext 随机价仍逐组重写）。"""
         source_kline = custom_kline_map.get("custom") or []
+        if not self._vwap_enabled:
+            source_kline = self._without_vwap(source_kline)
+            custom_kline_map = {"custom": source_kline}
         data = [{
             "stock_code": parameter,
             "year": "custom",
@@ -162,6 +173,11 @@ class C11Service(BaseGoogleSheetService):
         )
         data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(source_kline) + 20, custom_kline_map
+
+    @staticmethod
+    def _without_vwap(rows):
+        """vwap 开关关闭时剔除源行的 vwap 值（custom 源不采用 Sheet 现值）。"""
+        return [{key: value for key, value in row.items() if key != "vwap"} for row in rows]
 
     def _load_custom_kline_map(self, config_data: dict) -> dict:
         layout = self._get_c11_layout(config_data)
@@ -186,8 +202,9 @@ class C11Service(BaseGoogleSheetService):
 
     def _get_all_parameters(self, parameter, count_mode, price_mode, end_date, start_date, market_type,
                             date_range_mode, exclude_recent_years, parameters, adjust_type=None,
-                            random_price_range="high_low", random_group_count=1, data_source="akshare"):
-        """auto-K线参数展开复用基类骨架；C11 固定携带 OHLC+vwap 写回。"""
+                            random_price_range="high_low", random_group_count=1, data_source="akshare",
+                            include_vwap=True):
+        """auto-K线参数展开复用基类骨架；C11 按开关携带 OHLC(+vwap) 写回。"""
         return self._expand_auto_year_parameters(
             parameter,
             count_mode,
@@ -204,6 +221,7 @@ class C11Service(BaseGoogleSheetService):
             include_ohlc=True,
             random_price_range=random_price_range,
             random_group_count=random_group_count,
+            include_vwap=include_vwap,
         )
 
     # ---- custom K线读取（AA..AF：date/o/h/l/c/vwap）----
@@ -323,7 +341,9 @@ class C11Service(BaseGoogleSheetService):
                             cell_updates[f'{layout["high_column"]}{cell_num}'] = item.get("high", "")
                             cell_updates[f'{layout["low_column"]}{cell_num}'] = item.get("low", "")
                             cell_updates[f'{layout["close_column"]}{cell_num}'] = item.get("close", "")
-                            cell_updates[f'{layout["vwap_column"]}{cell_num}'] = item.get("vwap") or ""
+                            if self._vwap_enabled:
+                                # vwap 开关关闭：AF 列保持清空后的空值
+                                cell_updates[f'{layout["vwap_column"]}{cell_num}'] = item.get("vwap") or ""
                     for index, item in enumerate(kline):
                         cell_num = layout["start_row"] + index
                         cell_updates[f'{layout["ext_column"]}{cell_num}'] = item.get("stock_val", "")

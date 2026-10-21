@@ -704,6 +704,7 @@ class BaseGoogleSheetService:
         include_ohlc=False,
         random_price_range="high_low",
         random_group_count=1,
+        include_vwap=True,
     ):
         """C5/C7 共享的 auto-K线年度参数展开骨架（ponytail 审计 B1 合并）。
 
@@ -737,6 +738,7 @@ class BaseGoogleSheetService:
             start_date=start_date,
             end_date=end_date,
             adjust_type=adjust_type,
+            include_vwap=include_vwap,
         )
         stock_name = str(klines[0].get("stock_name") or "") if klines else ""
         parameter = str(klines[0].get("stock_code") or parameter) if klines else parameter

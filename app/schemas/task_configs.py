@@ -162,6 +162,9 @@ class C7TaskConfig(C5TaskConfig):
 class C11TaskConfig(C5TaskConfig):
     """C11 批量校验任务（无参数组合：F2:F26 模板预置，随机价 ext 列驱动）。"""
 
+    # 是否计算并写入 vwap 列；缺省 True，关闭后行情不派生 vwap、Sheet 不写 AF 列。
+    c11_vwap_enabled: bool | None = None
+
 
 class BacktestTrainingConfig(_SingleSheetMixin, _BaseTaskConfig):
     """单品回测训练任务（sheet 引用统一为 sheets[1]）。"""
