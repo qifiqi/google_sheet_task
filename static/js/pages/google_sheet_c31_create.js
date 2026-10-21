@@ -583,8 +583,7 @@
         await loadStockMarkets();
         bindEvents();
         loadGoogleSheets();
-        // “更多配置”已移除，暂不初始化 Token 列表；保留函数供后续恢复。
-        // loadGoogleSheetTokens();
+        loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
 
         // URL 参数驱动的数据加载：
