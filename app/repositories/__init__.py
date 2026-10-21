@@ -13,6 +13,7 @@ from app.repositories.auth_repository import AuthRepository
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.repositories.system_config_repository import SystemConfigRepository
+from app.repositories.task_kline_snapshot_repository import TaskKlineSnapshotRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
@@ -28,6 +29,7 @@ __all__ = [
     "scheduled_task_repository",
     "stock_metadata_repository",
     "system_config_repository",
+    "task_kline_snapshot_repository",
     "task_log_repository",
     "task_repository",
     "task_result_repository",
@@ -42,6 +44,7 @@ auth_repository = AuthRepository()
 scheduled_task_repository = ScheduledTaskRepository()
 stock_metadata_repository = StockMetadataRepository()
 system_config_repository = SystemConfigRepository()
+task_kline_snapshot_repository = TaskKlineSnapshotRepository()
 task_log_repository = TaskLogRepository()
 task_repository = TaskRepository()
 task_result_repository = TaskResultRepository()

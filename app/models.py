@@ -3,7 +3,7 @@ from enum import Enum
 from app.utils.json_utils import loads, JSONDecodeError
 
 from sqlalchemy import event, Text
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
@@ -932,4 +932,129 @@ class ScheduledTask(db.Model):
             "run_count": self.run_count,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class TaskKlineSource(db.Model):
+    """随机价格K线的源行情快照（任务+股票+窗口一行）。"""
+
+    __tablename__ = "t_param_task_kline_sources"
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "stock_code", "kline_key", name="uk_task_kline_source"),
+        {"comment": "随机价格K线源快照表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    stock_code = db.Column(db.String(64), nullable=False, comment="股票代码")
+    stock_name = db.Column(db.String(255), comment="股票名称")
+    market_type = db.Column(db.String(16), comment="业务市场类型 cn/us")
+    kline_key = db.Column(db.String(64), nullable=False, comment="K线窗口键")
+    data_source = db.Column(db.String(32), comment="实际K线数据源")
+    adjust_type = db.Column(db.String(16), comment="复权类型")
+    start_date = db.Column(db.String(10), comment="K线开始日期")
+    end_date = db.Column(db.String(10), comment="K线结束日期")
+    row_count = db.Column(db.Integer, nullable=False, default=0, comment="K线行数")
+    dates_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="日期数组JSON")
+    open_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="开盘价数组JSON")
+    high_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最高价数组JSON")
+    low_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最低价数组JSON")
+    close_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="收盘价数组JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "market_type": self.market_type,
+            "kline_key": self.kline_key,
+            "data_source": self.data_source,
+            "adjust_type": self.adjust_type,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "row_count": self.row_count,
+            "dates_json": self.dates_json,
+            "open_json": self.open_json,
+            "high_json": self.high_json,
+            "low_json": self.low_json,
+            "close_json": self.close_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class TaskRandomSeries(db.Model):
+    """单个随机价格序列（源快照 + 随机组唯一）。"""
+
+    __tablename__ = "t_param_task_random_series"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "task_id",
+            "stock_code",
+            "kline_key",
+            "random_price_range",
+            "random_group",
+            name="uk_task_random_series_dataset",
+        ),
+        db.Index("idx_task_random_series_source_id", "source_id"),
+        {"comment": "随机价格K线序列表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    source_id = db.Column(db.Integer, nullable=False, comment="源快照ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    stock_code = db.Column(db.String(64), nullable=False, comment="股票代码")
+    kline_key = db.Column(db.String(64), nullable=False, comment="K线窗口键")
+    dataset_key = db.Column(db.String(128), nullable=False, comment="快照数据集展示键")
+    random_group = db.Column(db.Integer, nullable=False, comment="随机组号")
+    price_mode = db.Column(db.String(32), nullable=False, comment="价格模式")
+    random_price_range = db.Column(db.String(16), nullable=False, comment="随机价格区间")
+    seed = db.Column(db.String(512), nullable=False, comment="随机种子")
+    row_count = db.Column(db.Integer, nullable=False, default=0, comment="序列行数")
+    values_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="随机价格数组JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "source_id": self.source_id,
+            "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "kline_key": self.kline_key,
+            "dataset_key": self.dataset_key,
+            "random_group": self.random_group,
+            "price_mode": self.price_mode,
+            "random_price_range": self.random_price_range,
+            "seed": self.seed,
+            "row_count": self.row_count,
+            "values_json": self.values_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class TaskResultKlineLink(db.Model):
+    """任务结果与实际随机K线序列的关联。"""
+
+    __tablename__ = "t_param_task_result_kline_links"
+    __table_args__ = (
+        db.UniqueConstraint("result_id", name="uk_task_result_kline_link_result"),
+        db.Index("idx_task_result_kline_links_task_id", "task_id"),
+        db.Index("idx_task_result_kline_links_series_id", "series_id"),
+        {"comment": "任务结果随机K线关联表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    result_id = db.Column(db.Integer, nullable=False, comment="任务结果ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    series_id = db.Column(db.Integer, nullable=False, comment="随机K线序列ID")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "result_id": self.result_id,
+            "task_id": self.task_id,
+            "series_id": self.series_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
