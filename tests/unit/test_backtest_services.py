@@ -50,6 +50,16 @@ def _product(index, *, parameters=None, is_fixed=False):
     }
 
 
+class _FakeConfigManager:
+    """只响应 min_kline_rows 的 ConfigManager 替身。"""
+
+    def __init__(self, value):
+        self.value = value
+
+    def get_config(self, key, default=None):
+        return self.value if key == 'min_kline_rows' else default
+
+
 class _RecordingKlineService:
     """记录 get_kline_data 调用并可选禁止证券解析的 KlineService 替身。"""
 
@@ -149,6 +159,67 @@ def test_multi_product_kline_limit_covers_interval_from_start_to_current_date(mo
 
     assert len(kline) > 100
     assert recorder.calls[0][2] == 1548
+
+
+def test_min_kline_rows_config_overrides_default(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(50),
+    )
+
+    assert service._get_min_kline_rows() == 50
+    assert service._get_min_kline_rows(100) == 50
+
+
+@pytest.mark.parametrize("configured", [None, "", "abc", 0, -1, True])
+def test_min_kline_rows_invalid_config_falls_back(monkeypatch, configured):
+    service = BacktestTrainingService({}, "task-id")
+    service._log_warning = lambda *_args, **_kwargs: None
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(configured),
+    )
+
+    assert service._get_min_kline_rows(100) == 100
+    assert service._get_min_kline_rows() == 30
+
+
+def test_multi_product_kline_threshold_uses_unified_config(monkeypatch):
+    service = BacktestMultiProductService({}, "task-id")
+    service.kline_service = _RecordingKlineService(_kline_rows("2024-01-01", "2024-03-31"))
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(40),
+    )
+
+    kline = service._get_kline_by_date_range(
+        "SOXX.US",
+        "en",
+        "2024-01-01",
+        "2024-03-31",
+        price_mode="sp_price",
+    )
+
+    assert len(kline) == 91
+
+
+def test_multi_product_kline_threshold_keeps_100_when_unconfigured(monkeypatch):
+    service = BacktestMultiProductService({}, "task-id")
+    service.kline_service = _RecordingKlineService(_kline_rows("2024-01-01", "2024-03-31"))
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(None),
+    )
+
+    with pytest.raises(ValueError, match="至少需要 100 条"):
+        service._get_kline_by_date_range(
+            "SOXX.US",
+            "en",
+            "2024-01-01",
+            "2024-03-31",
+            price_mode="sp_price",
+        )
 
 
 def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeypatch):

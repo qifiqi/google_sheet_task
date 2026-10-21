@@ -24,6 +24,14 @@ def _kline_rows(start_date, end_date):
     return rows
 
 
+class _FakeConfigManager:
+    def __init__(self, value):
+        self.value = value
+
+    def get_config(self, key, default=None):
+        return self.value if key == 'min_kline_rows' else default
+
+
 class _FakeSheet:
     title = "fake-sheet"
 
@@ -109,6 +117,24 @@ def test_c3_rejects_end_date_after_latest_kline_without_writing_sheet(app_factor
         # 越过末根时以"不在K线数据范围"拒绝。两种守卫均满足契约。
         with pytest.raises(Exception, match="不在K线数据范围|没有可用K线数据"):
             service.cell_kline_data(_c3_config("2026-01-05"))
+
+        assert service.google_sheet.updates == []
+
+def test_c3_raw_kline_min_rows_uses_unified_config(app_factory, monkeypatch):
+    with app_factory.app_context():
+        service = C3GoogleSheetService({}, "task-id")
+        service.google_sheet = _FakeSheet()
+        service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: _search_result("1")
+        service.dfcf_api.get_stock_kline_data = (
+            lambda *_args, **_kwargs: _kline_rows("2023-04-24", "2024-05-10")
+        )
+        monkeypatch.setattr(
+            "app.services.google_sheet_tasks.base.get_config_manager",
+            lambda: _FakeConfigManager(1000),
+        )
+
+        with pytest.raises(ValueError, match="至少需要 1000 条"):
+            service.cell_kline_data(_c3_config("2024-04-23"))
 
         assert service.google_sheet.updates == []
 

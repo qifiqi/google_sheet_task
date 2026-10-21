@@ -218,6 +218,10 @@ def init_config():
             'value': False,
             'description': '是否为东方财富 K 线接口启用 proxy_manager 代理。true 启用，false 直连。',
         },
+        'min_kline_rows': {
+            'value': '',
+            'description': '统一K线最小数据量下限（C3/C4/C5/C7、单品回测、多品回测共用）；留空时 C3/多品回测默认100条，其余默认30条。',
+        },
         'max_concurrent_tasks': {
             'value': 20,
             'description': '系统允许同时运行的任务总数上限。',
@@ -269,6 +273,18 @@ def init_config():
         'execution_delay_max': {
             'value': 30,
             'description': '批量执行时每步最大延迟，单位秒。',
+        },
+        'sheet_settle_seconds': {
+            'value': 20,
+            'description': 'Google Sheet 清空/重写输入后等待模型响应的时长，单位秒（0-300）。',
+        },
+        'sheet_refresh_attempts': {
+            'value': [5, 15, 25, 35],
+            'description': 'C3/C4/C5/C7/回测轮询中额外触发参数刷新的检查轮次（JSON 数组，0 为第一次检查）。',
+        },
+        'sheet_refresh_interval_attempts': {
+            'value': 10,
+            'description': 'C3/C4/C5/C7/回测轮询中每隔多少次检查刷新一次参数（0=关闭周期刷新）。',
         },
         'api_retry_max_attempts': {
             'value': 10,

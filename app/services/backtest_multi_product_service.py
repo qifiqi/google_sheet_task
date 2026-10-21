@@ -18,6 +18,10 @@ from app.exceptions import ValidationError
 from app.repositories import backtest_repository, task_repository, task_result_repository
 from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
+from app.services.google_sheet_tasks.base import (
+    DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS,
+    MIN_KLINE_ROWS_CONFIG_KEY,
+)
 from app.services.config_manager import get_config_manager
 from app.services.kline_service import KlineService
 from app.services.task.error_handling import (
@@ -1117,7 +1121,11 @@ class BacktestMultiProductService(BacktestTrainingService):
         kline = self.kline_service.build_price_rows(
             klines, price_mode, start_date=start_date, end_date=end_date, include_ohlc=include_ohlc,
         )
-        if len(kline) < 100:
-            raise ValueError(f"股票{stock_code} 数据量不足，K线数据量小于100条")
+        min_rows = self._get_min_kline_rows(DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS)
+        if len(kline) < min_rows:
+            raise ValueError(
+                f"股票{stock_code} 数据量不足，K线数据量 {len(kline)} 条，"
+                f"至少需要 {min_rows} 条（系统配置 {MIN_KLINE_ROWS_CONFIG_KEY}）"
+            )
         return kline
 

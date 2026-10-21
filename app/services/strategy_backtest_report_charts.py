@@ -20,7 +20,9 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, MultipleLocator
+from matplotlib.ticker import (
+    FixedLocator, FuncFormatter, LogLocator, MaxNLocator, MultipleLocator, NullFormatter,
+)
 from numpy import isnan, linspace, ma
 
 from app.utils.value_parser import parse_float
@@ -111,6 +113,7 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
 
     charts = {
         "累计净值曲线": output_dir / "累计净值曲线.png",
+        "累计净值曲线（对数）": output_dir / "累计净值曲线（对数）.png",
         "最大回撤曲线": output_dir / "最大回撤曲线.png",
         "超额收益曲线": output_dir / "超额收益曲线.png",
         "分年度收益": output_dir / "分年度收益.png",
@@ -119,6 +122,11 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     _draw_line_chart(
         charts["累计净值曲线"], "累计净值曲线", dates,
         [*nav_series, (strategy_label, strategy_nav, ORANGE)], "净值",
+    )
+    # 对数净值图与线性图同序列同配色，紧跟其后；插入顺序即 Word 插图顺序。
+    _draw_line_chart(
+        charts["累计净值曲线（对数）"], "累计净值曲线（对数）", dates,
+        [*nav_series, (strategy_label, strategy_nav, ORANGE)], "净值", log_y=True,
     )
     # 最大回撤曲线按面积图渲染；与折线变体保持相同签名，便于一键切换。
     _draw_drawdown_area_chart(
@@ -295,6 +303,15 @@ def _set_percent_axis(axis: Any, axis_name: str) -> None:
     (axis.xaxis if axis_name == "x" else axis.yaxis).set_major_formatter(formatter)
 
 
+def _set_log_axis(axis: Any) -> None:
+    # 主刻度取 1/2/5 系列并显示普通数字；次要刻度不标注，
+    # 避免小数净值区间出现 4×10⁻¹ 这类嘈杂标签。
+    axis.set_yscale("log")
+    axis.yaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
+    axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _position: f"{value:g}"))
+    axis.yaxis.set_minor_formatter(NullFormatter())
+
+
 def _draw_line_chart(
     path: Path,
     title: str,
@@ -303,6 +320,7 @@ def _draw_line_chart(
     y_label: str,
     *,
     percent: bool = False,
+    log_y: bool = False,
 ) -> None:
     _columns, height, _top = _legend_layout(len(series))
     figure = _new_figure(height=height)
@@ -317,6 +335,8 @@ def _draw_line_chart(
     axis.margins(x=0.01, y=0.12)
     if percent:
         _set_percent_axis(axis, "y")
+    if log_y:
+        _set_log_axis(axis)
     _style_axis(axis)
     # 图表标题由 Word 模板的 Heading 2 提供，PNG 内不重复绘制标题。
     legend_top = _place_legend(figure, axis, len(series))

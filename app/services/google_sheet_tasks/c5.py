@@ -269,7 +269,7 @@ class C5Service(BaseGoogleSheetService):
             "custom",
             rows,
             context="自定义K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field="stock_val",
         )
 

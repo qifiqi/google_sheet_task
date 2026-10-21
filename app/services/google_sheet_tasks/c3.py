@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, DEFAULT_C3_MIN_KLINE_ROWS, POLL_ATTEMPT_LIMIT
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -142,8 +142,9 @@ class C3Service(BaseGoogleSheetService):
             self.google_sheet.update_jumped_cells(cell_updates)
             return
 
+        settle_seconds = self._get_sheet_settle_seconds()
         self._log_info(
-            "模型可能卡死，直接清空参数，等待20s后重新写入参数，请稍等..."
+            f"模型可能卡死，直接清空参数，等待{settle_seconds}秒后重新写入参数，请稍等..."
         )
 
         if attempt >= 10 and not self.klines_map:
@@ -153,8 +154,8 @@ class C3Service(BaseGoogleSheetService):
             self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
             self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
 
-            self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 raise RuntimeError("task cancelled")
 
             for i in range(self.len_kline):
@@ -170,7 +171,7 @@ class C3Service(BaseGoogleSheetService):
             return
 
         self.google_sheet.clear_jumped_cells(cell_updates.keys())
-        if not self._interruptible_sleep(20):
+        if not self._interruptible_sleep(settle_seconds):
             raise RuntimeError("task cancelled")
 
         self.google_sheet.update_jumped_cells(cell_updates)
@@ -484,7 +485,7 @@ class C3Service(BaseGoogleSheetService):
             market_type,
             klines,
             context="原始K线",
-            min_rows=100,
+            min_rows=self._get_min_kline_rows(DEFAULT_C3_MIN_KLINE_ROWS),
             price_field=get_kline_price_field(price_mode),
         )
 
@@ -574,8 +575,9 @@ class C3Service(BaseGoogleSheetService):
                     self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
                     self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
 
-                    self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-                    if not self._interruptible_sleep(20):
+                    settle_seconds = self._get_sheet_settle_seconds()
+                    self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(settle_seconds):
                         return success_count, failed_count, 'cancelled'
 
                 self.cell_kline_data(config_data)
@@ -722,8 +724,12 @@ class C3Service(BaseGoogleSheetService):
             batch_error_count = 0
             max_batch_error_count = 3
             delay_min, delay_max = self._get_execution_poll_delay_bounds()
-            for attempt in range(60):
-                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+            refresh_interval, refresh_attempts = self._get_poll_refresh_settings()
+            for attempt in range(POLL_ATTEMPT_LIMIT):
+                if attempt != 0 and (
+                    (refresh_interval > 0 and attempt % refresh_interval == 0)
+                    or attempt in refresh_attempts
+                ):
                     self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
                     self._write_parameter_cells(cell_updates, attempt)
 

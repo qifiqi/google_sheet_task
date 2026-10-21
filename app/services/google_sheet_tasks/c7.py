@@ -81,7 +81,7 @@ class C7Service(BaseGoogleSheetService):
         )
 
     def _stamp_combination(self, combination: dict, batch: dict) -> None:
-        combination['c7_model_version'] = self._get_c7_model_version(
+        combination['model_version'] = self._get_c7_model_version(
             batch["_config_data"],
             self.google_sheets[0],
         )
@@ -545,7 +545,7 @@ class C7Service(BaseGoogleSheetService):
             "custom",
             rows,
             context="自定义K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field="stock_val",
         )
         if ohlc_columns:

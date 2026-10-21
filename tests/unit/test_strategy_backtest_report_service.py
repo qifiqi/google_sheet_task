@@ -542,6 +542,73 @@ def test_return_section_expands_columns_per_benchmark():
     assert core["rows"][0] == ["累计回报率", "10.00%", "5.00%", "30.00%", "20.00%", "25.00%"]
 
 
+def test_return_section_monthly_returns_per_year_tables():
+    """1.3 分月度收益：每年一个子标题 + 该年逐月表，滚动收益顺延为 1.4。"""
+    monthly = [
+        {"year_month": "2023-06", "start_monthly_return": 0.02, "index_monthly_return": 0.01,
+         "monthly_excess_return_diff": 0.01},
+        {"year_month": "2023-07", "start_monthly_return": -0.01, "index_monthly_return": -0.02,
+         "monthly_excess_return_diff": 0.01},
+        {"year_month": "2024-01", "start_monthly_return": 0.03, "index_monthly_return": 0.02,
+         "monthly_excess_return_diff": 0.01},
+    ]
+    runs = [SimpleNamespace(code=None, weight=1, label="指数", result=SimpleNamespace(metrics={
+        "monthly_excess_returns": monthly}))]
+
+    section = StrategyBacktestReportService()._return_section(runs)
+
+    assert [item["title"] for item in section] == [
+        "1.1 核心收益", "1.2 分年度收益率", "1.3 分月度收益", "1.4 滚动收益（月度窗口）"]
+    monthly_subsection = section[2]
+    assert [table["title"] for table in monthly_subsection["tables"]] == ["2023年", "2024年"]
+    first = monthly_subsection["tables"][0]
+    assert first["title_level"] == 3
+    assert first["columns"] == ["月份", "指数", "组合策略", "超额(组合策略-指数)"]
+    # 首年 6 月起算：1-5 月缺月显示 "-"，不回填 0.00%。
+    assert first["rows"][0] == ["1月", "-", "-", "-"]
+    assert first["rows"][5] == ["6月", "1.00%", "2.00%", "1.00%"]
+    assert first["rows"][6] == ["7月", "-2.00%", "-1.00%", "1.00%"]
+    assert first["rows"][11] == ["12月", "-", "-", "-"]
+    second = monthly_subsection["tables"][1]
+    assert second["rows"][0] == ["1月", "2.00%", "3.00%", "1.00%"]
+    assert second["rows"][1] == ["2月", "-", "-", "-"]
+
+
+def test_monthly_returns_expand_columns_per_benchmark():
+    """分月度收益列随基准循环展开，与分年度收益率同规则；缺月按列各自显示 "-"。"""
+    runs = [
+        SimpleNamespace(code="AAA.US", weight=1, label="指数(AAA.US 100%)", result=SimpleNamespace(metrics={
+            "monthly_excess_returns": [
+                {"year_month": "2024-01", "start_monthly_return": 0.03, "index_monthly_return": 0.01,
+                 "monthly_excess_return_diff": 0.02},
+            ]})),
+        SimpleNamespace(code="BBB.US", weight=0.3, label="指数(BBB.US 30%)", result=SimpleNamespace(metrics={
+            "monthly_excess_returns": [
+                {"year_month": "2024-02", "start_monthly_return": 0.03, "index_monthly_return": 0.04,
+                 "monthly_excess_return_diff": -0.01},
+            ]})),
+    ]
+
+    subsection = StrategyBacktestReportService()._monthly_returns_subsection(runs)
+
+    assert subsection["title"] == "1.3 分月度收益"
+    table = subsection["tables"][0]
+    assert table["columns"] == ["月份", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略",
+                                "超额(AAA.US 100%)", "超额(BBB.US 30%)"]
+    assert table["rows"][0] == ["1月", "1.00%", "-", "3.00%", "2.00%", "-"]
+    assert table["rows"][1] == ["2月", "-", "4.00%", "3.00%", "-", "-1.00%"]
+
+
+def test_monthly_returns_subsection_omitted_without_data_keeps_rolling_1_3():
+    """无月度数据时小节整体省略，滚动收益编号保持 1.3，不出现编号空洞。"""
+    runs = [SimpleNamespace(code=None, weight=1, label="指数", result=SimpleNamespace(metrics={}))]
+
+    section = StrategyBacktestReportService()._return_section(runs)
+
+    assert [item["title"] for item in section] == [
+        "1.1 核心收益", "1.2 分年度收益率", "1.3 滚动收益（月度窗口）"]
+
+
 def test_excess_headers_follow_same_code_ratio_rule():
     """同股不同比例只展示比例；异股展示 代码 比例%，与指数列头对称。"""
     service = StrategyBacktestReportService()

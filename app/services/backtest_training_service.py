@@ -7,7 +7,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    MIN_KLINE_ROWS_CONFIG_KEY,
+    build_execute_task_alert,
+    should_alert_execute_task_result,
+)
 from app.services.config_manager import get_config_manager
 from app.utils.backtest_report_metadata import is_c7_0_3_config
 from app.utils.backtest_parameter_utils import normalize_backtest_training_config
@@ -382,8 +387,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 )
                 self.google_sheet.clear_range(clear_range)
 
-            self._log_info('所有表格均已清空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            settle_seconds = self._get_sheet_settle_seconds()
+            self._log_info(f'所有表格均已清空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 return success_count, failed_count, 'cancelled'
 
             processed_index = 0  # 已处理的组合数量
@@ -567,8 +573,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             f'预留末行: {A_num + 2}, 实际行数: {_kline_len}, 清空范围: {clear_range}'
                         )
                     self.google_sheet.clear_range(clear_range)
-                    self._log_info('输入数据已清空，等待20秒，开始执行后续逻辑')
-                    if not self._interruptible_sleep(20):
+                    settle_seconds = self._get_sheet_settle_seconds()
+                    self._log_info(f'输入数据已清空，等待{settle_seconds}秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(settle_seconds):
                         raise RuntimeError("task cancelled")
 
                     # 准备要更新的单元格
@@ -835,8 +842,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 raise Exception(
                     f"股票{stock_code} 设定区间 [{start_date}, {effective_end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 30:
-            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于30条，无法在模型正确产生数据，或者联系开发")
+        min_rows = self._get_min_kline_rows()
+        if len(klines) < min_rows:
+            raise Exception(
+                f"股票{stock_code} 数据量不足，K线数据量 {len(klines)} 条，"
+                f"至少需要 {min_rows} 条（系统配置 {MIN_KLINE_ROWS_CONFIG_KEY}），"
+                f"无法在模型正确产生数据，或者联系开发"
+            )
 
         all_kline = self.kline_service.build_price_rows(
             klines, price_mode, start_date=start_date, end_date=effective_end_date, include_ohlc=include_ohlc

@@ -5,7 +5,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    build_execute_task_alert,
+    resolve_min_kline_rows,
+    should_alert_execute_task_result,
+)
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
@@ -143,8 +148,9 @@ class C4Service(BaseGoogleSheetService):
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
                 google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
 
-            self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            settle_seconds = self._get_sheet_settle_seconds()
+            self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 return success_count, failed_count, 'cancelled'
 
             processed_index = 0  # 已处理的组合数量
@@ -443,7 +449,7 @@ class C4Service(BaseGoogleSheetService):
             market_type,
             klines,
             context="原始K线",
-            min_rows=30,
+            min_rows=resolve_min_kline_rows(),
             price_field=_market_price_field(market_type),
         )
         data_start_date = klines[0]['stock_date']

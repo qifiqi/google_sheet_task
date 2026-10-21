@@ -42,6 +42,7 @@ def make_service():
     service.google_sheet = MagicMock()
     service._log_info = MagicMock()
     service._interruptible_sleep = MagicMock(return_value=True)
+    service._get_sheet_settle_seconds = MagicMock(return_value=20)
     return service
 
 
@@ -66,6 +67,15 @@ def test_write_parameter_cells_retry_clears_waits_then_updates():
     assert list(service.google_sheet.clear_jumped_cells.call_args.args[0]) == ["B2", "D5"]
     service._interruptible_sleep.assert_called_once_with(20)
     service.google_sheet.update_jumped_cells.assert_called_once_with(cell_updates)
+
+
+def test_write_parameter_cells_retry_uses_configured_wait():
+    service = make_service()
+    service._get_sheet_settle_seconds = MagicMock(return_value=7)
+
+    service._write_parameter_cells({"B2": 1}, attempt=1)
+
+    service._interruptible_sleep.assert_called_once_with(7)
 
 
 def test_write_parameter_cells_retry_raises_when_cancelled_during_wait():

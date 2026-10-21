@@ -33,6 +33,7 @@
 全部继承 `google_sheet_service_base.py::BaseGoogleSheetService`，公共能力：
 
 - `_init_google_sheet`（兼容单表/多表/嵌套 sheet 配置）、可中断睡眠 `_interruptible_sleep`（响应取消）、轮询延迟 `execution_delay_min/max`（20~30s）
+- 清空/重写输入后的稳定等待 `sheet_settle_seconds`（默认 20s，0~300）；轮询刷新触发点 `sheet_refresh_attempts` + `sheet_refresh_interval_attempts`（默认 [5,15,25,35] + 每 10 次，C3/C4/C5/C7/回测共用）
 - 日志（任务日志 + DB TaskLog）、钉钉通知（`error_dd` / `task_ok_to_dd`）
 - 收益序列落库 `send_stock_param_result_data`（→ `TaskResultReturn`）、模型汇总索引刷新 `_refresh_model_summary_index`
 - JSON 安全化 `_sanitize_json_value`、结果摘要 `_summarize_result_for_log`

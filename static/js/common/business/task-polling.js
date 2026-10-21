@@ -80,7 +80,7 @@
   }
 
   function loadTaskResults(page) {
-    const targetPage = page || 1;
+    const targetPage = page || currentResultsPage || 1;
     Api.endpoints.task
       .results(currentTaskId, `page=${targetPage}&per_page=${resultsPerPage}`)
       .then(function (data) {
@@ -148,7 +148,7 @@
     // 上一页
     const prevLi = document.createElement("li");
     prevLi.className = `page-item ${currentResultsPage === 1 ? "disabled" : ""}`;
-    prevLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage - 1})">上一页</a>`;
+    prevLi.innerHTML = `<a class="page-link" href="#" onclick="return Biz.taskPolling.changeResultsPage(${currentResultsPage - 1})">上一页</a>`;
     pagination.appendChild(prevLi);
 
     // 页码
@@ -158,14 +158,14 @@
     for (let i = startPage; i <= endPage; i++) {
       const li = document.createElement("li");
       li.className = `page-item ${i === currentResultsPage ? "active" : ""}`;
-      li.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${i})">${i}</a>`;
+      li.innerHTML = `<a class="page-link" href="#" onclick="return Biz.taskPolling.changeResultsPage(${i})">${i}</a>`;
       pagination.appendChild(li);
     }
 
     // 下一页
     const nextLi = document.createElement("li");
     nextLi.className = `page-item ${currentResultsPage === totalPages ? "disabled" : ""}`;
-    nextLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
+    nextLi.innerHTML = `<a class="page-link" href="#" onclick="return Biz.taskPolling.changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
     pagination.appendChild(nextLi);
   }
 

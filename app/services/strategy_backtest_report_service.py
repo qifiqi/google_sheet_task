@@ -527,7 +527,8 @@ class StrategyBacktestReportService:
             for subsection in section["subsections"]:
                 if subsection.get("title"):
                     blocks.append({"type": "heading", "text": subsection["title"], "level": 2})
-                blocks.append({"type": "table", **subsection["table"]})
+                for table_block in subsection.get("tables") or [subsection["table"]]:
+                    blocks.append({"type": "table", **table_block})
         return {
             "title": payload.title,
             "footer": payload.title,
@@ -864,7 +865,7 @@ class StrategyBacktestReportService:
             if len(runs) > 1
             else [f"{self._strategy_label()}胜率(跑赢{runs[0].label})"]
         )
-        return [
+        subsections = [
             {"title": "1.1 核心收益", "table": self._table(
                 ["指标", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     ["累计回报率", *[self._pct(value) for value in index_cumulatives],
@@ -886,10 +887,57 @@ class StrategyBacktestReportService:
                        for index_returns in index_returns_list]]
                     for year in years
                 ])},
-            {"title": "1.3 滚动收益（月度窗口）", "table": self._table(
-                ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
-                rolling_rows)},
         ]
+        monthly_subsection = self._monthly_returns_subsection(runs)
+        if monthly_subsection is not None:
+            subsections.append(monthly_subsection)
+        subsections.append({"title": f"1.{len(subsections) + 1} 滚动收益（月度窗口）", "table": self._table(
+            ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
+            rolling_rows)})
+        return subsections
+
+    def _monthly_returns_subsection(self, runs: list[_BenchmarkRun]) -> dict[str, Any] | None:
+        """构造 1.3 分月度收益小节：每年一个子标题 + 该年逐月收益表。
+
+        列结构与 1.2 分年度收益率对称（基准/策略/超额按 runs 循环展开），
+        数值取各 run 的 monthly_excess_returns 逐月配对记录；整段无数据
+        时返回 None（小节整体省略，滚动收益编号随之顺延）。
+        """
+        metrics_list = self._run_metrics_list(runs)
+        benchmark_headers = self._benchmark_headers(runs)
+        excess_headers = self._excess_headers(runs)
+        index_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "index_monthly_return")
+            for m in metrics_list
+        ]
+        # 策略月序列在各 run 中同值，但配对帧按基准覆盖裁剪；跨 run 合并取并集，避免
+        # 首基准历史较短时策略列整列缺月。
+        strategy_by_year: dict[str, dict[int, Any]] = {}
+        for metrics in metrics_list:
+            for year, months in self._monthly_by_year(
+                    metrics.get("monthly_excess_returns"), "start_monthly_return").items():
+                target = strategy_by_year.setdefault(year, {})
+                for month, value in months.items():
+                    target.setdefault(month, value)
+        excess_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "monthly_excess_return_diff")
+            for m in metrics_list
+        ]
+        years = sorted(set().union(*(set(item) for item in index_by_year_list)) | set(strategy_by_year))
+        if not years:
+            return None
+        columns = ["月份", *benchmark_headers, self._strategy_label(), *excess_headers]
+        tables = [
+            {"title": f"{year}年", "title_level": 3, **self._table(columns, [
+                [f"{month}月",
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in index_by_year_list],
+                 self._pct_or_dash(strategy_by_year.get(year, {}).get(month)),
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in excess_by_year_list]]
+                for month in range(1, 13)
+            ])}
+            for year in years
+        ]
+        return {"title": "1.3 分月度收益", "tables": tables}
 
     @classmethod
     def _rolling_row(cls, runs: list[_BenchmarkRun], months: int) -> list[str]:
@@ -1266,6 +1314,24 @@ class StrategyBacktestReportService:
             for item in items or []
             if isinstance(item, dict) and item.get("year") not in (None, "all")
         }
+
+    @staticmethod
+    def _monthly_by_year(records: Any, field: str) -> dict[str, dict[int, Any]]:
+        """把月度记录（year_month="YYYY-MM"）整理为 {年: {月: 值}}，畸形记录跳过。"""
+        result: dict[str, dict[int, Any]] = {}
+        for item in records or []:
+            if not isinstance(item, dict):
+                continue
+            year, _, month = str(item.get("year_month") or "").partition("-")
+            if not (len(year) == 4 and year.isdigit() and month.isdigit()):
+                continue
+            result.setdefault(year, {})[int(month)] = item.get(field)
+        return result
+
+    @classmethod
+    def _pct_or_dash(cls, value: Any) -> str:
+        """百分比展示；None 为缺月（首尾年份不满 12 个月），显示 "-" 而非 0.00%。"""
+        return "-" if value is None else cls._pct(value)
 
     @classmethod
     def _net_values(cls, frame: Any, return_column: str) -> list[float]:

@@ -23,6 +23,7 @@ from app.utils.db_stock_api import StockAPIClient
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.formatting import sanitize_json_value
+from app.utils.value_parser import parse_int
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import (
@@ -39,6 +40,15 @@ logger = get_logger(__name__)
 
 DEFAULT_EXECUTION_DELAY_MIN = 20
 DEFAULT_EXECUTION_DELAY_MAX = 30
+MIN_KLINE_ROWS_CONFIG_KEY = 'min_kline_rows'
+DEFAULT_MIN_KLINE_ROWS = 30
+DEFAULT_C3_MIN_KLINE_ROWS = 100
+DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS = 100
+DEFAULT_SHEET_SETTLE_SECONDS = 20
+MAX_SHEET_SETTLE_SECONDS = 10
+DEFAULT_SHEET_REFRESH_INTERVAL = 10
+DEFAULT_SHEET_REFRESH_ATTEMPTS = (5, 15, 25, 35)
+POLL_ATTEMPT_LIMIT = 60
 
 
 def should_alert_execute_task_result(result):
@@ -53,6 +63,23 @@ def _shift_date_months(date_str, months):
     last_day = calendar.monthrange(total // 12, total % 12 + 1)[1]
     day = min(int(date_str[8:10]), last_day)
     return f"{total // 12:04d}-{total % 12 + 1:02d}-{day:02d}"
+
+
+def resolve_min_kline_rows(default: int = DEFAULT_MIN_KLINE_ROWS, log_warning=None) -> int:
+    """K线最小条数统一配置；留空或非法时回退到调用方默认值。"""
+    raw_value = get_config_manager().get_config(MIN_KLINE_ROWS_CONFIG_KEY, None)
+    if raw_value in (None, ''):
+        return default
+
+    min_rows = parse_int(raw_value, default=None)
+    if min_rows is None or min_rows < 1:
+        message = f"K线最小条数配置无效（{raw_value!r}），使用默认值 {default}"
+        if log_warning:
+            log_warning(message)
+        else:
+            logger.warning(message)
+        return default
+    return min_rows
 
 
 def build_execute_task_alert(target, func_name, phase, exc, result):
@@ -171,24 +198,111 @@ class BaseGoogleSheetService:
     def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
         return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
+    def _get_min_kline_rows(self, default: int = DEFAULT_MIN_KLINE_ROWS) -> int:
+        return resolve_min_kline_rows(default, log_warning=self._log_warning)
+
+    def _get_sheet_settle_seconds(self) -> int:
+        try:
+            settle_seconds = int(
+                get_config_manager().get_config(
+                    'sheet_settle_seconds', DEFAULT_SHEET_SETTLE_SECONDS
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"Sheet 等待配置无效，使用默认值 {DEFAULT_SHEET_SETTLE_SECONDS} 秒: {exc}"
+            )
+            return DEFAULT_SHEET_SETTLE_SECONDS
+
+        if settle_seconds < 0 or settle_seconds > MAX_SHEET_SETTLE_SECONDS:
+            self._log_warning(
+                f"Sheet 等待配置无效，使用默认值 {DEFAULT_SHEET_SETTLE_SECONDS} 秒: {settle_seconds}"
+            )
+            return DEFAULT_SHEET_SETTLE_SECONDS
+        return settle_seconds
+
+    def _get_refresh_interval(self) -> int:
+        try:
+            interval = int(
+                get_config_manager().get_config(
+                    'sheet_refresh_interval_attempts', DEFAULT_SHEET_REFRESH_INTERVAL
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"刷新间隔配置无效，使用默认值 {DEFAULT_SHEET_REFRESH_INTERVAL}: {exc}"
+            )
+            return DEFAULT_SHEET_REFRESH_INTERVAL
+
+        if interval < 0 or interval >= POLL_ATTEMPT_LIMIT:
+            self._log_warning(
+                f"刷新间隔配置无效，使用默认值 {DEFAULT_SHEET_REFRESH_INTERVAL}: {interval}"
+            )
+            return DEFAULT_SHEET_REFRESH_INTERVAL
+        return interval
+
+    @staticmethod
+    def _coerce_refresh_attempts(value) -> frozenset[int]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return frozenset()
+            try:
+                value = loads(text)
+            except (TypeError, ValueError):
+                value = [part.strip() for part in text.split(',') if part.strip()]
+
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"刷新轮次必须是数组: {value!r}")
+
+        attempts = set()
+        for item in value:
+            attempt = int(item)
+            if attempt < 1 or attempt >= POLL_ATTEMPT_LIMIT:
+                raise ValueError(f"刷新轮次必须在 1-{POLL_ATTEMPT_LIMIT - 1} 之间: {attempt}")
+            attempts.add(attempt)
+        return frozenset(attempts)
+
+    def _get_refresh_attempts(self) -> frozenset[int]:
+        try:
+            value = get_config_manager().get_config(
+                'sheet_refresh_attempts', list(DEFAULT_SHEET_REFRESH_ATTEMPTS)
+            )
+            return self._coerce_refresh_attempts(value)
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"刷新轮次配置无效，使用默认值 {list(DEFAULT_SHEET_REFRESH_ATTEMPTS)}: {exc}"
+            )
+            return frozenset(DEFAULT_SHEET_REFRESH_ATTEMPTS)
+
+    def _get_poll_refresh_settings(self) -> tuple[int, frozenset[int]]:
+        return self._get_refresh_interval(), self._get_refresh_attempts()
+
     def _poll_google_sheet_completion(self, attempt_fn, refresh_fn=None, post_attempt_fn=None, timeout_payload=(False, {})):
         """C 系参数组合轮询骨架（ponytail 审计 B3 上提，c3/c4/c5/c7/training 共用）。
 
-        - refresh_fn(20)：可选的防卡顿参数刷新，在 attempt%10==0 或
-          attempt∈[5,15,25,35]（且非首轮）的检查**之前**触发；c5/c7/training 使用；
-        - post_attempt_fn(attempt)：检查之后触发的钩子（c4 用于 [5,15,25,35]
-          轮的重写参数+重快照，其内部自带 30s 等待）；
+        - refresh_fn(settle)：可选的防卡顿参数刷新，在
+          sheet_refresh_attempts / 每 sheet_refresh_interval_attempts 次
+          （且非首轮）的检查**之前**触发；C3/C5/C7/training 共用同一套刷新策略；
+          settle 读 sheet_settle_seconds；
+        - post_attempt_fn(attempt)：检查之后触发的钩子（c4 用于配置的刷新轮次
+          重写参数+重快照，其内部自带 30s 等待）；
         - attempt_fn(attempt) → (是否全部完成, 结果载荷)；完成与未完成的
           业务日志由 attempt_fn 自行输出；
-        - 超过 60 次未完成返回 timeout_payload（c5/c7/c4 为 (False, {})，
+        - 超过 POLL_ATTEMPT_LIMIT 次未完成返回 timeout_payload（c5/c7/c4 为 (False, {})，
           training 为 (False, {}, [])）。
         """
         delay_min, delay_max = self._get_execution_poll_delay_bounds()
-        for attempt in range(60):
+        refresh_interval, refresh_attempts = self._get_poll_refresh_settings()
+        settle_seconds = self._get_sheet_settle_seconds() if refresh_fn is not None else 0
+        for attempt in range(POLL_ATTEMPT_LIMIT):
             # 定期刷新参数，防止模型卡顿
-            if refresh_fn is not None and attempt != 0 and (attempt % 10 == 0 or attempt in [5, 15, 25, 35]):
+            if refresh_fn is not None and attempt != 0 and (
+                (refresh_interval > 0 and attempt % refresh_interval == 0)
+                or attempt in refresh_attempts
+            ):
                 self._log_info("刷新参数")
-                refresh_fn(20)
+                refresh_fn(settle_seconds)
 
             _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
             self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
@@ -197,7 +311,7 @@ class BaseGoogleSheetService:
             done, payload = attempt_fn(attempt)
             if done:
                 return True, payload
-            if post_attempt_fn is not None and attempt in [5, 15, 25, 35]:
+            if post_attempt_fn is not None and attempt in refresh_attempts:
                 post_attempt_fn(attempt)
         self._log_warning("执行超时，未在规定时间内完成")
         return timeout_payload
@@ -557,7 +671,7 @@ class BaseGoogleSheetService:
             market_type,
             klines,
             context="原始K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field=price_field,
         )
 
@@ -763,8 +877,9 @@ class BaseGoogleSheetService:
                 for google_sheet in self.google_sheets:
                     self._clear_input_columns(google_sheet, batch)
 
-                self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-                if not self._interruptible_sleep(20):
+                settle_seconds = self._get_sheet_settle_seconds()
+                self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+                if not self._interruptible_sleep(settle_seconds):
                     return success_count, failed_count, 'cancelled'
             else:
                 self._log_info('自定义K线模式：保留表格现有K线，仅写入参数')
@@ -817,6 +932,7 @@ class BaseGoogleSheetService:
 
                         cache_parameters['combination'] = combination
                         kline = kline_data_map.get(combination['Kline_key'], None)
+                        combination['']
                         combination['kline'] = [kline[0], kline[-1]]
 
                         self.send_stock_param_result_data(
