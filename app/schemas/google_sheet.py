@@ -28,6 +28,13 @@ class WorksheetsQuerySchema(APIModel):
     proxy_url: str | None = None
 
 
+class CombinationEstimateSchema(APIModel):
+    """POST /api/google-sheet/combination-estimate（C5/C7/C11 组合数精算）。"""
+
+    task_type: str = ""
+    config: dict = {}
+
+
 class SheetCreateSchema(APIModel):
     """POST /api/google-sheets。"""
 

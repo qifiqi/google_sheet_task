@@ -525,6 +525,9 @@ class BaseGoogleSheetService:
     # 外层异常是否打 [NETWORK_RETRYABLE] 标记（C7 = True；C5 默认无）。
     _retryable_outer = False
 
+    # 随机价展开时是否落 K 线快照；组合数精算置 False（估算不是任务执行）。
+    _persist_random_snapshots = True
+
     def _load_custom_kline_map(self, config_data: dict) -> dict:
         """custom K线读取钩子（C5 默认：固定 c5 A/B 输入列；C7 覆盖为布局驱动）。"""
         c5_input_column_a = config_data.get('c5_input_column_a').upper()
@@ -617,7 +620,11 @@ class BaseGoogleSheetService:
         """
         if price_mode != "random_price":
             return combinations, kline_data_map
-        persist_snapshots = snapshot_meta is not None and has_app_context()
+        persist_snapshots = (
+            snapshot_meta is not None
+            and has_app_context()
+            and self._persist_random_snapshots
+        )
         grouped_data = []
         grouped_map = {}
         group_series_ids = {}

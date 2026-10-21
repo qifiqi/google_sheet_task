@@ -15,8 +15,9 @@ from app.services.google_sheet_registry_service import (
     get_worksheets_with_cache,
 )
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
+from app.services.google_sheet_tasks.combination_estimate import estimate_combination_count
 from app.utils.api_response import success
-from app.schemas.google_sheet import SheetCreateSchema, SheetUpdateSchema, TokenImportSchema, TokenUpdateSchema, WorksheetsQuerySchema
+from app.schemas.google_sheet import SheetCreateSchema, SheetUpdateSchema, TokenImportSchema, TokenUpdateSchema, WorksheetsQuerySchema, CombinationEstimateSchema
 from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
 
@@ -37,6 +38,14 @@ def get_worksheets():
 
     result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
     return success(data=result)
+
+
+@google_sheet_api_bp.route('/google-sheet/combination-estimate', methods=['POST'])
+@login_required
+def estimate_combinations():
+    """C5/C7/C11 组合数精算：多 K线窗口按真实展开逻辑计数，估算不落K线快照。"""
+    data = parse_body(CombinationEstimateSchema)
+    return success(data=estimate_combination_count(data.task_type, data.config))
 
 
 @google_sheet_api_bp.route('/google-sheets', methods=['GET', 'POST'])

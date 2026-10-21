@@ -664,6 +664,10 @@ function init(V) {
         if (randomRangeSelect) randomRangeSelect.value = normalized.random_price_range || 'high_low';
         const randomGroupInput = document.getElementById('random_group_count');
         if (randomGroupInput) randomGroupInput.value = normalized.random_group_count || 1;
+        const vwapSwitch = document.getElementById('c11_vwap_enabled');
+        if (vwapSwitch && normalized.c11_vwap_enabled !== undefined && normalized.c11_vwap_enabled !== null) {
+            vwapSwitch.checked = !!normalized.c11_vwap_enabled;
+        }
         if (normalized.market_type) document.getElementById('market_type').value = normalized.market_type;
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
@@ -1175,9 +1179,93 @@ function init(V) {
     }
 
     // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
+    // C11 vwap 开关：元素仅存在于 C11 页面，其他版本不下发该字段（后端缺省 True）
+    function readVwapEnabled() {
+        const el = document.getElementById('c11_vwap_enabled');
+        return el ? !!el.checked : null;
+    }
+
+    function vwapEnabledField() {
+        const vwapEnabled = readVwapEnabled();
+        return vwapEnabled === null ? {} : { c11_vwap_enabled: vwapEnabled };
+    }
+
     function readParamValue(id) {
         const el = document.getElementById(id);
         return el ? el.value : '';
+    }
+
+    // ===== 组合数服务端精算 =====
+    // total/custom 本地公式即精确（单K线窗口）；N+1 会按整年/近年拆出多个K线窗口，
+    // 只有服务端按真实展开逻辑计数才准，故仅该场景异步精算并覆盖徽标。
+    let estimateTimer = null;
+    let estimateSequence = 0;
+
+    function estimateNeedsServer(countMode, count) {
+        return !!(V.serverEstimate && count > 0 && countMode === 'n_plus_1' && !isCustomKlineMode());
+    }
+
+    function buildEstimatePayload() {
+        const spreadsheetInput = document.getElementById('spreadsheet');
+        const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
+        const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
+        const parameters = [param1];
+        if (param2.length) parameters.push(param2);
+        if (param3.length) parameters.push(param3);
+        return {
+            task_type: V.taskType,
+            config: {
+                kline_source: 'auto',
+                sheets: [{ spreadsheet_id: spreadsheetId }],
+                parameters: parameters,
+                count_mode: 'n_plus_1',
+                price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
+                random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
+                random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+                market_type: document.getElementById('market_type')?.value || 'cn',
+                kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+                kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
+                date_range_mode: getSelectedDateRangeModes(),
+                exclude_recent_years: getExcludedRecentYears(),
+                start_date: document.getElementById('start_date')?.value || null,
+                end_date: document.getElementById('end_date')?.value || null,
+            },
+        };
+    }
+
+    function setEstimateNote(text) {
+        const countSpan = document.getElementById('combination-count');
+        if (!countSpan) return;
+        let note = document.getElementById('combination-count-note');
+        if (!note) {
+            note = document.createElement('span');
+            note.id = 'combination-count-note';
+            note.className = 'small text-muted ms-2';
+            countSpan.insertAdjacentElement('afterend', note);
+        }
+        note.textContent = text || '';
+    }
+
+    function refineCombinationEstimate() {
+        const seq = ++estimateSequence;
+        setEstimateNote('精算中…');
+        Api.endpoints.googleSheet.combinationEstimate(buildEstimatePayload()).then(function (data) {
+            if (seq !== estimateSequence) return;
+            const countSpan = document.getElementById('combination-count');
+            if (data && data.available === false) {
+                setEstimateNote('行情不可用，显示本地估算');
+                return;
+            }
+            if (countSpan && data && Number.isFinite(Number(data.estimated_count))) {
+                countSpan.textContent = data.estimated_count;
+                setEstimateNote('服务端精算（含多K线窗口）');
+            }
+        }).catch(function () {
+            if (seq !== estimateSequence) return;
+            setEstimateNote('精算失败，显示本地估算');
+        });
     }
 
     function calculateCombinations() {
@@ -1209,6 +1297,16 @@ function init(V) {
             countSpan.textContent = count;
         } else {
             infoDiv.classList.add('d-none');
+        }
+
+        const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        if (estimateNeedsServer(countMode, count)) {
+            if (estimateTimer) clearTimeout(estimateTimer);
+            estimateTimer = setTimeout(refineCombinationEstimate, 600);
+        } else if (estimateTimer) {
+            clearTimeout(estimateTimer);
+            estimateTimer = null;
+            setEstimateNote('');
         }
         return count;
     }
@@ -1367,6 +1465,7 @@ function init(V) {
             price_mode: priceMode,
             random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
             random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+            ...vwapEnabledField(),
             market_type: marketType,
             kline_adjustment: klineAdjustment,
             kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1453,6 +1552,7 @@ function init(V) {
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
             random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+            ...vwapEnabledField(),
             market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1543,6 +1643,10 @@ function init(V) {
                 }
                 if (formData.random_price_range) document.getElementById('random_price_range').value = formData.random_price_range;
                 if (formData.random_group_count) document.getElementById('random_group_count').value = formData.random_group_count;
+                if (formData.c11_vwap_enabled !== undefined) {
+                    const draftVwapSwitch = document.getElementById('c11_vwap_enabled');
+                    if (draftVwapSwitch) draftVwapSwitch.checked = !!formData.c11_vwap_enabled;
+                }
 
                 if (formData.date_range_mode !== undefined) {
                     Biz.formState.applyDateRangeModes(formData.date_range_mode);
@@ -1701,6 +1805,7 @@ function init(V) {
                 price_mode: priceMode,
                 random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
                 random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+                ...vwapEnabledField(),
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
                 kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1750,6 +1855,7 @@ function init(V) {
             price_mode: raw.price_mode || 'vwap_price',
             random_price_range: raw.random_price_range || 'high_low',
             random_group_count: raw.random_group_count || 1,
+            c11_vwap_enabled: raw.c11_vwap_enabled === undefined ? true : !!raw.c11_vwap_enabled,
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',

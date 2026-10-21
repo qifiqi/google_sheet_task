@@ -253,6 +253,9 @@
       worksheets: function (payload) {
         return post("/api/google-sheets/worksheets", payload);
       },
+      combinationEstimate: function (payload) {
+        return post("/api/google-sheet/combination-estimate", payload);
+      },
       tokens: function (query) {
         return get("/api/google-sheet-tokens" + (query ? "?" + query : ""));
       },
