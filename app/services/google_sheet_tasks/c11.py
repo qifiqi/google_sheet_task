@@ -152,6 +152,13 @@ class C11Service(BaseGoogleSheetService):
             "random_price",
             self._random_price_range,
             self._random_group_count,
+            snapshot_meta={
+                "stock_name": (self.config or {}).get("stock_name"),
+                "market_type": (self.config or {}).get("market_type"),
+                # custom 源是 Sheet 现有K线，无外部数据源/复权口径
+                "data_source": "custom",
+                "adjust_type": None,
+            },
         )
         data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(source_kline) + 20, custom_kline_map
@@ -316,7 +323,7 @@ class C11Service(BaseGoogleSheetService):
                             cell_updates[f'{layout["high_column"]}{cell_num}'] = item.get("high", "")
                             cell_updates[f'{layout["low_column"]}{cell_num}'] = item.get("low", "")
                             cell_updates[f'{layout["close_column"]}{cell_num}'] = item.get("close", "")
-                            cell_updates[f'{layout["vwap_column"]}{cell_num}'] = item.get("vwap", "")
+                            cell_updates[f'{layout["vwap_column"]}{cell_num}'] = item.get("vwap") or ""
                     for index, item in enumerate(kline):
                         cell_num = layout["start_row"] + index
                         cell_updates[f'{layout["ext_column"]}{cell_num}'] = item.get("stock_val", "")

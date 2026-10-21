@@ -960,6 +960,7 @@ class TaskKlineSource(db.Model):
     high_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最高价数组JSON")
     low_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最低价数组JSON")
     close_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="收盘价数组JSON")
+    vwap_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="加权平均价数组JSON")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
 
     def to_dict(self):
@@ -980,6 +981,7 @@ class TaskKlineSource(db.Model):
             "high_json": self.high_json,
             "low_json": self.low_json,
             "close_json": self.close_json,
+            "vwap_json": self.vwap_json,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

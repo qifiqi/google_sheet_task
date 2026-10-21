@@ -3,6 +3,7 @@
 import json
 import random
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ from app.exceptions import NotFoundError
 from app.extensions import db
 from app.models import Task, TaskKlineSource, TaskRandomSeries, TaskResultKlineLink
 from app.repositories import task_kline_snapshot_repository, task_result_repository
+from app.services.google_sheet_tasks.c11 import C11Service
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.kline_service import KlineService
 from app.services.task.data_cleanup import clear_task_execution_data
@@ -357,6 +359,88 @@ def test_persisted_values_match_legacy_memory_generation(app_factory):
         assert [row["stock_val"] for row in actual] == [
             row["stock_val"] for row in expected
         ]
+
+
+def test_source_snapshot_preserves_vwap(app_factory):
+    with app_factory.app_context():
+        rows = _rows()
+        for row in rows:
+            row["vwap"] = 11.0
+        source = _get_or_create_source(rows=rows)
+        series = _get_or_create_series(source, rows=rows)
+
+        merged = task_kline_snapshot_service.merge_rows(source, series)
+
+        assert len(merged) == 31
+        assert all(row["vwap"] == 11.0 for row in merged)
+        assert all(row["close"] == 12.0 for row in merged)
+
+
+def test_source_snapshot_without_vwap_keeps_none(app_factory):
+    with app_factory.app_context():
+        source = _get_or_create_source()
+        series = _get_or_create_series(source)
+
+        merged = task_kline_snapshot_service.merge_rows(source, series)
+
+        assert all(row["vwap"] is None for row in merged)
+
+
+def test_c11_custom_random_groups_persist_snapshot(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-c11-custom")
+        rows = _rows()
+        for row in rows:
+            row["vwap"] = 11.0
+            # custom 源来自 Sheet 现有K线，不携带外部数据源标记
+            row.pop("data_source", None)
+        service = object.__new__(C11Service)
+        service.task_id = task.id
+        service.config = {"market_type": "cn", "stock_name": "测试股票"}
+        service._random_price_range = "high_low"
+        service._random_group_count = 2
+        service._dedupe_label = "C11"
+        service._log_info = lambda *_args, **_kwargs: None
+
+        data, _column_a_length, kline_map = service._get_custom_parameters(
+            "600000", [["600000"]], {"custom": rows}
+        )
+
+        assert len(data) == 2
+        assert all(item["kline_series_id"] for item in data)
+        assert TaskKlineSource.query.filter_by(
+            task_id=task.id, stock_code="600000", kline_key="custom"
+        ).count() == 1
+        assert TaskRandomSeries.query.filter_by(task_id=task.id).count() == 2
+        source = task_kline_snapshot_repository.get_source(task.id, "600000", "custom")
+        assert source["data_source"] == "custom"
+        merged = task_kline_snapshot_service.merge_rows(
+            source,
+            task_kline_snapshot_repository.get_series_by_id(
+                data[0]["kline_series_id"]
+            ),
+        )
+        assert kline_map["custom:random-1"] == merged
+        assert all(row["vwap"] == 11.0 for row in merged)
+
+
+def test_c11_clear_input_columns_covers_all_columns(app_factory):
+    """vwap 选填不影响清空语义：C11 清空必须覆盖 date..ext 全部七列（含 vwap/ext）。"""
+    with app_factory.app_context():
+        service = object.__new__(C11Service)
+        service._log_info = lambda *_args, **_kwargs: None
+        clears = []
+        sheet = SimpleNamespace(
+            title="C11",
+            spreadsheet_id="sheet-1",
+            get_last_row=lambda _column: 30,
+            clear_range=lambda rng: clears.append(rng),
+        )
+        service.google_sheets = [sheet]
+
+        service._clear_input_columns(sheet, {"_config_data": {}})
+
+        assert clears == ["AA2:AG30"]
 
 
 def test_save_task_result_writes_kline_series_link(app_factory):

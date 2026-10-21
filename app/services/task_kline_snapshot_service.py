@@ -45,6 +45,7 @@ class TaskKlineSnapshotService:
         price_arrays: dict[str, list[float]] = {
             field: [] for field in ("open", "high", "low", "close")
         }
+        vwap_values: list[Any] = []
         for row in rows:
             stock_date = str(row.get("stock_date") or "").strip()
             if not stock_date:
@@ -55,6 +56,7 @@ class TaskKlineSnapshotService:
                 if raw in (None, ""):
                     raise ValueError(f"随机K线源数据缺少 {field}")
                 values.append(float(raw))
+            vwap_values.append(row.get("vwap"))
 
         first_row = rows[0]
         fields = {
@@ -73,6 +75,7 @@ class TaskKlineSnapshotService:
             "high_json": dumps(price_arrays["high"]),
             "low_json": dumps(price_arrays["low"]),
             "close_json": dumps(price_arrays["close"]),
+            "vwap_json": dumps(vwap_values),
         }
         return task_kline_snapshot_repository.create_source(fields)
 
@@ -152,6 +155,7 @@ class TaskKlineSnapshotService:
         highs = loads(source["high_json"])
         lows = loads(source["low_json"])
         closes = loads(source["close_json"])
+        vwap_values = loads(source["vwap_json"]) if source.get("vwap_json") else None
         values = loads(series["values_json"])
         lengths = {
             len(dates),
@@ -161,11 +165,16 @@ class TaskKlineSnapshotService:
             len(closes),
             len(values),
         }
+        if vwap_values is not None:
+            lengths.add(len(vwap_values))
         row_count = int(source.get("row_count") or 0)
         if len(lengths) != 1 or (row_count and lengths != {row_count}):
             raise ValueError("随机K线快照行数不一致")
-        return [
-            {
+        merged = []
+        for index, (stock_date, value, open_value, high, low, close) in enumerate(
+            zip(dates, values, opens, highs, lows, closes)
+        ):
+            row = {
                 "stock_date": stock_date,
                 "stock_val": value,
                 "open": open_value,
@@ -173,10 +182,10 @@ class TaskKlineSnapshotService:
                 "low": low,
                 "close": close,
             }
-            for stock_date, value, open_value, high, low, close in zip(
-                dates, values, opens, highs, lows, closes
-            )
-        ]
+            if vwap_values is not None:
+                row["vwap"] = vwap_values[index]
+            merged.append(row)
+        return merged
 
     def list_task_snapshots(self, task_id: str) -> list[dict[str, Any]]:
         return task_kline_snapshot_repository.list_series_with_source(task_id)
@@ -235,6 +244,7 @@ class TaskKlineSnapshotService:
             "high_json",
             "low_json",
             "close_json",
+            "vwap_json",
         }
         return {key: value for key, value in source.items() if key not in excluded}
 

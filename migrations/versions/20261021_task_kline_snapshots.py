@@ -49,6 +49,7 @@ def upgrade():
             sa.Column("high_json", _medium_text(), nullable=False),
             sa.Column("low_json", _medium_text(), nullable=False),
             sa.Column("close_json", _medium_text(), nullable=False),
+            sa.Column("vwap_json", _medium_text(), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint(
