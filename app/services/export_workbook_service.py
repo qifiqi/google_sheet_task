@@ -53,6 +53,20 @@ C5_EXPORT_COLUMNS = [
 # C5_PERCENT_METRIC_KEYS 是导出侧专用的百分数格式集合。
 C5_PERCENT_METRIC_KEYS = frozenset(C5_EXPORT_METRIC_KEYS)
 
+# 导出列尾追加列：普通导出=股票代码+结果ID；按股票代码导出=仅结果ID（股票代码已在文件名里）。
+EXPORT_TAIL_COLUMNS = ["股票代码", "结果ID"]
+EXPORT_TAIL_COLUMNS_BY_STOCK = ["结果ID"]
+
+
+def export_tail_columns(by_stock: bool) -> list[str]:
+    return EXPORT_TAIL_COLUMNS_BY_STOCK if by_stock else EXPORT_TAIL_COLUMNS
+
+
+def export_tail_values(stock_code: str, result_id: Any, by_stock: bool) -> list[Any]:
+    if by_stock:
+        return [result_id]
+    return [stock_code, result_id]
+
 PERCENT_COLUMN_NAMES = {
     "ReturnBeats",
     "ddBeats",
@@ -74,6 +88,9 @@ FOUR_DECIMAL_COLUMN_NAMES = {
     "指数夏普",
     "模型夏普",
 }
+
+# 文本保真列：股票代码必须按字符串写入，否则前导零被数值化（002594 → 2594）。
+TEXT_PRESERVING_COLUMN_NAMES = {"股票代码"}
 
 # C3 导出列定义
 C3_EXPORT_COLUMNS = [
@@ -207,6 +224,7 @@ class C5ResultGroup:
     timestamp: str
     error_message: str
     models: list[dict[str, Any]]
+    result_id: Any = ""
 
 
 @dataclass(frozen=True)
@@ -252,29 +270,35 @@ def _generic_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport
     return _excel_export(task, [WorksheetData(name="任务结果", header=header, rows=rows)])
 
 
-def build_task_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool = False) -> GeneratedExport:
     """导出统一入口；路由层负责查任务和结果，本服务只做格式转换。
 
-    - C7：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
+    - C7/C11：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
     - C5：展开每个模型为一行，按 K 线范围拆分 worksheet；
     - C3（google_sheet/google_sheet_c3）：每个参数组合一行，按 K 线范围拆分 worksheet；
     - 其余任务类型走通用兜底。
+    - by_stock=True（按股票代码分组导出）时列尾只追加结果ID，不重复输出股票代码。
     """
     task_type = _task_type(task)
-    if task_type == "google_sheet_c7":
-        return _excel_export(task, build_c5_worksheets(normalize_c7_export_results(results)))
+    if task_type in ("google_sheet_c7", "google_sheet_c11"):
+        normalized = (
+            normalize_c11_export_results(results)
+            if task_type == "google_sheet_c11"
+            else normalize_c7_export_results(results)
+        )
+        return _excel_export(task, build_c5_worksheets(normalized, by_stock))
     if task_type == "google_sheet_c5":
-        return _excel_export(task, build_c5_worksheets(results))
+        return _excel_export(task, build_c5_worksheets(results, by_stock))
     if task_type in ("google_sheet", "google_sheet_c3"):
-        return _excel_export(task, build_c3_worksheets(results))
+        return _excel_export(task, build_c3_worksheets(results, by_stock))
     return _generic_export(task, results)
 
 
 def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
-    """按股票代码拆分 C7 结果，并将现有 Excel 导出格式打包为 ZIP。"""
+    """按股票代码拆分 C7/C11 结果，并将现有 Excel 导出格式打包为 ZIP。"""
 
-    if _task_type(task) != "google_sheet_c7":
-        raise ValidationError("按股票代码导出仅支持 C7 任务")
+    if _task_type(task) not in ("google_sheet_c7", "google_sheet_c11"):
+        raise ValidationError("按股票代码导出仅支持 C7/C11 任务")
     if not results:
         raise ValidationError("任务暂无可导出结果")
 
@@ -291,7 +315,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     task_name = sanitize_export_filename(_task_name(task))
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
         for stock_code in sorted(grouped_results, reverse=True):
-            workbook_export = build_task_export(task, grouped_results[stock_code])
+            workbook_export = build_task_export(task, grouped_results[stock_code], by_stock=True)
             workbook_buffer = BytesIO()
             workbook_export.workbook.save(workbook_buffer)
 
@@ -312,17 +336,17 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     )
 
 
-def build_c5_records(results: list[dict[str, Any]]) -> list[C5ExportRecord]:
+def build_c5_records(results: list[dict[str, Any]], by_stock: bool = False) -> list[C5ExportRecord]:
     """生成带分组上下文的导出行；上下文用于排序和拆 sheet，不写入最终 Excel。"""
 
     records = []
     for group in build_c5_groups(results):
         if not group.models:
-            records.append(C5ExportRecord(group=group, row=c5_empty_model_row(group)))
+            records.append(C5ExportRecord(group=group, row=c5_empty_model_row(group, by_stock)))
             continue
 
         for model in group.models:
-            records.append(C5ExportRecord(group=group, row=c5_model_row(group, model)))
+            records.append(C5ExportRecord(group=group, row=c5_model_row(group, model, by_stock)))
 
     return sort_c5_records(records)
 
@@ -346,6 +370,7 @@ def build_c5_groups(results: list[dict[str, Any]]) -> list[C5ResultGroup]:
                 timestamp=format_time(item.get("timestamp")),
                 error_message=str(item.get("error_message") or ""),
                 models=[build_c5_model(model_key, metrics) for model_key, metrics in result.items()],
+                result_id=item.get("id", ""),
             )
         )
     return groups
@@ -384,15 +409,16 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
     }
 
 
-def c5_empty_model_row(group: C5ResultGroup) -> list[Any]:
+def c5_empty_model_row(group: C5ResultGroup, by_stock: bool = False) -> list[Any]:
     return [
         group.xm if group.xm is not None else "",
         group.ml if group.ml is not None else "",
         *([""] * (len(C5_EXPORT_COLUMNS) - 2)),
+        *export_tail_values(group.stock_code, group.result_id, by_stock),
     ]
 
 
-def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
+def c5_model_row(group: C5ResultGroup, model: dict[str, Any], by_stock: bool = False) -> list[Any]:
     metrics = model["metrics"]
     start_legacy_metrics = model["start_legacy_metrics"]
     index_legacy_metrics = model["index_legacy_metrics"]
@@ -413,6 +439,7 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
         index_legacy_metrics.get("annual_std_dev", ""),
         model.get("index_sharpe", ""),
         model.get("start_sharpe", ""),
+        *export_tail_values(group.stock_code, group.result_id, by_stock),
     ]
 
 
@@ -480,6 +507,73 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
     return normalized
 
 
+# C11 结果块（默认 AI2:AI26，行序见 result_payload.C11_RESULT_FIELD_SPECS）→ C5 导出 D 键的行偏移。
+# C11 模板没有单位理论/实际杠杆率收益（D17/D20），对应列留空。
+C11_TO_C5_METRIC_OFFSETS = {
+    "D2": 2,    # return_rate
+    "D3": 3,    # annualized_rate
+    "D4": 4,    # maxdd
+    "D5": 6,    # index_rate
+    "D6": 7,    # index_annualized_rate
+    "D7": 8,    # max_index_dd
+    "D11": 10,  # return_beats
+    "D12": 11,  # dd_beats
+}
+C11_REF_XM_OFFSET = 22
+C11_DEFAULT_RANGE_ANCHOR = ("AI", 2)
+
+
+def _c11_range_anchor(output_range: Any) -> tuple[str, int]:
+    """解析 "AI2:AI26" 式结果块起点；非法输入回退默认 AI2。"""
+    start = str(output_range or "").split(":")[0].strip().upper()
+    match = re.fullmatch(r"([A-Z]+)(\d+)", start)
+    if not match:
+        return C11_DEFAULT_RANGE_ANCHOR
+    return match.group(1), int(match.group(2))
+
+
+def normalize_c11_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 C11 的 AI 结果块单元格键映射成 C5 导出函数使用的 D2:D20 键。
+
+    xm/ml 两列 C11 参数里没有 A1/B1 语义，取结果块 ref_xm 与随机分组补齐。
+    """
+
+    normalized_results = []
+    for item in results:
+        result = item.get("result")
+        if not isinstance(result, dict):
+            normalized_results.append(item)
+            continue
+
+        parameters = item.get("parameters") if isinstance(item.get("parameters"), dict) else {}
+        output_column, output_row = _c11_range_anchor(parameters.get("c11_output_range"))
+
+        normalized_models = {}
+        ref_xm = ""
+        for model_key, metrics in result.items():
+            if not isinstance(metrics, dict):
+                normalized_models[model_key] = metrics
+                continue
+            normalized = dict(metrics)
+            for c5_key, offset in C11_TO_C5_METRIC_OFFSETS.items():
+                value = metrics.get(f"{output_column}{output_row + offset}", "")
+                if isinstance(value, str) and value.strip() and "%" not in value:
+                    value = f"{value}%"
+                normalized[c5_key] = value
+            if not ref_xm:
+                ref_xm = metrics.get(f"{output_column}{output_row + C11_REF_XM_OFFSET}", "")
+            normalized_models[model_key] = normalized
+
+        normalized_item = dict(item)
+        normalized_item["result"] = normalized_models
+        normalized_params = dict(parameters)
+        normalized_params["A1"] = ref_xm
+        normalized_params["B1"] = parameters.get("random_group", "")
+        normalized_item["parameters"] = normalized_params
+        normalized_results.append(normalized_item)
+    return normalized_results
+
+
 def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
     """按股票和 K 线区间稳定排列，sheet 内排序在分组后单独处理。"""
 
@@ -494,17 +588,18 @@ def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
     return sorted(records, key=cmp_to_key(compare))
 
 
-def build_c5_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
+def build_c5_worksheets(results: list[dict[str, Any]], by_stock: bool = False) -> list[WorksheetData]:
     """按 kline_range 拆分 worksheet；同一个 K 线范围的模型行放在同一个 sheet。"""
 
-    records = build_c5_records(results)
+    records = build_c5_records(results, by_stock)
+    header = C5_EXPORT_COLUMNS + export_tail_columns(by_stock)
     if not records:
-        return [WorksheetData(name="无K线区间", header=C5_EXPORT_COLUMNS, rows=[])]
+        return [WorksheetData(name="无K线区间", header=header, rows=[])]
 
     grouped_rows = group_c5_records_by_kline_range(records)
 
     return [
-        WorksheetData(name=group_name, header=C5_EXPORT_COLUMNS, rows=group_rows)
+        WorksheetData(name=group_name, header=header, rows=group_rows)
         for group_name, group_rows in grouped_rows.items()
     ]
 
@@ -658,6 +753,8 @@ def excel_cell(value: Any, column_name: str = "") -> Any:
 
     if value is None:
         return ""
+    if column_name in TEXT_PRESERVING_COLUMN_NAMES:
+        return str(value).strip()
     if isinstance(value, (int, float, bool, datetime)):
         return value
     if isinstance(value, str):
@@ -821,6 +918,7 @@ class C3ResultGroup:
     error_message: str
     result: dict[str, Any]
     task_name: str = ""  # 批量合并导出时用于跨任务排序
+    result_id: Any = ""
 
 
 @dataclass(frozen=True)
@@ -871,15 +969,16 @@ def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
                 error_message=str(item.get("error_message") or ""),
                 result=result,
                 task_name=str(item.get("task_name") or ""),
+                result_id=item.get("id", ""),
             )
         )
     return groups
 
 
-def build_c3_records(results: list[dict[str, Any]]) -> list[C3ExportRecord]:
+def build_c3_records(results: list[dict[str, Any]], by_stock: bool = False) -> list[C3ExportRecord]:
     records = []
     for group in build_c3_groups(results):
-        records.append(C3ExportRecord(group=group, row=c3_result_row(group)))
+        records.append(C3ExportRecord(group=group, row=c3_result_row(group, by_stock)))
     return sort_c3_records(records)
 
 
@@ -913,7 +1012,7 @@ def _safe_multiply_100(value: Any) -> Any:
         return ""
 
 
-def c3_result_row(group: C3ResultGroup) -> list[Any]:
+def c3_result_row(group: C3ResultGroup, by_stock: bool = False) -> list[Any]:
     result = group.result
 
     # ── 参数列（从单元格引用读取，与 _build_stock_param_result_payload 一致）──
@@ -962,6 +1061,7 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
         index_monthly_std_dev,            # 指数年化标准差
         index_sharpe_ratio,               # 指数夏普
         start_sharpe_ratio,               # 模型夏普
+        *export_tail_values(group.stock_code, group.result_id, by_stock),
     ]
 
 
@@ -1025,9 +1125,9 @@ def c3_display_header(columns: list[str]) -> list[str]:
     return [C3_HEADER_DISPLAY.get(col, col) for col in columns]
 
 
-def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
-    records = build_c3_records(results)
-    display_header = c3_display_header(C3_EXPORT_COLUMNS)
+def build_c3_worksheets(results: list[dict[str, Any]], by_stock: bool = False) -> list[WorksheetData]:
+    records = build_c3_records(results, by_stock)
+    display_header = c3_display_header(C3_EXPORT_COLUMNS + export_tail_columns(by_stock))
     if not records:
         return [WorksheetData(name="无K线区间", header=display_header, rows=[])]
 

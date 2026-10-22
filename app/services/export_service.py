@@ -133,8 +133,8 @@ class ExportService:
         """处理export_task_results_by_stock相关逻辑。"""
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
-        if str(task.task_type or "").strip().lower() != "google_sheet_c7":
-            raise ValidationError("按股票代码导出仅支持 C7 任务")
+        if str(task.task_type or "").strip().lower() not in ("google_sheet_c7", "google_sheet_c11"):
+            raise ValidationError("按股票代码导出仅支持 C7/C11 任务")
         if not results:
             raise ValidationError("任务暂无可导出结果")
         export = build_c7_stock_code_export_archive(task, results)

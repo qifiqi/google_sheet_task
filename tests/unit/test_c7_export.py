@@ -60,7 +60,7 @@ def test_c7_export_reads_shifted_metric_cells():
         0.03, 0.01, 0.03, 0.04, -0.01,
         0.1, 0.11, -0.05, 0.07, 0.08, -0.06,
     ])
-    assert row[13:] == pytest.approx([
+    assert row[13:19] == pytest.approx([
         0.0123,
         0.0234,
         0.1111,
@@ -68,18 +68,22 @@ def test_c7_export_reads_shifted_metric_cells():
         1.5,
         2.5,
     ])
+    # 列尾：股票代码 + 结果ID
+    assert row[19:] == ["600000", 1]
 
 
 def test_c7_stock_code_export_archive_keeps_workbooks_separate():
     task = SimpleNamespace(id="task-c7", name="C7 导出", task_type="google_sheet_C7")
     results = [
         {
+            "id": 11,
             "task_id": "task-c7",
             "success": True,
             "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "c7_model_version": "c7_0_3"},
             "result": {"模型A": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
         },
         {
+            "id": 22,
             "task_id": "task-c7",
             "success": True,
             "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "c7_model_version": "c7_0_3"},
@@ -98,6 +102,12 @@ def test_c7_stock_code_export_archive_keeps_workbooks_separate():
 
     assert first_workbook.active["A2"].value == 2
     assert second_workbook.active["A2"].value == 1
+    # 按股票代码导出：列尾只加结果ID（股票代码已在文件名里）
+    header = [cell.value for cell in first_workbook.active[1]]
+    assert header[-1] == "结果ID"
+    assert "股票代码" not in header
+    assert first_workbook.active.cell(row=2, column=len(header)).value == 22
+    assert second_workbook.active.cell(row=2, column=len(header)).value == 11
 
 
 def test_c5_export_uses_sheet_calculated_beats():
