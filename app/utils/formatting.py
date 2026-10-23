@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.utils.json_utils import loads, JSONDecodeError
 import math
+import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -21,15 +22,39 @@ SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 _SERVER_TZ = datetime.now().astimezone().tzinfo
 
+# 默认关闭：保持历史行为（naive isoformat，不带时区偏移），对既有调用方零影响。
+# 需要按北京时间输出时设置环境变量 TIME_OUTPUT_AS_BEIJING=1，或在测试里调用
+# set_time_output_as_beijing(True)。
+_TIME_OUTPUT_AS_BEIJING = os.environ.get("TIME_OUTPUT_AS_BEIJING", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def set_time_output_as_beijing(enabled: bool) -> None:
+    """运行时切换时间输出模式（供部署开关与测试使用）。"""
+    global _TIME_OUTPUT_AS_BEIJING
+    _TIME_OUTPUT_AS_BEIJING = bool(enabled)
+
+
+def is_time_output_as_beijing() -> bool:
+    return _TIME_OUTPUT_AS_BEIJING
+
 
 def to_beijing_iso(value: datetime | None) -> str | None:
     """把数据库中的服务器本地 naive 时间序列化为北京时间 ISO 字符串。
 
-    生产容器时区为 UTC，直接 isoformat 会被前端当成浏览器本地时间显示，
+    开关关闭时退化为历史行为 ``datetime.isoformat()``，输出与改动前逐字节一致。
+
+    开关打开时：生产容器时区为 UTC，直接 isoformat 会被前端当成浏览器本地时间显示，
     比北京时间早 8 小时。naive 值先按服务器本地时区解释，再统一转 Asia/Shanghai。
     """
     if value is None:
         return None
+    if not _TIME_OUTPUT_AS_BEIJING:
+        return value.isoformat()
     if value.tzinfo is None:
         value = value.replace(tzinfo=_SERVER_TZ)
     return value.astimezone(BEIJING_TZ).isoformat()

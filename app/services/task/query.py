@@ -10,6 +10,23 @@ from app.repositories import task_repository, task_result_repository
 from app.utils.task_types import normalize_task_type
 
 
+def seconds_since_iso(value: str, now: datetime | None = None) -> float | None:
+    """计算 ISO 时间字符串距现在的秒数；无法解析返回 None。
+
+    aware 值（带 +08:00 等偏移）与 naive 值不能直接相减，这里统一到同一时区再比较，
+    避免 TIME_OUTPUT_AS_BEIJING 打开后挂死检测被 TypeError 静默吞掉。
+    """
+    try:
+        latest = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if latest.tzinfo is not None:
+        current = datetime.now(latest.tzinfo)
+    else:
+        current = now or datetime.now()
+    return (current - latest).total_seconds()
+
+
 class TaskQueryService:
     """只读任务查询服务。"""
 
@@ -169,18 +186,14 @@ class TaskQueryService:
             )
             now = datetime.now()
             if latest_log_time:
-                try:
-                    latest_time = datetime.fromisoformat(latest_log_time)
-                    time_diff = now - latest_time
-                    if time_diff.total_seconds() > timeout_seconds:
-                        timeout_minutes = timeout_seconds // 60
-                        status_check["can_restart"] = True
-                        status_check["restart_reason"] = (
-                            f"任务超过{timeout_minutes}分钟没有日志更新，可能已挂死"
-                        )
-                        return status_check
-                except Exception:
-                    pass
+                time_diff_sec = seconds_since_iso(latest_log_time, now)
+                if time_diff_sec is not None and time_diff_sec > timeout_seconds:
+                    timeout_minutes = timeout_seconds // 60
+                    status_check["can_restart"] = True
+                    status_check["restart_reason"] = (
+                        f"任务超过{timeout_minutes}分钟没有日志更新，可能已挂死"
+                    )
+                    return status_check
 
             status_check["restart_reason"] = "任务正在正常运行"
             return status_check
