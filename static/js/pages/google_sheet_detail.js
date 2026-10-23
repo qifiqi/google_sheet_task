@@ -704,16 +704,17 @@
         allResults.forEach((result, index) => {
             const row = document.createElement('tr');
             
-            // 计算耗时：当前结果时间与上一个结果时间比较
+            // 计算耗时：当前结果时间与上一条已执行结果时间比较
+            // 结果按 step_index 倒序返回，数组中 index+1 才是执行顺序上的上一条
             let executionTime = '-';
             if (result.timestamp) {
                 const currentResultTime = new Date(result.timestamp);
                 if (!isNaN(currentResultTime.getTime())) {
                     let previousTime = taskStartTime; // 默认使用任务开始时间
                     
-                    // 如果有上一个结果，使用上一个结果的时间
-                    if (index > 0) {
-                        const prevResult = allResults[index - 1];
+                    // 如果有上一条已执行结果，使用它的时间
+                    if (index + 1 < allResults.length) {
+                        const prevResult = allResults[index + 1];
                         if (prevResult && prevResult.timestamp) {
                             previousTime = new Date(prevResult.timestamp);
                         }

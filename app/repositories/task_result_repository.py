@@ -170,6 +170,9 @@ class TaskResultRepository(BaseRepository):
         3.1 的 paginate 不支持外传 total）。原先 paginate count + 成功/失败拆分
         共 3 条 count 且 service 层曾再重复一遍，结果表数十万行时是单页请求
         的主要耗时。
+
+        分页按 step_index 倒序返回：C 系列详情页执行结果要求最新步骤在前，
+        且跨页顺序必须全局倒序，故排序放在 SQL 层而非页面内反转。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
@@ -184,7 +187,7 @@ class TaskResultRepository(BaseRepository):
         )
         items = (
             TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
             .offset((current_page - 1) * size)
             .limit(size)
             .all()
