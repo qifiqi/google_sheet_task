@@ -12,6 +12,7 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
+from app.utils.formatting import to_beijing_iso
 from app.constants.c_template_layout import (
     C3_METRIC_CELLS,
     C3_PARAMETER_FIELDS,
@@ -412,7 +413,7 @@ def _build_c3_summary_rows(task_id):
             "source_window": source_window,
             "task_result_id": task_result.id,
             "step_index": task_result.step_index,
-            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "timestamp": to_beijing_iso(task_result.timestamp),
             "parameter_signature": parameter_signature,
         })
 
@@ -864,7 +865,7 @@ def _build_global_preview_payload_from_results(task, task_results):
                 if model_name == "C7" else None
             ),
             "success": bool(task_result.success),
-            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "timestamp": to_beijing_iso(task_result.timestamp),
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
             "raw_metrics": _extract_raw_sheet_metrics(result_core),
         }

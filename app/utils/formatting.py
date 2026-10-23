@@ -12,10 +12,27 @@ import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.utils.value_parser import _convert_pandas_to_native
 
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
+
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+_SERVER_TZ = datetime.now().astimezone().tzinfo
+
+
+def to_beijing_iso(value: datetime | None) -> str | None:
+    """把数据库中的服务器本地 naive 时间序列化为北京时间 ISO 字符串。
+
+    生产容器时区为 UTC，直接 isoformat 会被前端当成浏览器本地时间显示，
+    比北京时间早 8 小时。naive 值先按服务器本地时区解释，再统一转 Asia/Shanghai。
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_SERVER_TZ)
+    return value.astimezone(BEIJING_TZ).isoformat()
 
 
 def normalize_scientific_text(text: str) -> str:

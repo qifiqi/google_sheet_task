@@ -12,6 +12,7 @@ from typing import Any
 
 from app.exceptions import ValidationError
 from app.repositories import task_repository, task_result_repository
+from app.utils.formatting import to_beijing_iso
 from app.services.backtest_multi_product_service import (
     SUMMARY_ROW_DEFS,
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -156,7 +157,7 @@ def build_multi_product_global_preview_payload(
         group["product_results"][product_index] = {
             "result_id": result.id,
             "step_index": result.step_index,
-            "timestamp": result.timestamp.isoformat() if result.timestamp else None,
+            "timestamp": to_beijing_iso(result.timestamp),
             "parameters": parameters,
             "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "return_date": _get_return_date_for_task_result(result),

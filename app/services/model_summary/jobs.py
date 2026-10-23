@@ -15,7 +15,7 @@ from typing import Any
 from app.models import Task, TaskLog, TaskResultSummaryIndex
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.services.model_summary import extractor
-from app.utils.formatting import parse_lenient_json
+from app.utils.formatting import parse_lenient_json, to_beijing_iso
 from app.utils.logger import get_logger
 
 
@@ -172,7 +172,7 @@ class SummaryJobMixin:
                 },
                 "result": None,
                 "error": None,
-                "started_at": datetime.now().isoformat(),
+                "started_at": to_beijing_iso(datetime.now()),
                 "finished_at": None,
             }
             self._jobs[job_id] = job
@@ -258,7 +258,7 @@ class SummaryJobMixin:
                 self._jobs[job_id].update({
                     "status": "completed",
                     "message": "索引重建完成",
-                    "finished_at": datetime.now().isoformat(),
+                    "finished_at": to_beijing_iso(datetime.now()),
                 })
         except Exception as exc:
             logger.error("后台重建单模型汇总索引失败: %s", exc, exc_info=True)
@@ -276,7 +276,7 @@ class SummaryJobMixin:
                     "status": "error",
                     "message": "索引重建失败",
                     "error": str(exc),
-                    "finished_at": datetime.now().isoformat(),
+                    "finished_at": to_beijing_iso(datetime.now()),
                 })
 
     def _apply_record(self, item: TaskResultSummaryIndex, row: extractor.SummaryRecord) -> None:
@@ -440,7 +440,7 @@ class SummaryJobMixin:
             "params": config if isinstance(config, dict) else {},
             "result": None,
             "error": task.error_message,
-            "started_at": task.start_time.isoformat() if task.start_time else None,
-            "finished_at": task.end_time.isoformat() if task.end_time else None,
+            "started_at": to_beijing_iso(task.start_time),
+            "finished_at": to_beijing_iso(task.end_time),
             "task": task.to_dict(),
         }

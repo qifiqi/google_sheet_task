@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from app.models import Task
 from app.repositories import task_repository
+from app.utils.formatting import to_beijing_iso
 
 
 class TaskDashboardQueryService:
@@ -38,7 +39,7 @@ class TaskDashboardQueryService:
             "daily_trend": daily_trend,
             "recent_tasks": [],
             "active_tasks": [],
-            "checked_at": now.isoformat(),
+            "checked_at": to_beijing_iso(now),
         }
 
     def get_recent_task_models(

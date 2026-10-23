@@ -8,6 +8,7 @@ from sqlalchemy.orm import load_only
 from app.extensions import db
 from app.models import Task, TaskResult, TaskResultKlineLink, TaskResultReturn
 from app.repositories.base import BaseRepository
+from app.utils.formatting import to_beijing_iso
 
 # /api/results 列表的历史精简投影键（template_api load_only 语义），保持不变。
 _RESULT_SUMMARY_FIELDS = (
@@ -161,7 +162,7 @@ class TaskResultRepository(BaseRepository):
                 elif name == "result":
                     item[name] = _json_dict(row.result)
                 elif name == "timestamp":
-                    item[name] = row.timestamp.isoformat() if row.timestamp else None
+                    item[name] = to_beijing_iso(row.timestamp)
                 else:
                     item[name] = getattr(row, name)
             items.append(item)
@@ -337,7 +338,7 @@ class TaskResultRepository(BaseRepository):
                 "success": row.success,
                 "parameters_preview": row.parameters_preview,
                 "error_preview": row.error_preview,
-                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                "timestamp": to_beijing_iso(row.timestamp),
             }
             for row in items
         ]
@@ -369,7 +370,7 @@ class TaskResultRepository(BaseRepository):
             .order_by(TaskResult.timestamp.desc())
             .first()
         )
-        return row.timestamp.isoformat() if row else None
+        return to_beijing_iso(row.timestamp) if row else None
 
     def get_return_entity(self, pk):
         """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
@@ -495,7 +496,7 @@ class TaskResultRepository(BaseRepository):
                     "parameters": item.parameters,
                     "success": item.success,
                     "error_message": item.error_message,
-                    "timestamp": item.timestamp.isoformat() if item.timestamp else None,
+                    "timestamp": to_beijing_iso(item.timestamp),
                 }
                 for item in pagination.items
             ],

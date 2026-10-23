@@ -10,6 +10,7 @@ from app.exceptions import NotFoundError
 from app.repositories import task_log_repository, task_repository, task_result_repository
 
 from app.models import Task
+from app.utils.formatting import to_beijing_iso
 from app.utils.return_series import parse_return_series_fields
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
@@ -130,7 +131,7 @@ class TaskRuntimeViewService:
             "stop_confirmed": stop_confirmed,
             "current_step": task.current_step if task else None,
             "total_steps": task.total_steps if task else None,
-            "checked_at": datetime.now().isoformat(),
+            "checked_at": to_beijing_iso(datetime.now()),
             "status_check": status_check,
         }
 
@@ -276,5 +277,5 @@ class TaskRuntimeViewService:
             "daily_trend": daily_trend,
             "recent_tasks": recent_tasks,
             "active_tasks": active_tasks,
-            "checked_at": now.isoformat(),
+            "checked_at": to_beijing_iso(now),
         }

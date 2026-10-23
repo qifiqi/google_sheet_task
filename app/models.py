@@ -7,6 +7,7 @@ from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
+from app.utils.formatting import to_beijing_iso
 from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
 from app.utils.market import infer_market_type, normalize_stock_code
 
@@ -80,8 +81,8 @@ class User(db.Model):
             'mobile': self.mobile,
             'is_active': self.is_active,
             'is_alert_oncall': self.is_alert_oncall,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': to_beijing_iso(self.created_at),
+            'last_login': to_beijing_iso(self.last_login),
             'roles': [r.to_dict() for r in self.roles],
         }
         if include_permissions:
@@ -361,13 +362,13 @@ class Task(db.Model):
             "task_type": self.task_type,
             "config": _json_object_or_empty(self.config),
             "created_by_user_id": self.created_by_user_id,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "start_time": to_beijing_iso(self.start_time),
+            "end_time": to_beijing_iso(self.end_time),
             "current_step": self.current_step,
             "total_steps": self.total_steps,
             "error_message": self.error_message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
     def get_progress_percentage(self):
@@ -412,7 +413,7 @@ class TaskLog(db.Model):
             "id": self.id,
             "level": self.level,
             "message": self.message,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_beijing_iso(self.timestamp),
         }
 
 
@@ -454,7 +455,7 @@ class TaskResult(db.Model):
             "return_series_id": self.return_series_id,
             "success": self.success,
             "error_message": self.error_message,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_beijing_iso(self.timestamp),
         }
 
 
@@ -532,7 +533,7 @@ class BacktestProductResultCache(db.Model):
             "returns_json": self.returns_json,
             "source_task_id": self.source_task_id,
             "source_step_index": self.source_step_index,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
@@ -564,8 +565,8 @@ class BacktestSheetRunLock(db.Model):
             "spreadsheet_id": self.spreadsheet_id,
             "task_id": self.task_id,
             "task_type": self.task_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -636,9 +637,9 @@ class TaskResultSummaryIndex(db.Model):
             "best_metric_value": self.best_metric_value,
             "metrics": _normalize_summary_metrics(_json_object_or_empty(self.metrics_json)),
             "is_best": self.is_best,
-            "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "result_timestamp": to_beijing_iso(self.result_timestamp),
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -672,8 +673,8 @@ class StockMetadata(db.Model):
             "security_type_name": self.security_type_name,
             "source": self.source,
             "raw": _json_object_or_empty(self.raw_json),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -696,8 +697,8 @@ class TaskTemplate(db.Model):
             "name": self.name,
             "description": self.description,
             "config": _json_object_or_empty(self.config),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -719,8 +720,8 @@ class SystemConfig(db.Model):
             "key": self.key,
             "value": self.value,
             "description": self.description,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -751,8 +752,8 @@ class NavigationMenuItem(db.Model):
             "parent_key": self.parent_key,
             "sort_order": self.sort_order,
             "is_visible": self.is_visible,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
         if include_children:
             data["children"] = []
@@ -806,9 +807,9 @@ class GoogleSheetToken(db.Model):
             "max_usage_count": self.max_usage_count,
             "is_active": self.is_active,
             "is_available": self.is_available(),
-            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_used_at": to_beijing_iso(self.last_used_at),
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
             "token_context_size": len(self.token_context or ""),
         }
         if include_context:
@@ -852,8 +853,8 @@ class GoogleSheet(db.Model):
             "is_active": self.is_active,
             "is_in_use": self.is_in_use,
             "current_task_id": self.current_task_id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -929,11 +930,11 @@ class ScheduledTask(db.Model):
             "task_function": self.task_function,
             "task_params": _json_object_or_empty(self.task_params),
             "is_active": self.is_active,
-            "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
-            "next_run_time": self.next_run_time.isoformat() if self.next_run_time else None,
+            "last_run_time": to_beijing_iso(self.last_run_time),
+            "next_run_time": to_beijing_iso(self.next_run_time),
             "run_count": self.run_count,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -984,7 +985,7 @@ class TaskKlineSource(db.Model):
             "low_json": self.low_json,
             "close_json": self.close_json,
             "vwap_json": self.vwap_json,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
@@ -1033,7 +1034,7 @@ class TaskRandomSeries(db.Model):
             "seed": self.seed,
             "row_count": self.row_count,
             "values_json": self.values_json,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
@@ -1060,5 +1061,5 @@ class TaskResultKlineLink(db.Model):
             "result_id": self.result_id,
             "task_id": self.task_id,
             "series_id": self.series_id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_beijing_iso(self.created_at),
         }
