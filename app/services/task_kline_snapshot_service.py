@@ -24,6 +24,24 @@ class TaskKlineSnapshotService:
         """窗口键统一成字符串：整年模式传 int 年份，PG 的 varchar 列不接受 int 绑定。"""
         return str(kline_key).strip()
 
+    @staticmethod
+    def _normalize_optional_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @staticmethod
+    def _has_any_vwap_value(values: Any) -> bool:
+        return any(value not in (None, "") for value in values or [])
+
+    @staticmethod
+    def _raise_snapshot_mismatch(label: str, fields: list[str]) -> None:
+        raise ValueError(
+            f"{label}与当前任务配置不一致（{'、'.join(fields)}），"
+            "请对任务执行全量重启（不要断点重启）"
+        )
+
     def get_or_create_source(
         self,
         *,
@@ -39,11 +57,6 @@ class TaskKlineSnapshotService:
         kline_key = self._normalize_kline_key(kline_key)
         if not task_id or not stock_code or not kline_key:
             raise ValueError("随机K线源快照缺少任务、股票或窗口键")
-        existing = task_kline_snapshot_repository.get_source(
-            task_id, stock_code, kline_key
-        )
-        if existing:
-            return existing
         if not rows:
             raise ValueError("随机K线源数据为空")
 
@@ -65,16 +78,56 @@ class TaskKlineSnapshotService:
             vwap_values.append(row.get("vwap"))
 
         first_row = rows[0]
+        effective_data_source = self._normalize_optional_text(
+            first_row.get("data_source") or data_source
+        )
+        effective_adjust_type = self._normalize_optional_text(adjust_type)
+        start_date = min(dates)
+        end_date = max(dates)
+
+        existing = task_kline_snapshot_repository.get_source(
+            task_id, stock_code, kline_key
+        )
+        if existing:
+            mismatched = []
+            if (
+                self._normalize_optional_text(existing.get("data_source"))
+                != effective_data_source
+            ):
+                mismatched.append("数据源")
+            if (
+                self._normalize_optional_text(existing.get("adjust_type"))
+                != effective_adjust_type
+            ):
+                mismatched.append("复权类型")
+            if (
+                existing.get("start_date") != start_date
+                or existing.get("end_date") != end_date
+            ):
+                mismatched.append("K线窗口")
+            if int(existing.get("row_count") or 0) != len(rows):
+                mismatched.append("行数")
+            existing_vwap = (
+                loads(existing["vwap_json"]) if existing.get("vwap_json") else []
+            )
+            if self._has_any_vwap_value(
+                existing_vwap
+            ) != self._has_any_vwap_value(vwap_values):
+                mismatched.append("vwap")
+            if mismatched:
+                self._raise_snapshot_mismatch("随机K线源快照", mismatched)
+            return existing
+
         fields = {
             "task_id": task_id,
             "stock_code": stock_code,
             "stock_name": stock_name or first_row.get("stock_name"),
             "market_type": market_type,
             "kline_key": kline_key,
-            "data_source": first_row.get("data_source") or data_source,
-            "adjust_type": adjust_type,
-            "start_date": min(dates),
-            "end_date": max(dates),
+            "data_source": effective_data_source,
+            "adjust_type": effective_adjust_type,
+            "start_date": start_date,
+            "end_date": end_date,
             "row_count": len(rows),
             "dates_json": dumps(dates),
             "open_json": dumps(price_arrays["open"]),
@@ -116,6 +169,21 @@ class TaskKlineSnapshotService:
             task_id, stock_code, kline_key, normalized_range, int(random_group)
         )
         if existing:
+            mismatched = []
+            if int(existing.get("source_id") or 0) != int(source["id"]):
+                mismatched.append("源快照")
+            if int(existing.get("row_count") or 0) != int(
+                source.get("row_count") or 0
+            ):
+                mismatched.append("行数")
+            if existing.get("price_mode") != normalized_mode:
+                mismatched.append("价格模式")
+            if existing.get("random_price_range") != normalized_range:
+                mismatched.append("价格区间")
+            if existing.get("seed") != seed:
+                mismatched.append("随机种子")
+            if mismatched:
+                self._raise_snapshot_mismatch("随机K线序列", mismatched)
             return existing
 
         values = self._build_random_values(rows, normalized_range, seed)
@@ -195,14 +263,26 @@ class TaskKlineSnapshotService:
         return merged
 
     def list_task_snapshots(
-        self, task_id: str, *, page: int = 1, per_page: int = 100
+        self,
+        task_id: str,
+        *,
+        page: int = 1,
+        per_page: int = 100,
+        stock_code: str = "",
+        random_group: int | None = None,
     ) -> dict[str, Any]:
-        total = task_kline_snapshot_repository.count_series_by_task(task_id)
+        total = task_kline_snapshot_repository.count_series_by_task(
+            task_id,
+            stock_code=stock_code,
+            random_group=random_group,
+        )
         return {
             "items": task_kline_snapshot_repository.list_series_with_source(
                 task_id,
                 offset=(page - 1) * per_page,
                 limit=per_page,
+                stock_code=stock_code,
+                random_group=random_group,
             ),
             "total": total,
         }

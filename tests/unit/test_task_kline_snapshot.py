@@ -635,6 +635,166 @@ def test_list_series_results_paginates(app_factory):
         assert [item["id"] for item in data["items"]] == [results[2]["id"]]
 
 
+def test_source_reuse_rejects_config_changes(app_factory):
+    with app_factory.app_context():
+        _get_or_create_source()
+
+        cases = [
+            ({"adjust_type": "none"}, "复权类型"),
+            (
+                {
+                    "rows": [
+                        dict(row, data_source="akshare")
+                        for row in _rows()
+                    ]
+                },
+                "数据源",
+            ),
+            (
+                {
+                    "rows": [
+                        dict(row, stock_date=(
+                            date(2026, 1, 2) + timedelta(days=offset)
+                        ).isoformat())
+                        for offset, row in enumerate(_rows())
+                    ]
+                },
+                "K线窗口",
+            ),
+            (
+                {
+                    "rows": [
+                        dict(row, vwap=11.0)
+                        for row in _rows()
+                    ]
+                },
+                "vwap",
+            ),
+        ]
+
+        for overrides, field_label in cases:
+            params = {
+                "task_id": "task-snapshot",
+                "stock_code": "600000",
+                "stock_name": "测试股票",
+                "market_type": "cn",
+                "kline_key": "2026-2025",
+                "data_source": "dfcf",
+                "adjust_type": "forward",
+                "rows": _rows(),
+            }
+            params.update(overrides)
+            try:
+                task_kline_snapshot_service.get_or_create_source(**params)
+            except ValueError as exc:
+                assert field_label in str(exc), (field_label, str(exc))
+            else:
+                raise AssertionError(f"{field_label} 未触发快照配置不一致")
+
+        with pytest.raises(ValueError, match="全量重启"):
+            task_kline_snapshot_service.get_or_create_source(
+                task_id="task-snapshot",
+                stock_code="600000",
+                market_type="cn",
+                kline_key="2026-2025",
+                data_source="dfcf",
+                adjust_type="none",
+                rows=_rows(),
+            )
+
+
+def test_series_reuse_rejects_config_changes(app_factory):
+    with app_factory.app_context():
+        source = _get_or_create_source()
+        _get_or_create_series(source)
+
+        with pytest.raises(ValueError, match="随机种子"):
+            task_kline_snapshot_service.get_or_create_series(
+                source=source,
+                task_id="task-snapshot",
+                stock_code="600000",
+                kline_key="2026-2025",
+                random_group=1,
+                price_mode="random_price",
+                random_price_range="high_low",
+                seed="different-seed",
+                rows=_rows(),
+            )
+
+        other_source = _get_or_create_source(stock_code="000001")
+        series_row = TaskRandomSeries.query.filter_by(
+            task_id="task-snapshot",
+            stock_code="600000",
+            kline_key="2026-2025",
+            random_group=1,
+        ).one()
+        series_row.source_id = other_source["id"]
+        db.session.commit()
+
+        with pytest.raises(ValueError, match="源快照"):
+            task_kline_snapshot_service.get_or_create_series(
+                source=source,
+                task_id="task-snapshot",
+                stock_code="600000",
+                kline_key="2026-2025",
+                random_group=1,
+                price_mode="random_price",
+                random_price_range="high_low",
+                seed="task-snapshot:600000:2026-2025:high_low:1",
+                rows=_rows(),
+            )
+
+
+def test_snapshot_mismatch_is_not_network_retryable():
+    from app.utils.task_error_utils import is_retryable_network_error
+
+    assert not is_retryable_network_error(
+        ValueError("随机K线源快照与当前任务配置不一致，请对任务执行全量重启")
+    )
+
+
+def test_list_task_snapshots_filters_by_stock_and_group(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-filter")
+        source_a = _get_or_create_source(task_id=task.id)
+        source_b = _get_or_create_source(
+            task_id=task.id, stock_code="000001"
+        )
+        _get_or_create_series(source_a, task_id=task.id, random_group=1)
+        _get_or_create_series(source_a, task_id=task.id, random_group=2)
+        _get_or_create_series(
+            source_b,
+            task_id=task.id,
+            stock_code="000001",
+            random_group=1,
+        )
+
+        by_stock = task_kline_snapshot_service.list_task_snapshots(
+            task.id, stock_code="600000"
+        )
+        assert by_stock["total"] == 2
+        assert {item["stock_code"] for item in by_stock["items"]} == {"600000"}
+
+        by_group = task_kline_snapshot_service.list_task_snapshots(
+            task.id, random_group=2
+        )
+        assert by_group["total"] == 1
+        assert by_group["items"][0]["random_group"] == 2
+
+        combined = task_kline_snapshot_service.list_task_snapshots(
+            task.id, stock_code="600000", random_group=1
+        )
+        assert combined["total"] == 1
+        assert combined["items"][0]["stock_code"] == "600000"
+        assert combined["items"][0]["random_group"] == 1
+
+        empty = task_kline_snapshot_service.list_task_snapshots(
+            task.id, stock_code="999999"
+        )
+        assert empty["total"] == 0
+        assert empty["items"] == []
+
+
 def test_export_task_csv_streams_all_groups(app_factory):
     with app_factory.app_context():
         task = _create_task(task_id="task-export-all")

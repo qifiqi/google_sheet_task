@@ -304,6 +304,30 @@ def test_task_snapshot_list_paginates(app_factory, api_user):
     assert [item["random_group"] for item in data["items"]] == [2]
 
 
+def test_task_snapshot_list_filters(app_factory, api_user):
+    task_id, _series_id, _result_id = _seed_snapshot(app_factory)
+    _add_series(app_factory, task_id, group=2)
+    client = app_factory.test_client()
+
+    response = client.get(
+        f"/api/tasks/{task_id}/kline-snapshots?stock_code=600000&random_group=2",
+        headers=api_user["headers"],
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["total"] == 1
+    assert [item["random_group"] for item in data["items"]] == [2]
+
+    response = client.get(
+        f"/api/tasks/{task_id}/kline-snapshots?stock_code=999999",
+        headers=api_user["headers"],
+    )
+    data = response.get_json()["data"]
+    assert data["total"] == 0
+    assert data["items"] == []
+
+
 def test_task_snapshot_bulk_csv(app_factory, api_user):
     task_id, _series_id, _result_id = _seed_snapshot(app_factory)
     _add_series(app_factory, task_id, group=2)

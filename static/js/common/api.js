@@ -119,6 +119,17 @@
           "/api/tasks/" + taskId + "/results" + (query ? "?" + query : ""),
         );
       },
+      klineSnapshots: function (taskId, query) {
+        return get(
+          "/api/tasks/" + taskId + "/kline-snapshots" +
+            (query ? "?" + query : ""),
+        );
+      },
+      klineSnapshot: function (taskId, seriesId) {
+        return get(
+          "/api/tasks/" + taskId + "/kline-snapshots/" + seriesId,
+        );
+      },
       statusCheck: function (taskId) {
         return get("/api/tasks/" + taskId + "/status-check");
       },
@@ -401,9 +412,11 @@
       taskKlineSnapshots: function (taskId) {
         return fetch("/api/tasks/" + taskId + "/kline-snapshots/export");
       },
-      // 单条结果随机K线 CSV（详情页卡片按钮），文件流下载。
-      resultKlineSnapshot: function (resultId) {
-        return fetch("/api/results/" + resultId + "/kline-snapshot?format=csv");
+      // 单组随机K线 CSV（查看弹窗内下载），文件流下载。
+      seriesKlineSnapshot: function (taskId, seriesId) {
+        return fetch(
+          "/api/tasks/" + taskId + "/kline-snapshots/" + seriesId + "?format=csv",
+        );
       },
       // 全局预览 XLSX 导出（backtest 双胞胎 / 全局预览中心），文件流下载，返回原始 Response。
       // query 形如 '?export_name=...' / '?ratios=...'，无参时传空。

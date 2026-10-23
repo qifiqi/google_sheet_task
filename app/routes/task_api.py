@@ -236,7 +236,11 @@ def list_task_kline_snapshots(task_id):
     task_manager.get_required_task(task_id)
     query = parse_query(KlineSnapshotPageQuery)
     data = task_kline_snapshot_service.list_task_snapshots(
-        task_id, page=query.page, per_page=query.per_page
+        task_id,
+        page=query.page,
+        per_page=query.per_page,
+        stock_code=query.stock_code,
+        random_group=query.random_group,
     )
     return paginated(data["items"], data["total"], query.page, query.per_page)
 

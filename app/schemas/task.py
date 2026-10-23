@@ -36,6 +36,8 @@ class KlineSnapshotPageQuery(PageQuery):
 
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=100, ge=1, le=200)
+    stock_code: str = ""
+    random_group: int | None = Field(default=None, ge=1)
 
 
 class TaskConfigUpdateSchema(APIModel):

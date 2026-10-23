@@ -77,18 +77,42 @@ class TaskKlineSnapshotRepository(BaseRepository):
             db.session.rollback()
             raise
 
-    def count_series_by_task(self, task_id: str) -> int:
-        return (
-            db.session.query(func.count(TaskRandomSeries.id))
-            .filter(TaskRandomSeries.task_id == task_id)
-            .scalar()
+    @staticmethod
+    def _apply_series_filters(
+        query,
+        stock_code: str = "",
+        random_group: int | None = None,
+    ):
+        normalized_stock = (stock_code or "").strip()
+        if normalized_stock:
+            query = query.filter(
+                TaskRandomSeries.stock_code == normalized_stock
+            )
+        if random_group is not None:
+            query = query.filter(
+                TaskRandomSeries.random_group == random_group
+            )
+        return query
+
+    def count_series_by_task(
+        self,
+        task_id: str,
+        stock_code: str = "",
+        random_group: int | None = None,
+    ) -> int:
+        query = db.session.query(func.count(TaskRandomSeries.id)).filter(
+            TaskRandomSeries.task_id == task_id
         )
+        query = self._apply_series_filters(query, stock_code, random_group)
+        return query.scalar()
 
     def list_series_with_source(
         self,
         task_id: str,
         offset: int | None = None,
         limit: int | None = None,
+        stock_code: str = "",
+        random_group: int | None = None,
     ):
         query = (
             db.session.query(TaskRandomSeries, TaskKlineSource)
@@ -121,6 +145,7 @@ class TaskKlineSnapshotRepository(BaseRepository):
             .filter(TaskRandomSeries.task_id == task_id)
             .order_by(TaskRandomSeries.id.asc())
         )
+        query = self._apply_series_filters(query, stock_code, random_group)
         if offset is not None:
             query = query.offset(offset)
         if limit is not None:

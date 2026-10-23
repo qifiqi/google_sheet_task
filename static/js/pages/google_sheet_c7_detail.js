@@ -719,8 +719,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                                 <span class="text-muted">ID: ${group.rowId != null ? group.rowId : '-'}</span>
                                 ${group.klineSeriesId != null && group.rowId != null ? `
                                     <button type="button" class="btn btn-outline-success btn-sm ms-2"
-                                            onclick="Biz.klineSnapshot.downloadResult(${group.rowId})">
-                                        <i class="bi bi-download"></i> 随机K线
+                                            onclick="openResultKlineSnapshot(${group.klineSeriesId})">
+                                        <i class="bi bi-eye"></i> 查看随机K线
                                     </button>
                                 ` : ''}
                             </div>
@@ -766,6 +766,28 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         function refreshResults() {
             Biz.taskPolling.loadTaskResults(currentResultsPage || 1);
             showNotification('结果列表已刷新', 'info');
+        }
+
+        // 查看任务随机K线快照（弹窗）。
+        function openTaskKlineSnapshots() {
+            if (!currentTaskId) {
+                showNotification('任务ID为空，无法查看', 'error');
+                return;
+            }
+            Biz.klineSnapshot.openBrowser(currentTaskId);
+        }
+
+        // 查看单条结果的随机K线快照（弹窗）。
+        function openResultKlineSnapshot(seriesId) {
+            if (!currentTaskId) {
+                showNotification('任务ID为空，无法查看', 'error');
+                return;
+            }
+            if (!seriesId) {
+                showNotification('该结果没有随机K线快照', 'error');
+                return;
+            }
+            Biz.klineSnapshot.openSeries(currentTaskId, seriesId);
         }
 
         // 导出任务全部随机K线快照（合并 CSV）。
