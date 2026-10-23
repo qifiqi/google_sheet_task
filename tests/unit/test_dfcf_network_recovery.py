@@ -115,8 +115,7 @@ def test_backtest_full_years_accept_string_values(monkeypatch):
     assert combinations == [{
         "parameter": ["0.0350%", "1"],
         "stock_code": "688361",
-        "year": 2024,
-        "Kline_key": 2024,
+        "kline_key": 2024,
     }]
     assert len(kline_map[2024]) == 366
     assert column_a_length > len(kline_map[2024])
@@ -147,8 +146,7 @@ def test_backtest_recent_years_use_configured_end_date(monkeypatch):
     assert combinations == [{
         "parameter": ["param-a", "param-b"],
         "stock_code": "688361",
-        "year": "2024-2019",
-        "Kline_key": "2024-2019",
+        "kline_key": "2024-2019",
     }]
     assert kline_map["2024-2019"][0]["stock_date"] == "2019-04-23"
     assert kline_map["2024-2019"][-1]["stock_date"] == "2024-04-23"
@@ -172,8 +170,7 @@ def test_backtest_recent_years_allow_short_listing_history(monkeypatch):
     assert combinations == [{
         "parameter": ["param-a", "param-b"],
         "stock_code": "CEG",
-        "year": "2026-2021",
-        "Kline_key": "2026-2021",
+        "kline_key": "2026-2021",
     }]
     assert kline_map["2026-2021"][0]["stock_date"] == "2022-01-19"
     assert kline_map["2026-2021"][-1]["stock_date"] == "2026-05-15"
@@ -199,14 +196,12 @@ def test_backtest_include_full_year_range_replaces_individual_full_years(monkeyp
         {
             "parameter": ["param-a", "param-b"],
             "stock_code": "688361",
-            "year": "2022-2025",
-            "Kline_key": "2022-2025",
+            "kline_key": "2022-2025",
         },
         {
             "parameter": ["param-c", "param-d"],
             "stock_code": "688361",
-            "year": "2022-2025",
-            "Kline_key": "2022-2025",
+            "kline_key": "2022-2025",
         },
     ]
     assert sorted(kline_map) == ["2022-2025"]

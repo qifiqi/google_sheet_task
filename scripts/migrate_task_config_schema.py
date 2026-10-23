@@ -13,7 +13,7 @@
     - C3（google_sheet）：顶层平铺键打包为 ``sheets:[1]``（title 回退
       spreadsheet_title）；
     - backtest_training：嵌套 ``sheet{}`` 平移为 ``sheets:[1]``（含
-      google_sheet_id/c7_model_version 附加键）；
+      google_sheet_id/model_version 附加键）；
     - 其余已知类型：直接过类型模型结构收口（sheet_name 缺省、类型矫正）。
     迁移后写入仍用统一封装（app.utils.json_utils，orjson 紧凑输出）序列化，
     与 create_task 落库格式一致（列表页 stock_code LIKE 文本匹配依赖该格式）。
@@ -50,7 +50,7 @@ logger = get_logger("scripts.migrate_task_config_schema")
 _C3_FLAT_SHEET_KEYS = ("spreadsheet_id", "sheet_name", "title", "spreadsheet_title")
 
 # 嵌套 sheet{} 中需要平移进 SheetRef 的附加键（占用校验/C7 版本）
-_SHEET_EXTRA_KEYS = ("google_sheet_id", "c7_model_version")
+_SHEET_EXTRA_KEYS = ("google_sheet_id", "model_version")
 
 
 def _build_single_sheet(source: dict[str, Any]) -> dict[str, Any] | None:

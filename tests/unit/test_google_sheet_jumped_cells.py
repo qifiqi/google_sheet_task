@@ -37,6 +37,24 @@ def test_clear_jumped_cells_skips_empty_or_invalid_refs():
     sheet.worksheet.batch_clear.assert_not_called()
 
 
+def test_update_jumped_cells_defaults_to_raw_input():
+    sheet = make_google_sheet()
+
+    sheet.update_jumped_cells({"AA2": "2026/01/01"})
+
+    assert sheet.worksheet.update_cells.call_args.kwargs["value_input_option"] == "RAW"
+
+
+def test_update_jumped_cells_forwards_user_entered_option():
+    sheet = make_google_sheet()
+
+    sheet.update_jumped_cells({"AA2": "2026/01/01"}, value_input_option="USER_ENTERED")
+
+    cells = sheet.worksheet.update_cells.call_args.args[0]
+    assert cells[0].value == "2026/01/01"
+    assert sheet.worksheet.update_cells.call_args.kwargs["value_input_option"] == "USER_ENTERED"
+
+
 def make_service():
     service = C3Service({}, "task-1")
     service.google_sheet = MagicMock()

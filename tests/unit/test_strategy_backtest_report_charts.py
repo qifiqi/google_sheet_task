@@ -537,6 +537,23 @@ def test_correlation_heatmap_requires_font_files(monkeypatch, tmp_path: Path):
         charts.generate_correlation_heatmap(["A", "B"], [[1.0, 0.5], [0.5, 1.0]], tmp_path / "x.png")
 
 
+def test_same_direction_heatmap_renders_with_missing_cells(tmp_path: Path):
+    output_path = tmp_path / "same_direction.png"
+    charts.generate_same_direction_heatmap(
+        ["600519.SS", "0700.HK", "BHP.AX"],
+        [
+            [1.0, 0.7315, None],
+            [0.7315, 1.0, 0.5142],
+            [None, 0.5142, 1.0],
+        ],
+        output_path,
+    )
+
+    image = mpimg.imread(output_path)
+    assert image.ndim == 3
+    assert 0.9 < image.shape[0] / image.shape[1] < 1.0
+
+
 def test_correlation_cmap_is_blue_at_zero_and_white_at_extremes():
     import math
 

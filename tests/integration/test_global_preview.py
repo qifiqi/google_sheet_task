@@ -89,18 +89,18 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
             name="自定义导出名",
             task_type="backtest_training",
             status="completed",
-            config='{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
+            config='{"model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
         ))
         db.session.commit()
         monkeypatch.setenv("AUTH_ENABLED", "false")
         db.session.add_all([
             TaskResult(
                 task_id="c7-preview-export", step_index=0,
-                parameters='{"stock_code":"AAPL","year":"2024"}', result='{"result":{}}', success=True,
+                parameters='{"stock_code":"AAPL","kline_key":"2024"}', result='{"result":{}}', success=True,
             ),
             TaskResult(
                 task_id="c7-preview-export", step_index=1,
-                parameters='{"stock_code":"MSFT","year":"2024"}', result='{"result":{}}', success=True,
+                parameters='{"stock_code":"MSFT","kline_key":"2024"}', result='{"result":{}}', success=True,
             ),
         ])
         db.session.commit()
@@ -123,13 +123,13 @@ def test_global_preview_stock_zip_honors_export_name(app_factory, monkeypatch):
             name="预览任务",
             task_type="backtest_training",
             status="completed",
-            config='{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
+            config='{"model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
         ))
         db.session.commit()
         monkeypatch.setenv("AUTH_ENABLED", "false")
         db.session.add(TaskResult(
             task_id="c7-preview-export-name", step_index=0,
-            parameters='{"stock_code":"AAPL","year":"2024"}', result='{"result":{}}', success=True,
+            parameters='{"stock_code":"AAPL","kline_key":"2024"}', result='{"result":{}}', success=True,
         ))
         db.session.commit()
 
@@ -158,7 +158,7 @@ def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, mon
             name="C7.0.3 多股票",
             task_type="backtest_training",
             status="completed",
-            config='{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
+            config='{"model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
         )
         db.session.add(task)
         db.session.flush()
@@ -166,7 +166,7 @@ def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, mon
             db.session.add(TaskResult(
                 task_id=task.id,
                 step_index=step_index,
-                parameters=f'{{"stock_code":"{stock_code}","year":"2024","parameter":["1","2"]}}',
+                parameters=f'{{"stock_code":"{stock_code}","kline_key":"2024","parameter":["1","2"]}}',
                 result='{"result":{"calculate_metrics":{}}}',
                 success=True,
             ))
@@ -197,14 +197,14 @@ def test_c7_0_3_preview_uses_task_result_version_for_excess_return(app_factory, 
             name="C7 回测",
             task_type="google_sheet_C7",
             status="completed",
-            config='{"sheets":[{"c7_model_version":"c7_0_3"}]}',
+            config='{"sheets":[{"model_version":"c7_0_3"}]}',
         )
         db.session.add(task)
         db.session.flush()
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"000001","year":"2024","c7_model_version":"c7_0_3"}',
+            parameters='{"stock_code":"000001","kline_key":"2024","model_version":"c7_0_3"}',
             result='{"result":{"D2":"100%","D5":"20%","calculate_metrics":{}}}',
             success=True,
         ))
@@ -216,7 +216,7 @@ def test_c7_0_3_preview_uses_task_result_version_for_excess_return(app_factory, 
             row for row in payload["groups"][0]["rows"] if row["metric"] == "超额回报"
         )
 
-        assert column["c7_model_version"] == "c7_0_3"
+        assert column["model_version"] == "c7_0_3"
         assert excess_return["values"][column["column_key"]] == "80.00%"
 
 
@@ -241,7 +241,7 @@ def test_c7_preview_prefers_sheet_metrics_for_excess_return(app_factory, monkeyp
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"XOM","year":"2026-2025","c7_model_version":"c7_0_3"}',
+            parameters='{"stock_code":"XOM","kline_key":"2026-2025","model_version":"c7_0_3"}',
             result=(
                 '{"result":{"D2":1.4866949361032038,"D5":0.5579996294887919,'
                 '"analyze_result":{"excess_returns":['
@@ -260,7 +260,7 @@ def test_c7_preview_prefers_sheet_metrics_for_excess_return(app_factory, monkeyp
         assert excess_return["values"][column["column_key"]] == "92.87%"
 
 
-def test_global_preview_upgrades_legacy_metric_aliases(app_factory, monkeypatch):
+def test_global_preview_reads_canonical_metrics(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
         observed = {}
@@ -290,13 +290,13 @@ def test_global_preview_upgrades_legacy_metric_aliases(app_factory, monkeypatch)
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"WDC","year":"2026-2025"}',
+            parameters='{"stock_code":"WDC","kline_key":"2026-2025"}',
             result=(
-                '{"result":{"calculate_metrics":{' 
-                '"excess_sharp":3.92,'
-                '"excess_of_promissory_note":33.44,'
-                '"index_sotino_ratio":[{"year":"all","sotino_ratio":8.54}],'
-                '"start_sotino_ratio":[{"year":"all","sotino_ratio":83.68}]}}}'
+                '{"result":{"metrics_payload":{"metrics":{'
+                '"excess_sharpe":3.92,'
+                '"excess_sortino":33.44,'
+                '"index_sortino_ratio":[{"year":"all","sortino_ratio":8.54}],'
+                '"start_sortino_ratio":[{"year":"all","sortino_ratio":83.68}]}}}}'
             ),
             success=True,
         ))
@@ -354,8 +354,8 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"WDC","year":"2025"}',
-            result='{"result":{"calculate_metrics":{"excess_sharp":3.92}}}',
+            parameters='{"stock_code":"WDC","kline_key":"2025"}',
+            result='{"result":{}}',
             return_series_id=series.id,
             success=True,
         ))
@@ -367,7 +367,6 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
             if item["metric"] == "年最大回测修复天数"
         )
 
-        assert observed["excess_sharpe"] == pytest.approx(3.92)
         assert observed["year_index_yearly_max_repair_days"]
         assert observed["year_start_yearly_max_repair_days"]
         assert row["metric"] == "年最大回测修复天数"
@@ -394,7 +393,7 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"XOM","year":"2024"}',
+            parameters='{"stock_code":"XOM","kline_key":"2024"}',
             result='{"result":{"D2":1,"D5":0.2,"D8":0.8,"D11":0.3,"calculate_metrics":{}}}',
             success=True,
         ))
@@ -406,11 +405,11 @@ def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(a
             row for row in payload["groups"][0]["rows"] if row["metric"] == "超额回报"
         )
 
-        assert column["c7_model_version"] == "c7_0_2"
+        assert column["model_version"] == "c7_0_2"
         assert excess_return["values"][column["column_key"]] == "50.00%"
 
 
-def test_c7_preview_falls_back_to_analyze_result_for_excess_return(app_factory, monkeypatch):
+def test_c7_preview_reads_canonical_metrics_for_excess_return(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
         monkeypatch.setattr(
@@ -431,10 +430,10 @@ def test_c7_preview_falls_back_to_analyze_result_for_excess_return(app_factory, 
         db.session.add(TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters='{"stock_code":"000001","year":"2024","c7_model_version":"c7_0_3"}',
+            parameters='{"stock_code":"000001","kline_key":"2024","model_version":"c7_0_3"}',
             result=(
-                '{"result":{"D2":"","D5":"","analyze_result":'
-                '{"excess_returns":[{"year":"all","annualized_return_diff":0.9287}]}}}'
+                '{"result":{"metrics_payload":{"metrics":'
+                '{"excess_returns":[{"year":"all","annualized_return_diff":0.9287}]}}}}'
             ),
             success=True,
         ))
@@ -469,7 +468,7 @@ def test_c3_and_c5_preview_use_task_type_specific_metric_cells(app_factory, monk
             db.session.add(TaskResult(
                 task_id=task.id,
                 step_index=0,
-                parameters='{"stock_code":"XOM","year":"2024"}',
+                parameters='{"stock_code":"XOM","kline_key":"2024"}',
                 result=(
                     '{"result":{"calculate_metrics":{},"%s":%s,"%s":%s}}'
                     % (left_cell, left_value, right_cell, right_value)
@@ -495,7 +494,7 @@ def _add_word_export_preview_task(task_id):
         task_type="google_sheet_C7",
         status="completed",
         # 统一 sheets[] 形态（读取端无 sheet{} 回退，未迁移行会静默丢型号元数据）
-        config='{"sheets":[{"title":"C7.0.3"}],"price_mode":"sp_price"}',
+        config='{"sheets":[{"title":"C7.0.3","model_version":"c7_0_3"}],"price_mode":"sp_price"}',
     )
     db.session.add(task)
     db.session.flush()
@@ -515,7 +514,7 @@ def _add_word_export_preview_task(task_id):
     db.session.add(TaskResult(
         task_id=task.id,
         step_index=0,
-        parameters='{"stock_code":"WDC","year":"2025"}',
+        parameters='{"stock_code":"WDC","kline_key":"2025"}',
         result='{"result":{}}',
         return_series_id=series.id,
         success=True,
@@ -523,7 +522,7 @@ def _add_word_export_preview_task(task_id):
     db.session.add(TaskResult(
         task_id=task.id,
         step_index=1,
-        parameters='{"stock_code":"WDC","year":"2025"}',
+        parameters='{"stock_code":"WDC","kline_key":"2025"}',
         result='{"result":{}}',
         success=False,
     ))
@@ -551,7 +550,7 @@ def test_global_preview_columns_carry_word_report_payload(app_factory, monkeypat
         assert word_payload["task_id"] == task.id
         assert word_payload["return_series_id"] == series.id
         assert word_payload["products"] == [{"stock_code": "WDC.US", "product_name": "西部数据"}]
-        assert word_payload["metadata"]["model_version"] == "c7.0.3"
+        assert word_payload["metadata"]["model_version"] == "c7_0_3"
         assert word_payload["metadata"]["price_type"] == "收盘价"
         assert columns[1]["word_report_payload"] is None
 

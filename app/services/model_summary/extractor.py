@@ -16,8 +16,8 @@ from app.services.performance_analysis.historical_metrics import (
     avg_monthly_excess_return_diff,
     collect_summary_all_entries,
     find_all_entry as _all_entry,
-    upgrade_historical_metrics,
 )
+from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import normalize_scientific_text, parse_lenient_json
@@ -295,7 +295,7 @@ def _parameter_summary(parameters: Any) -> dict[str, Any]:
         summary = {
             "stock_code": parameters.get("stock_code"),
             "task_name": parameters.get("task_name") or parameters.get("name"),
-            "year": parameters.get("year") or parameters.get("Kline_key"),
+            "year": parameters.get("kline_key"),
             "A1": parameters.get("A1"),
             "B1": parameters.get("B1"),
         }
@@ -454,14 +454,10 @@ def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRe
 
 
 def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float]:
-    """处理_extract_return_analysis_metrics相关逻辑。"""
-    flat_result = payload.get("flat_result")
-    if isinstance(flat_result, dict):
-        payload = {**payload, **flat_result}
-
-    # 历史 TaskResult 仍存旧键名（sotino/excess_sharp/excess_of_promissory_note 等），
-    # 与 _extract_backtest 一致在读取期升级；历史载荷迁移后可移除。
-    payload = upgrade_historical_metrics(payload)
+    """从 metrics_payload.metrics 的读取期投影提取汇总字段。"""
+    metrics_payload = payload.get("metrics_payload") if isinstance(payload, dict) else None
+    metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else None
+    payload = flatten_v1_metrics(metrics)
 
     field_map = {
         "start_monthly_std_dev": "start_monthly_std_dev",
@@ -560,7 +556,7 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
     records = []
     for model_key, raw_metrics in payload.items():
-        if model_key == "flat_result" or not isinstance(raw_metrics, dict):
+        if model_key == "metrics_payload" or not isinstance(raw_metrics, dict):
             continue
 
         return_beats = parse_percent_like(raw_metrics.get("D11"))
@@ -590,7 +586,7 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
             ),
         })
         stock_code = _extract_stock_code(task, parameters)
-        year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
+        year_label = str(parameters.get("kline_key") or "")
         records.append(
             SummaryRecord(
                 task_id=task.id,
@@ -807,12 +803,8 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
         # 统一存储契约：{schema_version, metrics, canonical_metrics}。
         calculate_metrics = core["metrics_payload"].get("metrics")
     else:
-        # TODO: 数据库历史 TaskResult 仍保存 calculate_metrics 旧键，迁移后移除回退。
-        calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
+        calculate_metrics = None
     calculate_metrics = calculate_metrics if isinstance(calculate_metrics, dict) else {}
-    if calculate_metrics:
-        # TODO: 历史载荷字段名（sotino/cumulative_excess 等）迁移后移除该升级。
-        calculate_metrics = upgrade_historical_metrics(calculate_metrics)
     if not calculate_metrics:
         return []
 
@@ -831,7 +823,7 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     if annualized_diff is None:
         annualized_diff = parse_percent_like((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
     stock_code = _extract_stock_code(task, parameters)
-    year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
+    year_label = str(parameters.get("kline_key") or "")
     return [
         SummaryRecord(
             task_id=task.id,

@@ -31,7 +31,7 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "c4", "label": "Google Sheet C4", "path": "/google-sheet/?version=c4", "permission": "page:google_sheet:c4"},
         {"key": "c5", "label": "Google Sheet C5", "path": "/google-sheet/?version=c5", "permission": "page:google_sheet:c5"},
         {"key": "c7", "label": "Google Sheet C7", "path": "/google-sheet/?version=c7", "permission": "page:google_sheet:c7"},
-        {"key": "c11", "label": "Google Sheet C11", "path": "/google-sheet/?version=c11", "permission": "page:google_sheet:c11"},
+        {"key": "c1_1", "label": "Google Sheet C1.1", "path": "/google-sheet/?version=c1_1", "permission": "page:google_sheet:c1_1"},
         {"key": "backtest", "label": "单品数据回测", "path": "/backtest-training/list", "permission": "page:backtest:list"},
         {"key": "backtest_multi_product", "label": "多品数据回测", "path": "/backtest-multi-product/list", "permission": "page:backtest_multi_product:list"},
         {"key": "xpl", "label": "夏普率计算", "path": "/performance-analysis"},

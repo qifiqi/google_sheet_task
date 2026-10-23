@@ -88,6 +88,10 @@ class BaseConfig:
     # 股票服务基地址；K线 SDK / 参数回推(StockAPIClient) / 代理池(SmartProxyManager) 共用，
     # 为空时各消费方回退自身历史默认地址。
     STOCK_BASE_URL = ''
+    # 外部 Token 校验（stock_sdk SysUser/GetUserInfo）：非本站 JWT 的请求令牌
+    # 经该接口校验通过后放行本站接口；为空时关闭该回落通道。
+    STOCK_AUTH_BASE_URL = 'http://172.18.20.20:7070'
+    STOCK_AUTH_TIMEOUT = 5
     # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
     # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
     SSO_ENABLED = True
@@ -131,6 +135,11 @@ class BaseConfig:
         # 三个消费方共用：K线 SDK(StockClient/KlineService)、参数回推(StockAPIClient)、
         # 代理池(SmartProxyManager)。未配置时保持空串，各消费方回退自身历史默认地址。
         cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
+        cls.STOCK_AUTH_BASE_URL = os.environ.get(
+            'STOCK_AUTH_BASE_URL',
+            'http://172.18.20.20:7070',
+        )
+        cls.STOCK_AUTH_TIMEOUT = _get_int('STOCK_AUTH_TIMEOUT', 5)
         # 主服务 SSO 配置：环境变量可覆盖默认值（多环境部署指向不同主服务）。
         cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)
         cls.SSO_MAIN_VERIFY_URL = os.environ.get(
@@ -182,17 +191,18 @@ Config = get_config_class()
 def init_config():
     from app.models import SystemConfig
     from app.services.config_manager import get_config_manager
+    from app.services.task.registry import CONCURRENCY_CONFIG_DEFAULTS, CONCURRENCY_LABELS
 
     config_manager = get_config_manager()
 
     default_configs = {
         'spreadsheet_id': {
-            'value': '',
-            'description': '默认 Google Spreadsheet ID，为空时需在任务或页面配置中指定。',
+            'value': '1MGRmNA6SFJKLMPwO31FWLsOwmOkfzCYR6rQ4Yoe-IYU',
+            'description': '默认 Google Spreadsheet ID（C1.1 共享模板），为空时需在任务或页面配置中指定。',
         },
         'sheet_name': {
-            'value': 'data',
-            'description': '默认工作表名称。',
+            'value': 'control',
+            'description': '默认工作表名称（C1.1 模板控制页）。',
         },
         'token_file': {
             'value': 'data/token.json',
@@ -225,6 +235,18 @@ def init_config():
         'max_concurrent_tasks': {
             'value': 20,
             'description': '系统允许同时运行的任务总数上限。',
+        },
+        # 全局与分类型并发上限：key/默认值由任务注册表提供
+        # （app/services/task/registry.py），新增任务类型自动补种。改值即时生效，无需重启。
+        **{
+            key: {
+                'value': value,
+                'description': (
+                    f'{CONCURRENCY_LABELS[key]} 并发上限（达到上限时任务启动被拒绝并保持待执行，'
+                    '等待下次手动或调度启动）。'
+                ),
+            }
+            for key, value in CONCURRENCY_CONFIG_DEFAULTS.items()
         },
         'task_timeout': {
             'value': 36000,
@@ -544,7 +566,7 @@ PERMISSIONS = [
     ('page',         'page:google_sheet:c4',    '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
     ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
     ('page',         'page:google_sheet:c7',    '访问 Google Sheet C7 页面', '/google-sheet/?version=c7'),
-    ('page',         'page:google_sheet:c11',   '访问 Google Sheet C11 页面', '/google-sheet/?version=c11'),
+    ('page',         'page:google_sheet:c1_1',   '访问 Google Sheet C1.1 页面', '/google-sheet/?version=c1_1'),
     ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
     ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
@@ -569,7 +591,7 @@ SSO_DEFAULT_PERMISSION_CODES = (
     'page:google_sheet:c4',
     'page:google_sheet:c5',
     'page:google_sheet:c7',
-    'page:google_sheet:c11',
+    'page:google_sheet:c1_1',
     'page:backtest:list',
     'page:backtest_multi_product:list',
 )

@@ -19,6 +19,11 @@ from app.utils.json_utils import dumps, loads
 
 
 class TaskKlineSnapshotService:
+    @staticmethod
+    def _normalize_kline_key(kline_key: Any) -> str:
+        """窗口键统一成字符串：整年模式传 int 年份，PG 的 varchar 列不接受 int 绑定。"""
+        return str(kline_key).strip()
+
     def get_or_create_source(
         self,
         *,
@@ -31,6 +36,7 @@ class TaskKlineSnapshotService:
         data_source: str | None = None,
         adjust_type: str | None = None,
     ) -> dict[str, Any]:
+        kline_key = self._normalize_kline_key(kline_key)
         if not task_id or not stock_code or not kline_key:
             raise ValueError("随机K线源快照缺少任务、股票或窗口键")
         existing = task_kline_snapshot_repository.get_source(
@@ -98,9 +104,10 @@ class TaskKlineSnapshotService:
         normalized_range = str(random_price_range or "high_low").strip().lower()
         if normalized_range not in {"high_low", "open_close"}:
             raise ValueError(f"不支持的随机价格区间: {random_price_range}")
+        kline_key = self._normalize_kline_key(kline_key)
         if source.get("task_id") != task_id or source.get("stock_code") != stock_code:
             raise ValueError("随机K线序列与源快照归属不一致")
-        if source.get("kline_key") != kline_key:
+        if self._normalize_kline_key(source.get("kline_key")) != kline_key:
             raise ValueError("随机K线序列与源快照窗口不一致")
         if not seed:
             raise ValueError("随机K线序列缺少随机种子")

@@ -29,7 +29,7 @@ class WorksheetsQuerySchema(APIModel):
 
 
 class CombinationEstimateSchema(APIModel):
-    """POST /api/google-sheet/combination-estimate（C5/C7/C11 组合数精算）。"""
+    """POST /api/google-sheet/combination-estimate（C5/C7/C1.1 组合数精算）。"""
 
     task_type: str = ""
     config: dict = {}

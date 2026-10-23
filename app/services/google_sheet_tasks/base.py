@@ -76,7 +76,7 @@ def parse_range_start(range_a1: str) -> tuple[str, int]:
 
 
 def calculate_index_returns_from_closes(kline_rows) -> list[float]:
-    """以真实收盘价计算相对首日的累计指数收益（C7.0.3/C11 共用）。"""
+    """以真实收盘价计算相对首日的累计指数收益（C7.0.3/C1.1 共用）。"""
     base_close = None
     index_returns = []
 
@@ -124,6 +124,7 @@ def build_execute_task_alert(target, func_name, phase, exc, result):
 
 
 class BaseGoogleSheetService:
+    _model_version = ""
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         self.config = config
         self.task_id = task_id
@@ -481,7 +482,7 @@ class BaseGoogleSheetService:
         deduplicated = []
         seen = set()
         for combination in combinations:
-            kline = kline_data_map.get(combination.get('Kline_key'))
+            kline = kline_data_map.get(combination.get('kline_key'))
             if not kline:
                 deduplicated.append(combination)
                 continue
@@ -593,8 +594,7 @@ class BaseGoogleSheetService:
                     "stock_code": parameter,
                     "A1": v1,
                     "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
+                    "kline_key": "custom",
                 })
 
         if not data:
@@ -630,7 +630,7 @@ class BaseGoogleSheetService:
         group_series_ids = {}
         sources_by_key = {}
         for combination in combinations:
-            source_key = combination["Kline_key"]
+            source_key = combination["kline_key"]
             source_kline = kline_data_map[source_key]
             stock_code = str(combination.get("stock_code") or "").strip()
             source = None
@@ -686,8 +686,7 @@ class BaseGoogleSheetService:
                             random_generator=random_generator,
                         )
                 item = dict(combination)
-                item["Kline_key"] = group_key
-                item["year"] = group_key
+                item["kline_key"] = group_key
                 item["random_group"] = random_group
                 if persist_snapshots:
                     item["kline_series_id"] = group_series_ids[group_key]
@@ -822,13 +821,13 @@ class BaseGoogleSheetService:
         # 近年模式 = 各近年窗口 + 全区间；窗口与全区间完全重合时由组合去重合并。
         for i, v1 in enumerate(parameters[1]):
             for j, v2 in enumerate(parameters[2]):
-                Kline_key = f'{_end_year_1}-{_start_date}'
-                # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
-                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                kline_key = f'{_end_year_1}-{_start_date}'
+                # 'year' 与 'kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'kline_key' 是 K线区间索引，均为既有契约
+                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'kline_key': kline_key}
                 if stock_name:
                     d['stock_name'] = stock_name
-                if Kline_key not in kline_data_map:
-                    kline_data_map[Kline_key] = all_kline
+                if kline_key not in kline_data_map:
+                    kline_data_map[kline_key] = all_kline
 
                 data.append(d)
 
@@ -870,8 +869,8 @@ class BaseGoogleSheetService:
                 )
                 if not kline:
                     continue
-                Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
-                existing = kline_data_map.get(Kline_key)
+                kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                existing = kline_data_map.get(kline_key)
                 if existing is not None and (
                     existing[0]['stock_date'] != kline[0]['stock_date']
                     or existing[-1]['stock_date'] != kline[-1]['stock_date']
@@ -880,17 +879,17 @@ class BaseGoogleSheetService:
                     # 键标签相同但窗口不同（同年配置下近半年 vs 全区间）：
                     # kline_data_map 按键只能存一份，后者让位，避免组合取到错误窗口。
                     self._log_info(
-                        f"股票{parameter} 近年窗口 {Kline_key} 与已注册窗口区间不同，"
+                        f"股票{parameter} 近年窗口 {kline_key} 与已注册窗口区间不同，"
                         f"跳过该窗口（{kline[0]['stock_date']}~{kline[-1]['stock_date']}）"
                     )
                     continue
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'kline_key': kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in kline_data_map:
-                            kline_data_map[Kline_key] = kline
+                        if kline_key not in kline_data_map:
+                            kline_data_map[kline_key] = kline
 
                         data.append(d)
 
@@ -898,17 +897,17 @@ class BaseGoogleSheetService:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
             for year in range(_start_date, _end_year_1 + 1):
                 kline = self.kline_service.build_price_rows(_all_kline, projection_mode, year=year, include_ohlc=include_ohlc)
-                Kline_key = year
+                kline_key = year
                 if not kline:
                     continue
 
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'kline_key': kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in kline_data_map:
-                            kline_data_map[Kline_key] = kline
+                        if kline_key not in kline_data_map:
+                            kline_data_map[kline_key] = kline
 
                         data.append(d)
 
@@ -939,8 +938,9 @@ class BaseGoogleSheetService:
         google_sheet.clear_range(f"{batch['c5_input_column_a']}2:{batch['c5_input_column_b']}{a_num + 2}")
 
     def _stamp_combination(self, combination: dict, batch: dict) -> None:
-        """组合级打标钩子；默认无（C7 覆盖以写入 c7_model_version）。"""
-        return None
+        """组合级打标：写入统一 model_version；C7 覆盖为逐表版本。"""
+        if self._model_version:
+            combination['model_version'] = self._model_version
 
     def get_bdl(self, task, name, parameters, config_data):
         """批量执行模板（原 C5/C7 各自复制 198/225 行，C3 批次收敛为基类唯一实现；
@@ -1042,7 +1042,7 @@ class BaseGoogleSheetService:
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = kline_data_map.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['kline_key'], None)
                         # combination['']
                         combination['kline'] = [kline[0], kline[-1]]
 

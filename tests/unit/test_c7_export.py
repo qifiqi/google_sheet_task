@@ -40,11 +40,15 @@ def test_c7_export_reads_shifted_metric_cells():
                     "D21": "unused",
                     "D23": "1.23%",
                     "D26": "2.34%",
-                    "flat_result": {
-                        "start_monthly_std_dev": 0.1111,
-                        "index_monthly_std_dev": 0.2222,
-                        "index_sharpe_ratio": 1.5,
-                        "start_sharpe_ratio": 2.5,
+                    "metrics_payload": {
+                        "metrics": {
+                            "start_sharpe_ratios": {
+                                "all": {"monthly_std_dev": 0.1111, "sharpe_ratio": 2.5}
+                            },
+                            "index_sharpe_ratios": {
+                                "all": {"monthly_std_dev": 0.2222, "sharpe_ratio": 1.5}
+                            },
+                        }
                     },
                 },
             },
@@ -79,14 +83,14 @@ def test_c7_stock_code_export_archive_keeps_workbooks_separate():
             "id": 11,
             "task_id": "task-c7",
             "success": True,
-            "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "c7_model_version": "c7_0_3"},
+            "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "model_version": "c7_0_3"},
             "result": {"模型A": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
         },
         {
             "id": 22,
             "task_id": "task-c7",
             "success": True,
-            "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "c7_model_version": "c7_0_3"},
+            "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "model_version": "c7_0_3"},
             "result": {"模型A": {"D2": "20%", "D3": "21%", "D4": "-4%", "D5": "17%", "D6": "18%", "D7": "-7%"}},
         },
     ]

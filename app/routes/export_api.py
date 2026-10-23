@@ -49,10 +49,7 @@ _word_report_limit = limiter.limit(
 def _require_completed_task(task: dict):
     if str(task.get("status") or "").lower() == "completed":
         return
-    raise BadRequestError(
-        f"任务 {task.get('name') or task.get('id')} 尚未完成，不能导出",
-        data={"task_id": task.get("id"), "task_status": task.get("status")},
-    )
+    raise BadRequestError(f"任务 {task.get('name') or task.get('id')} 尚未完成，不能导出")
 
 
 def _file_response(generated):

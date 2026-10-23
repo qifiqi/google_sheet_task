@@ -52,7 +52,11 @@ from app.services.performance_analysis.historical_metrics import (
     metric_year_key,
     extract_core_metrics,
     extract_core_weighted_metrics,
-    upgrade_historical_metrics,
+)
+from app.utils.model_version import (
+    infer_model_version,
+    normalize_model_version,
+    normalize_sheets_model_versions,
 )
 
 
@@ -161,11 +165,17 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
     title = str(sheet.get("title") or product.get("title") or "").strip()
     if not spreadsheet_id:
         raise ValidationError("每个产品都必须配置 Google Sheet 链接")
-    return {
+    normalized = {
         "spreadsheet_id": spreadsheet_id,
         "sheet_name": sheet_name or "data",
         "title": title,
     }
+    model_version = normalize_model_version(sheet.get("model_version")) or infer_model_version(
+        "backtest_multi_product", sheet
+    )
+    if model_version:
+        normalized["model_version"] = model_version
+    return normalized
 
 
 def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
@@ -189,6 +199,7 @@ def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
 def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ValidationError("多品数据回测 config 必须是 JSON 对象")
+    config = normalize_sheets_model_versions(config, "backtest_multi_product")
 
     start_date = str(config.get("start_date") or "").strip()
     end_date = str(config.get("end_date") or "").strip()
@@ -280,26 +291,8 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
     if not isinstance(payload, dict) or not payload:
         return {}
 
-    prioritized_keys = (
-        "metrics_payload",
-        "calculate_metrics",
-        "weighted_calculate_metrics",
-        "analyze_result",
-    )
     for value in payload.values():
-        if not isinstance(value, dict):
-            continue
-        if any(key in value for key in prioritized_keys):
-            # TODO: 数据库历史结果仍保存 calculate_metrics/analyze_result 旧键和旧
-            # 字段名（sotino/cumulative_excess 等）；历史数据迁移后可移除兼容升级。
-            for metric_key in ("calculate_metrics", "analyze_result", "weighted_calculate_metrics"):
-                if isinstance(value.get(metric_key), dict):
-                    value[metric_key] = upgrade_historical_metrics(value[metric_key])
-            metrics_payload = value.get("metrics_payload")
-            if isinstance(metrics_payload, dict):
-                legacy_metrics = metrics_payload.get("metrics")
-                if isinstance(legacy_metrics, dict):
-                    metrics_payload["metrics"] = upgrade_historical_metrics(legacy_metrics)
+        if isinstance(value, dict) and "metrics_payload" in value:
             return value
 
     first_value = next(iter(payload.values()), {})
@@ -433,17 +426,13 @@ def _set_weighted_metrics_on_result_payload(
     weighted_calculate_metrics: dict[str, Any],
 ) -> dict[str, Any]:
     """将比例后单品指标写入统一存储载荷；旧缓存载荷回退到兄弟键。"""
-    if not isinstance(result_payload, dict) or not result_payload:
-        return result_payload
-    first_key = next(iter(result_payload))
-    value = result_payload.get(first_key)
-    if isinstance(value, dict):
-        metrics_payload = value.get("metrics_payload")
-        if isinstance(metrics_payload, dict):
-            metrics_payload["weighted_metrics"] = weighted_calculate_metrics
-        else:
-            # 固定产品缓存命中的旧载荷没有 metrics_payload，保留兄弟键写入。
-            value["weighted_calculate_metrics"] = weighted_calculate_metrics
+    if isinstance(result_payload, dict) and result_payload:
+        first_key = next(iter(result_payload))
+        value = result_payload.get(first_key)
+        if isinstance(value, dict):
+            metrics_payload = value.get("metrics_payload")
+            if isinstance(metrics_payload, dict):
+                metrics_payload["weighted_metrics"] = weighted_calculate_metrics
     return result_payload
 
 
@@ -729,8 +718,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         return {
             "parameter": parameter,
             "stock_code": product["stock_code"],
-            "year": f"{config_data['start_date']}~{config_data['end_date']}",
-            "Kline_key": f"{config_data['start_date']}~{config_data['end_date']}",
+            "kline_key": f"{config_data['start_date']}~{config_data['end_date']}",
             "product_index": int(product["product_index"]),
             "product_name": product["product_name"],
             "ratio": product["ratio"],
@@ -908,8 +896,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                 combination = {
                     "parameter": parameter,
                     "stock_code": product["stock_code"],
-                    "year": kline_info["kline_key"],
-                    "Kline_key": kline_info["kline_key"],
+                    "kline_key": kline_info["kline_key"],
                     "kline_signature": kline_info["kline_signature"],
                     "product_index": product_index,
                     "product_name": product["product_name"],
@@ -1043,7 +1030,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         }
 
     def _is_same_kline_source(self, combination: dict[str, Any], cached_combination: dict[str, Any]) -> bool:
-        if combination.get("Kline_key") != cached_combination.get("Kline_key"):
+        if combination.get("kline_key") != cached_combination.get("kline_key"):
             return False
         if combination.get("stock_code") != cached_combination.get("stock_code"):
             return False

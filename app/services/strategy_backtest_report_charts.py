@@ -60,6 +60,11 @@ CORRELATION_CMAP = LinearSegmentedColormap.from_list(
     "correlation_blue_white",
     [(0.0, "#FFFFFF"), (0.5, BLUE), (1.0, "#FFFFFF")],
 ).with_extremes(bad="#F0F0F0")
+# 同向率热力图配色：0% 白 → 100% 蓝（同向占比越高颜色越深）。
+SAME_DIRECTION_CMAP = LinearSegmentedColormap.from_list(
+    "same_direction_white_blue",
+    [(0.0, "#FFFFFF"), (1.0, BLUE)],
+).with_extremes(bad="#F0F0F0")
 # 折线主线条宽（pt）：CHART_DPI=240 下 1pt ≈ 3.3 物理像素，视觉粗细按此换算。
 LINE_WIDTH = 0.8
 # 回撤面积图的描边线宽（pt），细于主折线以突出填充主体。
@@ -189,6 +194,55 @@ def generate_correlation_heatmap(
                 color=color, fontproperties=_font(cell_font_size),
             )
     colorbar = figure.colorbar(image, ax=axis, shrink=0.85, pad=0.02)
+    colorbar.ax.tick_params(colors=TEXT, labelsize=8)
+    for label in colorbar.ax.get_yticklabels():
+        label.set_fontproperties(_font(8))
+    colorbar.outline.set_edgecolor("#9EADBD")
+    figure.tight_layout()
+    _save_figure(figure, Path(output_path))
+
+
+def generate_same_direction_heatmap(
+    labels: list[str],
+    matrix: list[list[Any]],
+    output_path: str | Path,
+) -> None:
+    """权重日涨跌幅同向率热力图：N×N 方阵，单元格内直接标注同向天数占比。
+
+    同向 = 双方同日同涨或同跌，分母为全部共同交易日；缺失（无共同交易日）
+    的格子以灰色底与 "-" 展示，对角线恒为 100%。
+    """
+    _ensure_fonts_available()
+    count = len(labels)
+    # 边长规则与相关系数热力图一致，保证两张图并排/上下呈现时观感统一。
+    size = min(9.0, max(4.0, 0.62 * count + 1.8))
+    figure = Figure(figsize=(size, size * 0.94), dpi=CHART_DPI, facecolor=BACKGROUND)
+    FigureCanvasAgg(figure)
+    axis = figure.subplots()
+    values = [[float("nan") if cell is None else float(cell) for cell in row] for row in matrix]
+    image = axis.imshow(
+        ma.masked_invalid(values), cmap=SAME_DIRECTION_CMAP, vmin=0.0, vmax=1.0, origin="lower",
+    )
+    axis.set_xticks(range(count), labels, rotation=45, ha="right", fontproperties=_font(8))
+    axis.set_yticks(range(count), labels, fontproperties=_font(8))
+    axis.tick_params(colors=TEXT, length=0)
+    cell_font_size = 8 if count <= 8 else 7
+    for row_index, row in enumerate(values):
+        for column_index, value in enumerate(row):
+            if isnan(value):
+                text, color = "-", "#8C8C8C"
+            else:
+                # 深蓝区域用白字，浅色区域用正文灰。
+                text = f"{value:.1%}"
+                color = "#FFFFFF" if value >= 0.75 else TEXT
+            axis.text(
+                column_index, row_index, text, ha="center", va="center",
+                color=color, fontproperties=_font(cell_font_size),
+            )
+    colorbar = figure.colorbar(
+        image, ax=axis, shrink=0.85, pad=0.02,
+        format=FuncFormatter(lambda value, _position: f"{value:.0%}"),
+    )
     colorbar.ax.tick_params(colors=TEXT, labelsize=8)
     for label in colorbar.ax.get_yticklabels():
         label.set_fontproperties(_font(8))

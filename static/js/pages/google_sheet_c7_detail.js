@@ -445,7 +445,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             }
         }
         return Array.isArray(config.sheets)
-            && config.sheets.some(sheet => sheet?.c7_model_version === 'c7_0_3');
+            && config.sheets.some(sheet => sheet?.model_version === 'c7_0_3');
     }
 
     function adaptC7ResultMetrics(metrics) {
@@ -1461,7 +1461,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                 }
 
                 // sheets：从多行输入收集
-                // sheets：从多行输入收集（逐表附加键 c7_model_version/google_sheet_id 随行保留）
+                // sheets：从多行输入收集（逐表附加键 model_version/google_sheet_id 随行保留）
                 const sheets = Biz.configEdit.collectEditSheetsRows();
 
                 // 其它参数

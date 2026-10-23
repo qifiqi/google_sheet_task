@@ -748,7 +748,7 @@ class KlineService:
             except (TypeError, ValueError):
                 amount = 0.0
             if not include_vwap:
-                # C11 关闭 vwap 开关：不派生加权平均价，行内恒为 None
+                # C1.1 关闭 vwap 开关：不派生加权平均价，行内恒为 None
                 vwap = None
             else:
                 vwap_raw = raw.get("vwap")

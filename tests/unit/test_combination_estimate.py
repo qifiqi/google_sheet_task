@@ -67,9 +67,9 @@ def test_estimate_service_disables_snapshot_persistence():
 
 
 def test_custom_mode_uses_configured_formula_without_sheet_read():
-    # C11 custom：产品数 × 随机组数（单窗口）
+    # C1_1 custom：产品数 × 随机组数（单窗口）
     assert estimate_combination_count(
-        "google_sheet_C11",
+        "google_sheet_C1_1",
         {
             "kline_source": "custom",
             "price_mode": "random_price",

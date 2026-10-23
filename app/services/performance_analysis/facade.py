@@ -51,7 +51,6 @@ def _canonical_metrics(
     if excess_nav is None and isinstance(excess_return, (int, float)) and math.isfinite(excess_return):
         excess_nav = 1 + excess_return
     return {
-        "schema_version": SCHEMA_VERSION,
         "period": {"start": _frame_date(index_df, True), "end": _frame_date(index_df, False)},
         "benchmark": {
             "cumulative_return": metrics.get("index_cumulative_return"),
@@ -87,7 +86,6 @@ def _canonical_metrics(
             "strategy_monthly": metrics.get("start_monthly_distribution"),
             "excess_monthly": metrics.get("excess_distribution"),
         },
-        "all_metrics": metrics,
     }
 
 

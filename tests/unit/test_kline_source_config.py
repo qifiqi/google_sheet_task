@@ -73,7 +73,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
         {
             "kline_source": "auto",
             "price_mode": "random_price",
-            "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
+            "sheets": [{"spreadsheet_id": "sheet-1", "model_version": "c7_0_2"}],
         },
     )
 
@@ -87,7 +87,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
                 "kline_source": "auto",
                 "price_mode": "random_price",
                 "random_group_count": 0,
-                "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
+                "sheets": [{"spreadsheet_id": "sheet-1", "model_version": "c7_0_2"}],
             },
         )
 
@@ -98,7 +98,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
                 "kline_source": "auto",
                 "price_mode": "random_price",
                 "random_group_count": 1.5,
-                "sheets": [{"spreadsheet_id": "sheet-1", "c7_model_version": "c7_0_2"}],
+                "sheets": [{"spreadsheet_id": "sheet-1", "model_version": "c7_0_2"}],
             },
         )
 
@@ -110,7 +110,7 @@ def test_c7_random_price_rejects_c7_0_3_sheet():
             {
                 "kline_source": "auto",
                 "price_mode": "random_price",
-                "sheets": [{"spreadsheet_id": "sheet-id", "c7_model_version": "c7_0_3"}],
+                "sheets": [{"spreadsheet_id": "sheet-id", "model_version": "c7_0_3"}],
             },
         )
 
@@ -132,7 +132,7 @@ def test_custom_kline_parameters_use_existing_sheet_kline_without_auto_conversio
     assert len(combinations) == 2
     assert column_length == 50
     assert kline_map == {"custom": custom_kline}
-    assert {combination["Kline_key"] for combination in combinations} == {"custom"}
+    assert {combination["kline_key"] for combination in combinations} == {"custom"}
     assert [combination["A1"] for combination in combinations] == [1, 2]
 
 

@@ -130,8 +130,7 @@ def test_backtest_training_full_range_uses_configured_end_date(monkeypatch):
     assert combinations == [{
         "parameter": ["param-a"],
         "stock_code": "600000",
-        "year": "2022-2024",
-        "Kline_key": "2022-2024",
+        "kline_key": "2022-2024",
     }]
     assert kline_map["2022-2024"][-1]["stock_date"] == "2024-06-30"
 
@@ -237,7 +236,7 @@ def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeyp
         end_date="2025-06-30",
     )
 
-    assert combinations[0]["Kline_key"] == "2025-2020"
+    assert combinations[0]["kline_key"] == "2025-2020"
     assert kline_map["2025-2020"][0]["stock_date"] == "2023-06-01"
 
 
@@ -342,7 +341,7 @@ def test_backtest_sheet_config_supports_c7():
 
 def test_backtest_sheet_config_supports_c7_0_3():
     config = {
-        "sheets": [{"title": "C7.0.3 回测", "c7_model_version": "c7_0_3"}],
+        "sheets": [{"title": "C7.0.3 回测", "model_version": "c7_0_3"}],
     }
 
     assert BacktestTrainingService._c3_to_c5_get_config(config) == (
@@ -430,9 +429,9 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
     ]
     success, _result, return_date = service._execute_parameter_combination(
         10,
-        {"parameter": ["2.3", "3"], "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"parameter": ["2.3", "3"], "stock_code": "600000", "kline_key": "2026-2025"},
         {"combination": {}},
-        {"sheets": [{"title": sheet.title, "c7_model_version": "c7_0_3"}]},
+        {"sheets": [{"title": sheet.title, "model_version": "c7_0_3"}]},
         {"2026-2025": kline},
     )
 
@@ -487,7 +486,7 @@ def test_c7_summary_excess_return_uses_shifted_c5_cells():
 def test_c7_0_3_summary_uses_c5_result_cells():
     column = {
         "model_name": "C7",
-        "c7_model_version": "c7_0_3",
+        "model_version": "c7_0_3",
         "raw_metrics": {
             "D2": "32.47%",
             "D5": "21.14%",

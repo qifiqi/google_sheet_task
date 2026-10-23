@@ -26,10 +26,15 @@ from app.services.performance_analysis.historical_metrics import (
     find_all_entry as _safe_all_entry,
     resolve_preview_metrics,
 )
-from app.utils.backtest_report_metadata import is_c7_0_3_config
+from app.utils.backtest_report_metadata import get_price_type, is_c7_0_3_config
+from app.utils.model_version import (
+    format_model_version,
+    model_family,
+    normalize_model_version,
+    resolve_model_version,
+)
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
@@ -78,15 +83,13 @@ def _first_sheet(config):
     return sheets[0] if sheets and isinstance(sheets[0], dict) else {}
 
 
-def _infer_backtest_model_version(config):
+def _infer_backtest_model_version(config, task_type=None):
     if not isinstance(config, dict):
         return "c3"
 
-    title = str(_first_sheet(config).get("title") or "").upper()
-    if "C7" in title:
-        return "c7"
-    if "C5" in title or "C4" in title:
-        return "c5"
+    version = resolve_model_version(task_type, _first_sheet(config))
+    if version:
+        return version
 
     parameters = config.get("parameters") or []
     first_row = parameters[0] if parameters and isinstance(parameters[0], list) else []
@@ -95,32 +98,18 @@ def _infer_backtest_model_version(config):
     return "c3"
 
 
-def _resolve_c7_model_version(task_config, parameters):
-    """以任务或结果明确记录的版本确定 C7 结果布局。"""
-    result_version = str(parameters.get("c7_model_version") or "").strip().lower()
-    if result_version in {"c7_0_2", "c7_0_3"}:
-        return result_version
-    if is_c7_0_3_config(task_config):
-        return "c7_0_3"
-    return "c7_0_2"
+def _resolve_result_model_version(parameters):
+    """以结果明确记录的版本确定 C7 结果布局。"""
+    return normalize_model_version(parameters.get("model_version")) or "c7_0_2"
 
 
-def _infer_backtest_export_model_name(config):
+def _infer_backtest_export_model_name(config, task_type=None):
     if not isinstance(config, dict):
         return "C3"
-
-    sheet = _first_sheet(config)
-    sources = (
-        config.get("model_name"),
-        sheet.get("title"),
-        config.get("model_version"),
-    )
-    for source in sources:
-        title = str(source or "").upper()
-        for model_name in ("C7", "C5", "C4", "C3"):
-            if model_name in title:
-                return model_name
-    return _infer_backtest_model_version(config).upper()
+    version = resolve_model_version(task_type, _first_sheet(config))
+    if version:
+        return model_family(version)
+    return model_family(_infer_backtest_model_version(config, task_type))
 
 
 def _parse_percent_like_value(value):
@@ -171,11 +160,7 @@ def _extract_task_result_payload(task_result, return_rows=None):
             (
                 item
                 for item in result_payload.values()
-                if isinstance(item, dict) and (
-                    "metrics_payload" in item
-                    or "calculate_metrics" in item
-                    or "analyze_result" in item
-                )
+                if isinstance(item, dict) and "metrics_payload" in item
             ),
             next((item for item in result_payload.values() if isinstance(item, dict)), {}),
         )
@@ -188,7 +173,7 @@ def _extract_task_result_payload(task_result, return_rows=None):
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     }
     return calculate_metrics, sheet_result
 
@@ -217,7 +202,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
         return_rows=_get_task_result_return_rows(task_result),
     )
     task_config = task.to_dict().get("config") or {}
-    model_name = _infer_backtest_export_model_name(task_config)
+    model_name = _infer_backtest_export_model_name(task_config, task.task_type)
     if model_name == "C7" and not is_c7_0_3_config(task_config):
         sheet_result = normalize_c7_result_metrics(sheet_result)
     analyze_result = {
@@ -320,7 +305,7 @@ def _build_c3_summary_rows(task_id):
         monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
         avg_monthly_excess_return = avg_monthly_excess_return_diff(calculate_metrics)
 
-        source_window = str(parameters.get("year") or parameters.get("Kline_key") or "")
+        source_window = str(parameters.get("kline_key") or "")
         year_label = _extract_display_year(source_window)
         parameter_signature = dumps(parameter_values, ensure_ascii=False)
 
@@ -477,6 +462,9 @@ def _extract_result_core(task_result):
 
 
 def _detect_model_name(task_name, parameters):
+    family = model_family(parameters.get("model_version"))
+    if family:
+        return family
     upper_name = (task_name or "").upper()
     for model_name in ("C7", "C5", "C4", "C3"):
         if model_name in upper_name:
@@ -495,6 +483,7 @@ def _detect_global_preview_model_name(task, parameters):
         "google_sheet_c4": "C4",
         "google_sheet_c5": "C5",
         "google_sheet_c7": "C7",
+        "google_sheet_c1_1": "C1.1",
     }
     task_type = normalize_task_type(task.task_type)
     return fixed_model_names.get(task_type) or _detect_model_name(task.name, parameters)
@@ -506,7 +495,7 @@ def _extract_raw_sheet_metrics(result_core):
     return {
         str(key): value
         for key, value in result_core.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     }
 
 
@@ -530,7 +519,7 @@ def _format_summary_value(value):
 
 def _get_summary_raw_metric(column, metric_key):
     model_name = str(column.get("model_name") or "C3").upper()
-    if model_name == "C7" and column.get("c7_model_version") == "c7_0_3":
+    if model_name == "C7" and column.get("model_version") == "c7_0_3":
         cell_map = SUMMARY_METRIC_CELL_MAP["C5"]
     else:
         cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
@@ -539,7 +528,7 @@ def _get_summary_raw_metric(column, metric_key):
     value = raw_metrics.get(cell_key) if cell_key else None
     if (
         model_name == "C7"
-        and column.get("c7_model_version") != "c7_0_3"
+        and column.get("model_version") != "c7_0_3"
         and cell_key in C7_RAW_PERCENT_CELLS
         and value not in (None, "")
         and not str(value).strip().endswith("%")
@@ -780,7 +769,13 @@ def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate
     return normalized
 
 
-def build_single_product_word_report_payload(task_id, task_config, return_series_id, return_series):
+def build_single_product_word_report_payload(
+    task_id,
+    task_config,
+    return_series_id,
+    return_series,
+    task_type=None,
+):
     """按任务配置与结果收益序列构造 RPT-S Word 报告请求载荷。
 
     任务结果详情接口与全局预览导出弹窗共用同一结构，避免两处字段漂移；
@@ -795,9 +790,7 @@ def build_single_product_word_report_payload(task_id, task_config, return_series
             {"stock_code": return_series.stock_code, "product_name": return_series.stock_name}
         ] if return_series else [],
         "metadata": {
-            "model_version": get_backtest_model_version(
-                sheet.get("title")
-            ),
+            "model_version": resolve_model_version(task_type, sheet),
             "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
         },
     }
@@ -829,7 +822,7 @@ def _build_global_preview_payload_from_results(task, task_results):
     # 先建立分组和动态列，再填充指标行，保证失败结果也能在预览中占位。
     for task_result in task_results:
         parameters = loads(task_result.parameters) if task_result.parameters else {}
-        year_key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
+        year_key = str(parameters.get("kline_key") or "未分组")
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
         ).strip().upper() or "未命名股票"
@@ -866,8 +859,8 @@ def _build_global_preview_payload_from_results(task, task_results):
             ),
             "header": _build_parameter_header(parameters),
             "model_name": model_name,
-            "c7_model_version": (
-                _resolve_c7_model_version(task_config, parameters)
+            "model_version": (
+                _resolve_result_model_version(parameters)
                 if model_name == "C7" else None
             ),
             "success": bool(task_result.success),
@@ -985,7 +978,7 @@ def _build_global_preview_initial_payload(task_id):
     for row in metadata_rows:
         parameters = loads(row["parameters"]) if row["parameters"] else {}
         model_name = _detect_global_preview_model_name(task, parameters)
-        if model_name == "C7" and _resolve_c7_model_version(task_config, parameters) == "c7_0_3":
+        if model_name == "C7" and _resolve_result_model_version(parameters) == "c7_0_3":
             is_c7_0_3 = True
         items.append({
             "id": row["id"],
@@ -1002,7 +995,7 @@ def _build_global_preview_initial_payload(task_id):
         if group_mode == "stock":
             key = str(parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票").strip().upper()
         else:
-            key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
+            key = str(parameters.get("kline_key") or "未分组")
         group = groups.setdefault(key, {"key": key, "label": key, "result_ids": [], "items": []})
         group["result_ids"].append(item["id"])
         group["items"].append(item)

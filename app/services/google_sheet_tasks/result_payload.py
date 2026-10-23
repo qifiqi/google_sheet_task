@@ -33,7 +33,7 @@ STOCK_PARAM_METRIC_SPECS = [
     ("unit_actual_leverage_return", "D20", "ratio"),
 ]
 
-# 从 analyze_result（flat_result）直接透传的指标键。
+# 从 metrics_payload.metrics 直接透传的指标键。
 ANALYZE_RESULT_KEYS = [
     "start_monthly_std_dev",
     "index_monthly_std_dev",
@@ -97,10 +97,10 @@ def build_stock_param_metric_fields(value_getter: Callable[[str], Any]) -> dict[
     return fields
 
 
-# C11 结果块（默认 AI2:AI26）25 个值按行序的字段规格：
+# C1.1 结果块（默认 F2:F26）25 个值按行序的字段规格：
 # (payload 键, 变换)；transform="ratio" 表示百分数 → 小数。
 # 字段行序与模板结果块一一对应（Start date → 参考x.min），不可调换顺序。
-C11_RESULT_FIELD_SPECS = [
+C1_1_RESULT_FIELD_SPECS = [
     ("start_date", None),
     ("end_date", None),
     ("return_rate", "ratio"),
@@ -129,15 +129,15 @@ C11_RESULT_FIELD_SPECS = [
 ]
 
 
-def build_c11_summary_fields(value_getter: Callable[[int], Any]) -> dict[str, Any]:
-    """按行序从 C11 结果块提取字段；value_getter(row_offset) 返回第 offset 个结果值。"""
+def build_c1_1_summary_fields(value_getter: Callable[[int], Any]) -> dict[str, Any]:
+    """按行序从 C1.1 结果块提取字段；value_getter(row_offset) 返回第 offset 个结果值。"""
     fields: dict[str, Any] = {}
-    for offset, (key, transform) in enumerate(C11_RESULT_FIELD_SPECS):
+    for offset, (key, transform) in enumerate(C1_1_RESULT_FIELD_SPECS):
         value = value_getter(offset)
         fields[key] = to_decimal_ratio(value) if transform == "ratio" else value
     return fields
 
 
 def build_analyze_fields(analyze_result: dict[str, Any]) -> dict[str, Any]:
-    """从 analyze_result（flat_result）透传次级分析字段。"""
+    """从 metrics_payload.metrics 透传次级分析字段。"""
     return {key: analyze_result.get(key, 0) for key in ANALYZE_RESULT_KEYS}

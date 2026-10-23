@@ -231,7 +231,7 @@
                     <input type="text" class="form-control form-control-sm edit-sheet-name" value="${s.sheet_name || ""}">
                 </div>
             `;
-      // 逐表附加键（c7_model_version/google_sheet_id 等）不在弹窗编辑，
+      // 逐表附加键（model_version/google_sheet_id 等）不在弹窗编辑，
       // 随行暂存，collectEditSheetsRows 时回写，避免保存后丢失
       const extra = {};
       Object.keys(s || {}).forEach((key) => {
@@ -242,10 +242,10 @@
       if (Object.keys(extra).length) {
         row.dataset.extraKeys = JSON.stringify(extra);
       }
-      if (s && s.c7_model_version) {
+      if (s && s.model_version) {
         const badge = document.createElement("span");
         badge.className = "badge bg-info text-dark ms-1 mb-2";
-        badge.textContent = s.c7_model_version;
+        badge.textContent = formatModelVersion(s.model_version);
         row.appendChild(badge);
       }
       list.appendChild(row);

@@ -13,7 +13,7 @@ from typing import Any, Callable
 from app.exceptions import ValidationError
 from app.services.google_sheet_tasks.c5 import C5Service
 from app.services.google_sheet_tasks.c7 import C7Service
-from app.services.google_sheet_tasks.c11 import C11Service
+from app.services.google_sheet_tasks.c1_1 import C1_1Service
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,7 +24,7 @@ PRICE_MODE_RANDOM = "random_price"
 SERVICE_CLASSES = {
     "google_sheet_c5": C5Service,
     "google_sheet_c7": C7Service,
-    "google_sheet_c11": C11Service,
+    "google_sheet_c1_1": C1_1Service,
 }
 
 
@@ -50,7 +50,7 @@ def estimate_combination_count(
     normalized_type = str(task_type or "").strip().lower()
     service_class = SERVICE_CLASSES.get(normalized_type)
     if not service_class:
-        raise ValidationError("组合数精算仅支持 C5/C7/C11")
+        raise ValidationError("组合数精算仅支持 C5/C7/C1.1")
 
     config = dict(config or {})
     parameters = config.get("parameters") or []

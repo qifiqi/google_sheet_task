@@ -307,6 +307,18 @@ class TaskResultRepository(BaseRepository):
         """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
         return db.session.get(TaskResultReturn, pk)
 
+    def get_entity_by_return_series_id(self, return_series_id):
+        """按收益序列 ID 读取所属结果实体（报告参数配置指标回读）。
+
+        同一收益序列理论上只挂一条结果；存在历史重复时取最新一条。
+        """
+        return (
+            TaskResult.query
+            .filter_by(return_series_id=return_series_id)
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
+
     def list_return_entities(self, ids):
         """按主键批量取收益序列实体（预览补全 V1 指标用）。"""
         ids = {item for item in ids if item}

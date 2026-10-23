@@ -356,7 +356,7 @@ def test_multi_product_kline_source_requires_same_stock_and_signature():
     ]
     signature = service._build_kline_signature(kline)
     current = {
-        "Kline_key": "2024-01-01~2024-01-03",
+        "kline_key": "2024-01-01~2024-01-03",
         "stock_code": "QQQ",
         "kline_signature": signature,
     }
@@ -493,9 +493,9 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             parameters="{}",
             result=json.dumps({
                 "sheet__title": {
-                    "calculate_metrics": {
+                    "metrics_payload": {"metrics": {
                         "excess_returns": []
-                    },
+                    }},
                     "D2": "1",
                 }
             }),
@@ -527,7 +527,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             name="multi-c7-result-units",
             task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             status="completed",
-            config=json.dumps({"products": [{"sheet": {"title": "C7 model"}}]}),
+            config=json.dumps({"products": [{"sheet": {"title": "C7 model", "model_version": "c7_0_2"}}]}),
             created_at=datetime.now(),
         )
         db.session.add(task)
@@ -536,7 +536,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             step_index=0,
             parameters=json.dumps({"product_index": 0}),
             result=json.dumps({"sheet__title": {
-                "calculate_metrics": {"excess_returns": []},
+                "metrics_payload": {"metrics": {"excess_returns": []}},
                 "D10": "-0.14",
                 "D18": "0.01",
                 "D22": "122.95%",
@@ -817,7 +817,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         assert len(fixed_results) == 2
         assert fixed_results[0]["parameters"]["ratio"] == "25"
         assert fixed_results[0]["return_series_id"] is not None
-        assert fixed_results[0]["result"]["sheet__title"]["weighted_calculate_metrics"]
+        assert fixed_results[0]["result"]["sheet__title"]["metrics_payload"]["weighted_metrics"]
 
 
 def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_factory, monkeypatch):
@@ -922,7 +922,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 def _task_result_payload(index_return, start_return):
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [{
                     "year": "all",
                     "index_annualized_return": index_return,
@@ -935,7 +935,7 @@ def _task_result_payload(index_return, start_return):
                 "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
                 "index_sharpe_ratios": {"all": {"avg_monthly_return": index_return, "sharpe_ratio": 2}},
                 "start_sharpe_ratios": {"all": {"avg_monthly_return": start_return, "sharpe_ratio": 3}},
-            }
+            }}
         }
     }
 
@@ -943,7 +943,7 @@ def _task_result_payload(index_return, start_return):
 def _task_result_payload_with_year_drawdowns():
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [
                     {
                         "year": "2024",
@@ -973,7 +973,7 @@ def _task_result_payload_with_year_drawdowns():
                 "year_index_yearly_max_repair_days": {"2024": 5},
                 "year_start_yearly_max_repair_days": {"2024": 9},
                 "excess_drawdown_winning_rate": 0.75,
-            }
+            }}
         }
     }
 
@@ -986,7 +986,7 @@ def _task_result_payload_with_returns(index_return, start_return, returns):
 
 def _task_result_payload_with_returns_and_weighted(index_return, start_return, weighted_start, returns):
     payload = _task_result_payload_with_returns(index_return, start_return, returns)
-    payload["sheet__title"]["weighted_calculate_metrics"] = {
+    payload["sheet__title"]["metrics_payload"]["weighted_metrics"] = {
         "excess_returns": [{
             "year": "all",
             "index_annualized_return": weighted_start,

@@ -43,6 +43,7 @@ from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
+from app.utils.model_version import model_family, resolve_model_version
 from app.utils.formatting import parse_lenient_json, sanitize_json_value
 from app.utils.request_parsing import parse_body, parse_pagination
 from app.utils.return_series import parse_return_series_fields
@@ -77,7 +78,7 @@ def get_task_result_detail(task_result_id):
         # RPT-S 请求载荷与全局预览导出弹窗共用同一构建器（backtest_report_query_service）。
         "word_report_payload": (
             build_single_product_word_report_payload(
-                task.id, task_config, task_result.return_series_id, return_series,
+                task.id, task_config, task_result.return_series_id, return_series, task.task_type,
             ) if task_result.return_series_id else None
         ),
     })
@@ -111,7 +112,7 @@ def get_task_summary(task_id):
     task = load_backtest_task(task_id)
 
     task_config = task.to_dict().get("config") or {}
-    model_version = infer_backtest_model_version(task_config)
+    model_version = infer_backtest_model_version(task_config, task.task_type)
     if model_version != "c3":
         raise BadRequestError("当前汇总页仅支持 C3 回测任务")
 
@@ -150,14 +151,8 @@ def _build_excel_download_name(task_name, fallback_id: str) -> str:
 def _infer_product_export_model_name(product):
     if not isinstance(product, dict):
         return "C3"
-
     sheet = product.get("sheet") or {}
-    for source in (product.get("model_name"), sheet.get("title"), product.get("model_version")):
-        title = str(source or "").upper()
-        for model_name in ("C7", "C5", "C4", "C3"):
-            if model_name in title:
-                return model_name
-    return "C3"
+    return model_family(resolve_model_version("backtest_multi_product", sheet))
 
 
 def _build_word_report_payload(task: dict, task_result) -> dict | None:
@@ -190,12 +185,11 @@ def bmp_get_task_result_detail(task_result_id):
 
     payload = parse_lenient_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
-        prioritized_keys = ("metrics_payload", "calculate_metrics", "weighted_calculate_metrics", "analyze_result")
         value = next(
             (
                 item
                 for item in payload.values()
-                if isinstance(item, dict) and any(key in item for key in prioritized_keys)
+                if isinstance(item, dict) and "metrics_payload" in item
             ),
             next((item for item in payload.values() if isinstance(item, dict)), {}),
         )
@@ -205,7 +199,7 @@ def bmp_get_task_result_detail(task_result_id):
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     } if isinstance(value, dict) else {}
 
     daily_returns = {}

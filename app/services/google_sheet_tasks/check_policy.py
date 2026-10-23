@@ -30,15 +30,15 @@ def _c7_invalid(value: Any) -> bool:
     )
 
 
-# C11 的无效值判定：结果块允许空单元格（Fee/参考列等可能为空），空值原样透传；
+# C1.1 的无效值判定：结果块允许空单元格（Fee/参考列等可能为空），空值原样透传；
 # '#/#N/A' 模板错误信号仍由 normalize_check_values 统一拦截。
-def _c11_invalid(value: Any) -> bool:
+def _c1_1_invalid(value: Any) -> bool:
     return False
 
 
 C5_INVALID = _c5_invalid
 C7_INVALID = _c7_invalid
-C11_INVALID = _c11_invalid
+C1_1_INVALID = _c1_1_invalid
 
 
 def normalize_check_values(

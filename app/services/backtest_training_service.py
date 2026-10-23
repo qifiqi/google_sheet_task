@@ -448,7 +448,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = kline_data_map.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['kline_key'], None)
                         # 结果与参数使用同一个 step_index 保存，保证重启时能准确识别已完成组合。
                         self._save_task_result(current_step - 1, {
                             **combination,
@@ -527,13 +527,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_c7_0_3 = self._is_c7_0_3(config_data)
             c7_0_3_config = self._get_c7_0_3_sheet_config(config_data) if is_c7_0_3 else None
             kline = self._require_kline_data(
                 combination.get('stock_code', ''),
-                Kline_key,
-                kline_data_map.get(Kline_key),
+                kline_key,
+                kline_data_map.get(kline_key),
             )
             if is_c7_0_3:
                 self._validate_c7_0_3_kline(kline)
@@ -556,10 +556,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 仅当 K 线来源变化（或首次执行）时重写行情列；同源组合只改参数，减少 Sheet IO。
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 _kline_len = len(kline)
 
-                if Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                if kline_key != cache_kline_key or initial_result_sleep is not None:
                     A_num = column_A_length
                     clear_range = f"{input_column_d}2:{input_column_v}{A_num + 2}"
                     if is_c7_0_3:
@@ -862,17 +862,17 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _end_data = effective_end_date
                 _start_data = f"{int(effective_end_date[:4]) - year}{effective_end_date[4:]}"
-                Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 if _start_data < data_start_date:
                     _start_data = data_start_date
                 kline = self.kline_service.build_price_rows(
                     klines, price_mode, start_date=_start_data, end_date=_end_data, include_ohlc=include_ohlc
                 )
-                self._require_kline_data(stock_code, Kline_key, kline)
+                self._require_kline_data(stock_code, kline_key, kline)
                 for item in parameters:
-                    d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = kline
+                    d = {"parameter": item, 'stock_code': stock_code, 'kline_key': kline_key}
+                    if kline_key not in kline_data_map:
+                        kline_data_map[kline_key] = kline
                     data.append(d)
 
         if include_full_year_range:
@@ -890,24 +890,24 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 klines, price_mode, start_date=range_start_date, end_date=effective_end_date,
                 include_ohlc=include_ohlc,
             )
-            Kline_key = f'{range_start_year}-{range_end_year}'
-            self._require_kline_data(stock_code, Kline_key, kline)
+            kline_key = f'{range_start_year}-{range_end_year}'
+            self._require_kline_data(stock_code, kline_key, kline)
             for item in parameters:
-                d = {"parameter": item,  'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                if Kline_key not in kline_data_map:
-                    kline_data_map[Kline_key] = kline
+                d = {"parameter": item,  'stock_code': stock_code, 'kline_key': kline_key}
+                if kline_key not in kline_data_map:
+                    kline_data_map[kline_key] = kline
                 data.append(d)
         elif full_years:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
             for year in full_years:
                 kline = self.kline_service.build_price_rows(_all_kline, price_mode, year=year, include_ohlc=include_ohlc)
-                Kline_key = year
-                self._require_kline_data(stock_code, Kline_key, kline)
+                kline_key = year
+                self._require_kline_data(stock_code, kline_key, kline)
 
                 for item in parameters:
-                    d = {"parameter": item,  'stock_code': stock_code, 'year': year,'Kline_key':Kline_key}
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = kline
+                    d = {"parameter": item,  'stock_code': stock_code, 'kline_key': kline_key}
+                    if kline_key not in kline_data_map:
+                        kline_data_map[kline_key] = kline
 
                     data.append(d)
 

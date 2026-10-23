@@ -43,7 +43,7 @@ class _C7V03Sheet:
 
 def _c7_v03_config():
     return {
-        "sheets": [{"spreadsheet_id": "c7-v03-sheet", "c7_model_version": "c7_0_3"}],
+        "sheets": [{"spreadsheet_id": "c7-v03-sheet", "model_version": "c7_0_3"}],
         "c7_parameter_positions": ["A1", "B1"],
         "c7_check_positions": ["G1", "H1"],
         "c7_0_3_kline_start_row": 2,
@@ -93,7 +93,7 @@ def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
 
     success, _result = service._execute_parameter_combination(
         10,
-        {"A1": "1", "B1": "2", "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"A1": "1", "B1": "2", "stock_code": "600000", "kline_key": "2026-2025"},
         {"combination": {}},
         _c7_v03_config(),
         kline_map,
@@ -132,7 +132,7 @@ def test_c7_v03_result_payload_uses_c5_metric_cells():
     payload = service._build_stock_param_result_payload(
         "C7.0.3 测试",
         0,
-        {"A1": "1", "B1": "2", "kline": [], "c7_model_version": "c7_0_3"},
+        {"A1": "1", "B1": "2", "kline": [], "model_version": "c7_0_3"},
         {"C7.0.3": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
     )
 
@@ -169,8 +169,8 @@ def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
     }]
     success, _result = service._execute_parameter_combination(
         10,
-        {"A1": "1", "B1": "2", "stock_code": "600001", "Kline_key": "2026-2025"},
-        {"combination": {"stock_code": "600000", "Kline_key": "2026-2025"}},
+        {"A1": "1", "B1": "2", "stock_code": "600001", "kline_key": "2026-2025"},
+        {"combination": {"stock_code": "600000", "kline_key": "2026-2025"}},
         _c7_v03_config(),
         {"2026-2025": kline},
     )
@@ -180,12 +180,20 @@ def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
     assert sheet.update_payloads[0]["CC2"] == "2025-01-01"
 
 
-def test_c7_model_version_falls_back_to_sheet_title():
+def test_model_version_reads_persisted_value():
+    service = C7Service({}, "task-id")
+    sheet = type("Sheet", (), {"spreadsheet_id": "sheet-v03", "title": "C7.0.3.v20260729"})()
+    config = {"sheets": [{"spreadsheet_id": "sheet-v03", "model_version": "c7_0_3"}]}
+
+    assert service._get_model_version(config, sheet) == "c7_0_3"
+
+
+def test_model_version_ignores_sheet_title():
     service = C7Service({}, "task-id")
     sheet = type("Sheet", (), {"spreadsheet_id": "sheet-v03", "title": "C7.0.3.v20260729"})()
     config = {"sheets": [{"spreadsheet_id": "sheet-v03"}]}
 
-    assert service._get_c7_model_version(config, sheet) == "c7_0_3"
+    assert service._get_model_version(config, sheet) == "c7_0_2"
 
 
 def test_get_last_row_supports_multi_letter_column():
@@ -208,9 +216,9 @@ def test_c7_deduplicates_same_parameters_and_kline_period():
     ]
 
     combinations = [
-        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "full"},
-        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "recent_5"},
-        {"stock_code": "688235", "A1": "2.3", "B1": "4", "Kline_key": "recent_5"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "kline_key": "full"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "kline_key": "recent_5"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "4", "kline_key": "recent_5"},
     ]
 
     result = service._deduplicate_parameter_combinations(
@@ -322,7 +330,7 @@ def test_c7_random_groups_are_stable_for_task_restart():
         "A1": 1,
         "B1": 2,
         "year": "2026-2025",
-        "Kline_key": "2026-2025",
+        "kline_key": "2026-2025",
     }]
     kline_map = {
         "2026-2025": [{

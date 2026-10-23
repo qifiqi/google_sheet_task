@@ -40,6 +40,8 @@ def _market_price_field(market_type: str) -> str:
 class C4Service(BaseGoogleSheetService):
     """Google Sheet服务 - C4"""
 
+    _model_version = "c4"
+
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
@@ -62,7 +64,7 @@ class C4Service(BaseGoogleSheetService):
             task_index,
             {
                 "stock_code": combination.get("stock_code"),
-                "kline_range": combination.get("year", ""),
+                "kline_range": combination.get("kline_key", ""),
             },
         )
         model_result = result
@@ -70,11 +72,7 @@ class C4Service(BaseGoogleSheetService):
             first_value = next(iter(result.values()), None)
             if isinstance(first_value, dict):
                 model_result = first_value
-        analyze_result = (
-            model_result.get("flat_result")
-            if isinstance(model_result.get("flat_result"), dict)
-            else model_result
-        )
+        analyze_result = (model_result.get("metrics_payload") or {}).get("metrics", {})
         payload.update({
             "return_rate": model_result.get("D2", 0),
             "annualized_rate": model_result.get("D3", 0),
@@ -383,10 +381,9 @@ class C4Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
                         _result['metrics_payload'] = metrics_payload
-                        _result['flat_result'] = flat_result
                         _result['_return_date'] = _return_data
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
@@ -508,7 +505,7 @@ class C4Service(BaseGoogleSheetService):
                     d['stock_code'] = parameter
                     if stock_name:
                         d['stock_name'] = stock_name
-                    d['year'] = i
+                    d['kline_key'] = i
                     d['kline'] = kline
 
                     data.append(d)

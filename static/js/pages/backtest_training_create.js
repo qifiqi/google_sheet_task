@@ -1118,7 +1118,7 @@ async function createTask() {
             title: sheetTitle
         };
         if (resolveModelVersion(currentModelVersion) === 'c7') {
-            sheetConfig.c7_model_version = currentC7ModelVersion;
+            sheetConfig.model_version = currentC7ModelVersion;
         }
         if (selectedGoogleSheetId) {
             sheetConfig.google_sheet_id = selectedGoogleSheetId;

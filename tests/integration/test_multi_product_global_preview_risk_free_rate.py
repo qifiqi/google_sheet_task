@@ -105,8 +105,10 @@ def _seed_preview_task(app, task_id, saved_ratio="50"):
             "sheet__title": {
                 # 执行时落库的比例后指标快照（rf=0 口径）：比例未变且 rf=0 时后端直接复用它，
                 # rf≠0 时必须按收益序列重算，否则同一行会混用两套口径。
-                "calculate_metrics": _metrics_payload(ir, sr),
-                "weighted_calculate_metrics": _metrics_payload(ir, sr),
+                "metrics_payload": {
+                    "metrics": _metrics_payload(ir, sr),
+                    "weighted_metrics": _metrics_payload(ir, sr),
+                },
                 "return_date": returns,
             }
         }

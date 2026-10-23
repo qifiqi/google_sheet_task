@@ -139,26 +139,6 @@ window.Biz = window.Biz || {};
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return null;
     }
-
-    if (
-      payload.calculate_metrics &&
-      typeof payload.calculate_metrics === "object"
-    ) {
-      const sheetResult =
-        payload.sheet_result && typeof payload.sheet_result === "object"
-          ? payload.sheet_result
-          : Object.fromEntries(
-              Object.entries(payload).filter(
-                ([key]) => key !== "calculate_metrics",
-              ),
-            );
-      return {
-        ...payload.calculate_metrics,
-        sheet_result: sheetResult,
-        model_name: payload.model_name || "",
-      };
-    }
-
     return payload;
   }
 

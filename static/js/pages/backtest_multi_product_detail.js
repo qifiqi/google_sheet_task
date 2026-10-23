@@ -944,7 +944,7 @@
             const hiddenKeys = [
                 'stock_code',
                 'year',
-                'Kline_key',
+                'kline_key',
                 'kline',
                 'parameter',
                 'product_name',

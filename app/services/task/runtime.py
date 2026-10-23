@@ -24,11 +24,13 @@ from app.services.google_sheet_tasks.c3 import C3Service
 from app.services.google_sheet_tasks.c4 import C4Service
 from app.services.google_sheet_tasks.c5 import C5Service
 from app.services.google_sheet_tasks.c7 import C7Service
-from app.services.google_sheet_tasks.c11 import C11Service
+from app.services.google_sheet_tasks.c1_1 import C1_1Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.task_error_utils import unwrap_exception
+from app.utils.task_types import is_c_series_task_type
+from app.services.task.occupancy import C_SERIES_TABLE_TYPES
 
 logger = get_logger(__name__)
 
@@ -426,6 +428,7 @@ class TaskRuntimeMixin:
             return False
 
         config_data = self._get_task_config_dict(task)
+        c_series_task = is_c_series_task_type(task.task_type)
 
         max_concurrent = int(self._get_config("max_concurrent_tasks", 20))
         if len(self.running_tasks) >= max_concurrent:
@@ -496,7 +499,15 @@ class TaskRuntimeMixin:
                         return False
                     backtest_marked_running = True
             else:
-                self.ensure_google_sheet_occupancy(task_id, config_data)
+                if c_series_task:
+                    self.validate_c_series_sheet_models(config_data, task_id)
+                self.ensure_google_sheet_occupancy(
+                    task_id,
+                    config_data,
+                    allowed_table_types=(
+                        C_SERIES_TABLE_TYPES if c_series_task else None
+                    ),
+                )
 
             token_id = config_data.get("token_id")
             if token_id:
@@ -784,15 +795,15 @@ class TaskRuntimeMixin:
             failure_label="执行 C7 任务失败",
         )
 
-    def _execute_google_sheet_c11_task(self, task_id: str, app) -> None:
+    def _execute_google_sheet_c1_1_task(self, task_id: str, app) -> None:
         self._execute_service_task(
             task_id,
             app,
-            logger_name=f"{__name__}.C11.{task_id}",
-            start_message="开始执行Google Sheet C11 任务",
-            service_class=C11Service,
-            business_message="开始执行 C11 任务业务逻辑",
-            failure_label="执行 C11 任务失败",
+            logger_name=f"{__name__}.C1.1.{task_id}",
+            start_message="开始执行Google Sheet C1.1 任务",
+            service_class=C1_1Service,
+            business_message="开始执行 C1.1 任务业务逻辑",
+            failure_label="执行 C1.1 任务失败",
         )
 
     def _execute_backtest_training_task(self, task_id: str, app) -> None:

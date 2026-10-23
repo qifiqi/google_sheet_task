@@ -16,6 +16,7 @@ from pydantic import ValidationError as PydanticValidationError
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.models import GoogleSheetTokenTaskType, TaskStatus
 from app.schemas.task_configs import validate_task_config_shape
+from app.utils.model_version import normalize_sheets_model_versions
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -28,6 +29,8 @@ from app.utils.value_parser import coerce_bool
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
+from app.utils.task_types import is_c_series_task_type
+from app.services.task.occupancy import C_SERIES_TABLE_TYPES
 
 logger = get_logger(__name__)
 
@@ -88,7 +91,7 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
 
 
 def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]:
-    """random_price 模式的随机范围/组数公共校验（C7/C11 共用）。"""
+    """random_price 模式的随机范围/组数公共校验（C7/C1.1 共用）。"""
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
     if random_range not in {"high_low", "open_close"}:
         raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
@@ -115,7 +118,7 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
         return normalized
 
     versions = {
-        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
+        str(sheet.get("model_version") or "c7_0_2").strip().lower()
         for sheet in normalized.get("sheets") or []
     }
     if "c7_0_3" in versions:
@@ -123,15 +126,15 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
     return _validate_random_price_options(normalized)
 
 
-def _normalize_c11_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
-    """C11 固定随机价格：price_mode 强制 random_price 后校验随机选项。
+def _normalize_c1_1_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    """C1.1 固定随机价格：price_mode 强制 random_price 后校验随机选项。
 
     custom 模式无 price_mode（K线读自表格），ext 随机价在执行期按组生成，不在此强制。
-    c11_vwap_enabled 控制是否计算并写入 vwap 列，缺省计算（True）。
+    c1_1_vwap_enabled 控制是否计算并写入 vwap 列，缺省计算（True）。
     """
     normalized = dict(config)
-    normalized["c11_vwap_enabled"] = coerce_bool(
-        normalized.get("c11_vwap_enabled"), True
+    normalized["c1_1_vwap_enabled"] = coerce_bool(
+        normalized.get("c1_1_vwap_enabled"), True
     )
     if str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower() == KLINE_SOURCE_CUSTOM:
         return normalized
@@ -196,6 +199,7 @@ class TaskCreationMixin:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
+        normalized = normalize_sheets_model_versions(normalized, task_type)
         market_type = normalize_market_type(normalized.get("market_type"))
         if market_type:
             normalized["market_type"] = market_type
@@ -205,17 +209,17 @@ class TaskCreationMixin:
                 market_type or infer_market_type(normalized["stock_code"]),
                 normalized.get("exchange_market"),
             )
-        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7","google_sheet_c11"):
+        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7","google_sheet_c1_1"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
             normalized["kline_data_source"] = KlineService.normalize_data_source(
                 normalized.get("kline_data_source", normalized.get("data_source"))
             )
-            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c11"):
+            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c1_1"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
             if task_type.lower() == "google_sheet_c7":
                 normalized = _normalize_c7_random_price_config(normalized)
-            if task_type.lower() == "google_sheet_c11":
-                normalized = _normalize_c11_random_price_config(normalized)
+            if task_type.lower() == "google_sheet_c1_1":
+                normalized = _normalize_c1_1_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
@@ -278,11 +282,14 @@ class TaskCreationMixin:
             config = get_google_sheet_token_service().prepare_task_config(config)
             if task_type == "backtest_training":
                 self.validate_backtest_training_sheet(config)
-            self.validate_google_sheet_available_for_task(
-                config,
-                task_id,
-                allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
-            )
+            if is_c_series_task_type(task_type):
+                self.validate_c_series_sheet_models(config, task_id)
+            else:
+                self.validate_google_sheet_available_for_task(
+                    config,
+                    task_id,
+                    allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
+                )
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
@@ -301,7 +308,13 @@ class TaskCreationMixin:
         )
 
         if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
-            self.ensure_google_sheet_occupancy(task_id, config)
+            self.ensure_google_sheet_occupancy(
+                task_id,
+                config,
+                allowed_table_types=(
+                    C_SERIES_TABLE_TYPES if is_c_series_task_type(task_type) else None
+                ),
+            )
 
         task_logger = get_task_logger(task_id, f"{__name__}.create")
         task_logger.info(
@@ -418,6 +431,9 @@ class TaskCreationMixin:
                 raise ValidationError(
                     f"{year_n} 所含有的表格数，无法对齐参数数量，{combination_count},检查是否是参数设置过多还是表格创建过少"
                 )
+
+        # 预检全部 Sheet，避免部分子任务创建成功后才发现模型不可用/被占用
+        self.validate_c_series_sheet_models({"sheets": sheets}, None)
 
         created_task_ids = []
         started_task_ids = []
@@ -656,17 +672,33 @@ class TaskCreationMixin:
             )
             if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(effective_config)
+            c_series_task = is_c_series_task_type(task["task_type"])
+            if c_series_task:
+                self.validate_c_series_sheet_models(effective_config, task_id)
+            sheet_table_types = C_SERIES_TABLE_TYPES if c_series_task else None
             old_config = task["config"] or {}
             # sheets[] 形态下顶层无 google_sheet_id，占用迁移对比走配置收集
             # （sheets[].google_sheet_id，缺登记时回退 spreadsheet_id 反查）。
-            old_sheet_ids = sorted(self._collect_google_sheet_ids(old_config))
-            new_sheet_ids = sorted(self._collect_google_sheet_ids(effective_config))
+            old_sheet_ids = sorted(
+                self._collect_google_sheet_ids(
+                    old_config, allowed_table_types=sheet_table_types
+                )
+            )
+            new_sheet_ids = sorted(
+                self._collect_google_sheet_ids(
+                    effective_config, allowed_table_types=sheet_table_types
+                )
+            )
 
             if old_sheet_ids != new_sheet_ids:
                 if old_sheet_ids:
                     self.release_google_sheet_occupancy(task_id)
                 if new_sheet_ids:
-                    self.ensure_google_sheet_occupancy(task_id, effective_config)
+                    self.ensure_google_sheet_occupancy(
+                        task_id,
+                        effective_config,
+                        allowed_table_types=sheet_table_types,
+                    )
 
             fields = {"config": dumps(effective_config)}
             if update_name:
@@ -716,6 +748,9 @@ class TaskCreationMixin:
                 original_task["task_type"],
                 original_config,
             )
+            c_series_task = is_c_series_task_type(original_task["task_type"])
+            if c_series_task:
+                self.validate_c_series_sheet_models(original_config, new_task_id)
 
             task_repository.create({
                 "id": new_task_id,
@@ -729,7 +764,13 @@ class TaskCreationMixin:
 
             # original_task 来自 task_repository.get()（dict），取值必须用下标而非属性访问。
             if isinstance(original_config, dict) and original_task["task_type"] not in ("backtest_training", "backtest_multi_product"):
-                self.ensure_google_sheet_occupancy(new_task_id, original_config)
+                self.ensure_google_sheet_occupancy(
+                    new_task_id,
+                    original_config,
+                    allowed_table_types=(
+                        C_SERIES_TABLE_TYPES if c_series_task else None
+                    ),
+                )
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)
             return new_task_id

@@ -60,7 +60,7 @@ function buildDetailHref(taskId) {
 
 function inferModelVersion(task) {
     if (task.model_version) {
-        return String(task.model_version).toUpperCase();
+        return formatModelVersion(task.model_version);
     }
 
     const config = task.config || {};

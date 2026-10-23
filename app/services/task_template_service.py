@@ -10,6 +10,7 @@ from app.utils.json_utils import dumps, loads, JSONDecodeError
 from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_template_repository
 from app.schemas.task_configs import validate_task_config_shape
+from app.utils.model_version import normalize_sheets_model_versions
 
 
 class TaskTemplateService:
@@ -31,6 +32,7 @@ class TaskTemplateService:
         else:
             config_json = config
         if isinstance(config_json, dict) and config_json.get("task_type"):
+            config_json = normalize_sheets_model_versions(config_json, config_json.get("task_type"))
             try:
                 config_json = validate_task_config_shape(
                     str(config_json["task_type"]), config_json

@@ -43,7 +43,7 @@ def get_worksheets():
 @google_sheet_api_bp.route('/google-sheet/combination-estimate', methods=['POST'])
 @login_required
 def estimate_combinations():
-    """C5/C7/C11 组合数精算：多 K线窗口按真实展开逻辑计数，估算不落K线快照。"""
+    """C5/C7/C1.1 组合数精算：多 K线窗口按真实展开逻辑计数，估算不落K线快照。"""
     data = parse_body(CombinationEstimateSchema)
     return success(data=estimate_combination_count(data.task_type, data.config))
 

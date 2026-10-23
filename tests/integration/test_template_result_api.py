@@ -56,7 +56,10 @@ def test_template_crud_envelope(auth_client):
     resp = client.post(
         "/api/templates",
         headers=headers,
-        json={"name": "tpl-a", "description": "d", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-a", "description": "d", "config": {
+            "task_type": "google_sheet",
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
+        }},
     )
     assert resp.status_code == 200
     body = resp.get_json()
@@ -79,7 +82,10 @@ def test_template_crud_envelope(auth_client):
     resp = client.put(
         f"/api/templates/{template_id}",
         headers=headers,
-        json={"name": "tpl-b", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-b", "config": {
+            "task_type": "google_sheet",
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
+        }},
     )
     assert resp.get_json()["data"]["template"]["name"] == "tpl-b"
 

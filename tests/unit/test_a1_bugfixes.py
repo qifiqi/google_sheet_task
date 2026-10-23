@@ -11,7 +11,7 @@ from sqlalchemy.exc import OperationalError
 from app.exceptions import NotFoundError, ValidationError
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.extensions import db
-from app.models import Task, TaskLog, User
+from app.models import GoogleSheet, Task, TaskLog, User
 from app.repositories import task_repository
 from app.services.task.facade import TaskManager
 from app.utils.db_retry import DatabaseLockError, db_retry_manager
@@ -45,6 +45,7 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
                 "parameters": [["1"]],
             },
         )
+        db.session.add(GoogleSheet(name="sheet-1", spreadsheet_id="sheet-1", table_type="c3"))
         db.session.add(original)
         db.session.commit()
 
@@ -53,7 +54,7 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
         monkeypatch.setattr(
             manager,
             "ensure_google_sheet_occupancy",
-            lambda task_id, config: occupancy_calls.append((task_id, config)),
+            lambda task_id, config, **kwargs: occupancy_calls.append((task_id, config)),
         )
 
         new_task_id = manager.create_restart_task("origin-1")
@@ -129,7 +130,7 @@ def test_c5_checkforerrors_branch_records_error_message(app_factory, monkeypatch
             service,
             "_get_all_parameters",
             lambda *_args, **_kwargs: (
-                [{"stock_code": "600000", "Kline_key": "2026-2025"}],
+                [{"stock_code": "600000", "kline_key": "2026-2025"}],
                 10,
                 {
                     "2026-2025": [

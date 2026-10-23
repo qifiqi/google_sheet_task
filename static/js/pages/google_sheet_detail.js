@@ -398,7 +398,10 @@
             return null;
         }
 
-        return isPlainObject(metrics.flat_result) ? metrics.flat_result : null;
+        const payload = metrics.metrics_payload;
+        return isPlainObject(payload) && isPlainObject(payload.metrics)
+            ? payload.metrics
+            : null;
     }
 
     function getPreferredMetricValue(metrics, key) {
@@ -424,18 +427,14 @@
 
     function getModelSharpeValue(metrics, type) {
         const flatResult = getFlatResult(metrics);
-
         if (flatResult) {
-            if (type === 'index') {
-                return getFirstMetricValue(flatResult, ['index_sharpe_ratio', 'index_sharp', 'ixpl', 'i_xpl', 'index_xpl']);
-            }
-            return getFirstMetricValue(flatResult, ['start_sharpe_ratio', 'start_sharp', 'sxpl', 's_xpl', 'start_xpl']);
+            const ratios = flatResult[type + '_sharpe_ratios'];
+            const allEntry = isPlainObject(ratios) ? ratios.all : null;
+            return isPlainObject(allEntry) && allEntry.sharpe_ratio != null
+                ? allEntry.sharpe_ratio
+                : null;
         }
-
-        const legacyPerformanceAnalysis = type === 'index'
-                ? (metrics.index_return_xpl || {})
-                : (metrics.start_return_xpl || {});
-        return legacyPerformanceAnalysis.sharpe_ratio != null ? legacyPerformanceAnalysis.sharpe_ratio : null;
+        return null;
     }
 
     function getDetailMetricSource(metrics) {
@@ -443,7 +442,7 @@
     }
 
     function shouldShowDetailMetric(key) {
-        return !['start_return_xpl', 'index_return_xpl', 'analyze_result'].includes(String(key));
+        return key !== 'metrics_payload';
     }
 
     function formatMetricRawValue(value, digits) {

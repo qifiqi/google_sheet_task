@@ -35,6 +35,8 @@ logger = get_logger(__name__)
 class C3Service(BaseGoogleSheetService):
     """Google Sheet服务"""
 
+    _model_version = "c3"
+
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.klines_map = None
@@ -65,10 +67,11 @@ class C3Service(BaseGoogleSheetService):
             if key in result
         }
 
-        flat_result = result.get("flat_result")
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        metrics_payload = result.get("metrics_payload")
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else None
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -77,10 +80,8 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
-
-        metrics_payload = result.get("metrics_payload")
         if isinstance(metrics_payload, dict):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
@@ -92,21 +93,21 @@ class C3Service(BaseGoogleSheetService):
 
     def _summarize_return_analysis_for_log(
         self,
-        flat_result: Dict[str, Any],
-        analyze_result: Dict[str, Any],
+        metrics_payload: Dict[str, Any],
         row_count: int,
         read_elapsed: float,
         performance_analysis_elapsed: float,
     ) -> str:
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else {}
         summary = {
             "rows": row_count,
             "read": self._format_elapsed(read_elapsed),
             "performance_analysis": self._format_elapsed(performance_analysis_elapsed),
-            "analyze_result_keys": len(analyze_result) if isinstance(analyze_result, dict) else 0,
+            "metric_keys": len(metrics) if isinstance(metrics, dict) else 0,
         }
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -115,7 +116,7 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
         return dumps(
             sanitize_json_value(summary),
@@ -366,10 +367,9 @@ class C3Service(BaseGoogleSheetService):
                 return {}
 
             performance_analysis_started = time.perf_counter()
-            flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
+            metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
             performance_analysis_elapsed = time.perf_counter() - performance_analysis_started
             analysis_summary = self._summarize_return_analysis_for_log(
-                flat_result,
                 metrics_payload,
                 len(return_data),
                 read_elapsed,
@@ -381,7 +381,6 @@ class C3Service(BaseGoogleSheetService):
             )
             return {
                 "metrics_payload": metrics_payload,
-                "flat_result": flat_result,
                 "_return_date": return_data,
             }
         except SheetCheckError:
@@ -398,7 +397,7 @@ class C3Service(BaseGoogleSheetService):
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
         payload = self._build_stock_param_result_base_payload(task_name, task_index, config_data)
-        return_analysis = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else result
+        return_analysis = (result.get("metrics_payload") or {}).get("metrics", {})
         payload.update({
             "multiplier": result.get("B6", 0),
             "danbian": result.get("B7", 0),

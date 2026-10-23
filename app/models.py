@@ -153,7 +153,7 @@ class GoogleSheetTableType(str, Enum):
     C4 = "c4"
     C5 = "c5"
     C7 = "c7"
-    C11 = "c11"
+    C1_1 = "c1_1"
     BACKTEST_TRAINING = "backtest_training"
 
     @classmethod
@@ -173,7 +173,7 @@ class GoogleSheetTableType(str, Enum):
             cls.C4: "C4",
             cls.C5: "C5",
             cls.C7: "C7",
-            cls.C11: "C11",
+            cls.C1_1: "C1.1",
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]
@@ -234,7 +234,7 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
         GoogleSheetTableType.C4.value,
         GoogleSheetTableType.C5.value,
         GoogleSheetTableType.C7.value,
-        GoogleSheetTableType.C11.value,
+        GoogleSheetTableType.C1_1.value,
     }:
         return "c_series"
     return normalized
@@ -275,6 +275,7 @@ class TaskType(str, Enum):
     GOOGLE_SHEET_C4 = "google_sheet_C4"
     GOOGLE_SHEET_C5 = "google_sheet_C5"
     GOOGLE_SHEET_C7 = "google_sheet_C7"
+    GOOGLE_SHEET_C1_1 = "google_sheet_C1_1"
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
     MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
@@ -286,6 +287,7 @@ class TaskType(str, Enum):
             cls.GOOGLE_SHEET_C4: "Google Sheet C4",
             cls.GOOGLE_SHEET_C5: "Google Sheet C5",
             cls.GOOGLE_SHEET_C7: "Google Sheet C7",
+            cls.GOOGLE_SHEET_C1_1: "Google Sheet C1.1",
             cls.BACKTEST_TRAINING: "单品回测",
             cls.BACKTEST_MULTI_PRODUCT: "多品回测",
             cls.MODEL_SUMMARY_REBUILD: "汇总索引重建",

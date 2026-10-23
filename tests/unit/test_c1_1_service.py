@@ -7,17 +7,17 @@ from app.services.google_sheet_tasks.base import (
     parse_range_start,
 )
 from app.services.google_sheet_tasks.check_policy import (
-    C11_INVALID,
+    C1_1_INVALID,
     C7_INVALID,
     normalize_check_values,
 )
-from app.services.google_sheet_tasks.c11 import C11Service
-from app.services.google_sheet_tasks.result_payload import build_c11_summary_fields
+from app.services.google_sheet_tasks.c1_1 import C1_1Service
+from app.services.google_sheet_tasks.result_payload import build_c1_1_summary_fields
 from app.services.kline_service import KlineService
 
 
-def _kline_rows(day_count=31, vwap_base=11.0):
-    first_date = date(2026, 1, 1)
+def _kline_rows(day_count=31, vwap_base=11.0, first_date=None):
+    first_date = first_date or date(2026, 1, 1)
     rows = []
     for offset in range(day_count):
         current_date = first_date + timedelta(days=offset)
@@ -55,7 +55,7 @@ def _stub_kline_fetching(service, rows, monkeypatch):
 # ---- 共享小工具 ----
 
 def test_parse_range_start_extracts_column_and_row():
-    assert parse_range_start("AI2:AI26") == ("AI", 2)
+    assert parse_range_start("AZ2:AZ26") == ("AZ", 2)
     assert parse_range_start("K2") == ("K", 2)
 
 
@@ -94,10 +94,10 @@ def test_build_price_rows_random_price_includes_vwap(monkeypatch):
     assert projected[0]["stock_val"] == 8
 
 
-# ---- C11 布局 ----
+# ---- C1_1 布局 ----
 
-def test_c11_layout_defaults():
-    layout = C11Service._get_c11_layout({})
+def test_c1_1_layout_defaults():
+    layout = C1_1Service._get_c1_1_layout({})
 
     assert layout["start_row"] == 2
     assert layout["date_column"] == "AA"
@@ -107,31 +107,28 @@ def test_c11_layout_defaults():
     assert layout["close_column"] == "AE"
     assert layout["vwap_column"] == "AF"
     assert layout["ext_column"] == "AG"
-    assert layout["parameter_range"] == "F2:F26"
-    assert layout["output_range"] == "AI2:AI26"
+    assert layout["output_range"] == "F2:F26"
     assert layout["output_column_k"] == "K"
 
 
-def test_c11_layout_supports_config_overrides():
-    layout = C11Service._get_c11_layout({
-        "c11_kline_start_row": 3,
-        "c11_kline_date_column": "ba",
-        "c11_output_range": "P2:P26",
-        "c11_parameter_range": "G2:G26",
-        "c11_output_column_k": "M",
+def test_c1_1_layout_supports_config_overrides():
+    layout = C1_1Service._get_c1_1_layout({
+        "c1_1_kline_start_row": 3,
+        "c1_1_kline_date_column": "ba",
+        "c1_1_output_range": "P2:P26",
+        "c1_1_output_column_k": "M",
     })
 
     assert layout["start_row"] == 3
     assert layout["date_column"] == "BA"
     assert layout["output_range"] == "P2:P26"
-    assert layout["parameter_range"] == "G2:G26"
     assert layout["output_column_k"] == "M"
 
 
 # ---- 无参数展开 + 随机分组 ----
 
-def test_c11_expand_without_parameters_builds_random_groups(monkeypatch):
-    service = C11Service({}, "task-id")
+def test_c1_1_expand_without_parameters_builds_random_groups(monkeypatch):
+    service = C1_1Service({}, "task-id")
     _stub_kline_fetching(service, _kline_rows(), monkeypatch)
     batch = service._prepare_batch({
         "kline_source": "auto",
@@ -161,8 +158,39 @@ def test_c11_expand_without_parameters_builds_random_groups(monkeypatch):
         assert all(row["vwap"] == 11.0 for row in kline)
 
 
-def test_c11_prepare_batch_rejects_non_random_price():
-    service = object.__new__(C11Service)
+def test_c1_1_expand_supports_recent_and_full_year_windows(monkeypatch):
+    service = C1_1Service({}, "task-id")
+    _stub_kline_fetching(
+        service,
+        _kline_rows(day_count=1600, first_date=date(2022, 1, 3)),
+        monkeypatch,
+    )
+    batch = service._prepare_batch({
+        "kline_source": "auto",
+        "price_mode": "random_price",
+        "count_mode": "n_plus_1",
+        "market_type": "cn",
+        "start_date": "2022-01-03",
+        "end_date": "2026-10-20",
+        "date_range_mode": ["full", "recent"],
+        "exclude_recent_years": [1],
+        "random_price_range": "high_low",
+        "random_group_count": 1,
+        "kline_data_source": "dfcf",
+    })
+
+    combinations, _column_length, kline_map = service._expand_parameters(
+        "600000", [["600000"]], batch
+    )
+
+    keys = {str(item["kline_key"]) for item in combinations}
+    assert len(keys) >= 3
+    assert any("random" in key for key in keys)
+    assert all("A1" not in item and "B1" not in item for item in combinations)
+
+
+def test_c1_1_prepare_batch_rejects_non_random_price():
+    service = object.__new__(C1_1Service)
 
     with pytest.raises(ValueError, match="随机价格"):
         service._prepare_batch({"kline_source": "auto", "price_mode": "vwap_price"})
@@ -170,14 +198,14 @@ def test_c11_prepare_batch_rejects_non_random_price():
 
 # ---- 结果块字段映射 ----
 
-def test_c11_summary_fields_map_block_in_order():
+def test_c1_1_summary_fields_map_block_in_order():
     values = [
         "2020/01/02", "2025/06/05", "387.89%", "33.89%", "-43.55%", "2022/10/14",
         "166.72%", "19.80%", "-45.75%", "2022/10/14", "11.76%", "4.07%",
         "", "", 3.13, "2022/10/14", 0.94, 0, "", "", "", "1.74%", 2.70, "", "",
     ]
 
-    fields = build_c11_summary_fields(lambda offset: values[offset])
+    fields = build_c1_1_summary_fields(lambda offset: values[offset])
 
     assert fields["start_date"] == "2020/01/02"
     assert fields["end_date"] == "2025/06/05"
@@ -194,50 +222,47 @@ def test_c11_summary_fields_map_block_in_order():
     assert "ref_x_min" in fields
 
 
-def test_c11_invalid_predicate_allows_empty_cells():
+def test_c1_1_invalid_predicate_allows_empty_cells():
     normalized = normalize_check_values(
-        {"AI20": "", "AI21": "-"},
-        invalid_predicate=C11_INVALID,
+        {"F20": "", "F21": "-"},
+        invalid_predicate=C1_1_INVALID,
     )
-    assert normalized == {"AI20": ""}
+    assert normalized == {"F20": ""}
 
 
-def test_c11_result_payload_uses_summary_block():
-    service = object.__new__(C11Service)
-    service.task_id = "task-c11"
-    result_cells = {f"AI{2 + offset}": value for offset, value in enumerate([
+def test_c1_1_result_payload_uses_summary_block():
+    service = object.__new__(C1_1Service)
+    service.task_id = "task-c1_1"
+    result_cells = {f"F{2 + offset}": value for offset, value in enumerate([
         "2020/01/02", "2025/06/05", "387.89%", "33.89%", "-43.55%", "2022/10/14",
         "166.72%", "19.80%", "-45.75%", "2022/10/14", "11.76%", "4.07%",
         None, None, "3.13", "2022/10/14", "0.94", 0, None, None, None, "1.74%", "2.70", None, None,
     ])}
     result = {
         **result_cells,
-        "result_parameters": {"F2": "p1", "F3": "p2"},
-        "flat_result": {"index_sharpe_ratio": 1.2},
-        "metrics_payload": {},
+        "metrics_payload": {"metrics": {"index_sharpe_ratio": 1.2}},
         "_return_date": [],
     }
     combination = {
         "stock_code": "600000",
         "kline": [],
-        "c11_output_range": "AI2:AI26",
+        "c1_1_output_range": "F2:F26",
     }
 
-    payload = service._build_stock_param_result_payload("C11 测试", 0, combination, result)
+    payload = service._build_stock_param_result_payload("C1_1 测试", 0, combination, result)
 
     assert payload["stock_code"] == "600000"
     assert abs(payload["return_rate"] - 3.8789) < 1e-12
     assert payload["start_date"] == "2020/01/02"
     assert payload["max_leverage_date"] == "2022/10/14"
-    assert payload["result_parameters"] == {"F2": "p1", "F3": "p2"}
     assert payload["index_sharpe_ratio"] == 1.2
 
 
 # ---- custom K线（AA-AF 读回，仅写 ext） ----
 
-class _C11CustomSheet:
-    title = "C11.0.1"
-    spreadsheet_id = "c11-custom-sheet"
+class _C1_1CustomSheet:
+    title = "C1_1.0.1"
+    spreadsheet_id = "c1_1-custom-sheet"
 
     def __init__(self):
         self.clear_calls = []
@@ -255,13 +280,14 @@ class _C11CustomSheet:
         }
 
 
-class _C11ExecuteSheet:
-    title = "C11.0.1"
-    spreadsheet_id = "c11-execute-sheet"
+class _C1_1ExecuteSheet:
+    title = "C1_1.0.1"
+    spreadsheet_id = "c1_1-execute-sheet"
 
     def __init__(self, initial_block, result_block):
         self.clear_calls = []
         self.update_payloads = []
+        self.update_input_options = []
         self._initial_block = dict(initial_block)
         self._result_block = dict(result_block)
 
@@ -273,30 +299,30 @@ class _C11ExecuteSheet:
         self.clear_calls.append(range_a1)
 
     def get_range(self, range_a1):
-        assert range_a1 == "AI2:AI26"
+        assert range_a1 == "F2:F26"
         return dict(self._initial_block)
 
-    def update_jumped_cells(self, payload):
+    def update_jumped_cells(self, payload, value_input_option='RAW'):
         self.update_payloads.append(dict(payload))
+        self.update_input_options.append(value_input_option)
 
     def get_ranges(self, ranges):
-        assert ranges == ["AI2:AI26", "F2:F26", "K2:K3"]
+        assert ranges == ["F2:F26", "K2:K3"]
         return {
-            "AI2:AI26": dict(self._result_block),
-            "F2:F26": {"F2": "p1"},
+            "F2:F26": dict(self._result_block),
             "K2:K3": {"K2": "10%", "K3": "20%"},
         }
 
 
-def test_c11_execute_writes_ohlc_vwap_ext(monkeypatch):
-    initial_block = {f"AI{row}": "" for row in range(2, 27)}
-    result_block = {f"AI{row}": value for row, value in zip(range(2, 27), [
+def test_c1_1_execute_writes_ohlc_vwap_ext(monkeypatch):
+    initial_block = {f"F{row}": "" for row in range(2, 27)}
+    result_block = {f"F{row}": value for row, value in zip(range(2, 27), [
         "2020/01/02", "2025/06/05", "387.89%", "33.89%", "-43.55%", "2022/10/14",
         "166.72%", "19.80%", "-45.75%", "2022/10/14", "11.76%", "4.07%",
         "", "", "3.13", "2022/10/14", "0.94", 0, "", "", "", "1.74%", "2.70", "", "",
     ])}
-    sheet = _C11ExecuteSheet(initial_block, result_block)
-    service = C11Service({"kline_source": "auto", "market_type": "cn"}, "task-id")
+    sheet = _C1_1ExecuteSheet(initial_block, result_block)
+    service = C1_1Service({"kline_source": "auto", "market_type": "cn"}, "task-id")
     service.google_sheets = [sheet]
     analysis_rows = []
     service.performance_analyzer = type(
@@ -311,7 +337,7 @@ def test_c11_execute_writes_ohlc_vwap_ext(monkeypatch):
     ]
     success, _result = service._execute_parameter_combination(
         10,
-        {"stock_code": "600000", "Kline_key": "2026-2026", "random_group": 1},
+        {"stock_code": "600000", "kline_key": "2026-2026", "random_group": 1},
         {"combination": {}},
         {"kline_source": "auto", "market_type": "cn"},
         {"2026-2026": kline},
@@ -319,6 +345,7 @@ def test_c11_execute_writes_ohlc_vwap_ext(monkeypatch):
 
     assert success is True
     assert sheet.clear_calls == ["AA2:AG12"]
+    assert sheet.update_input_options == ["USER_ENTERED"]
     assert sheet.update_payloads[0] == {
         "AA2": "2026-01-01",
         "AB2": 10,
@@ -343,9 +370,9 @@ def test_c11_execute_writes_ohlc_vwap_ext(monkeypatch):
 # ---- 结果块字段映射 ----
 
 
-def test_c11_custom_kline_reads_ohlc_and_vwap():
-    service = C11Service({"kline_source": "custom"}, "task-id")
-    service.google_sheets = [_C11CustomSheet()]
+def test_c1_1_custom_kline_reads_ohlc_and_vwap():
+    service = C1_1Service({"kline_source": "custom"}, "task-id")
+    service.google_sheets = [_C1_1CustomSheet()]
     monkey_min = lambda *args, **kwargs: 1
     service._get_min_kline_rows = monkey_min
 
@@ -366,10 +393,10 @@ def test_c7_invalid_still_rejects_empty():
 
 # ---- 创建配置归一化 ----
 
-def test_c11_creation_normalizes_random_price():
-    from app.services.task.creation import _normalize_c11_random_price_config
+def test_c1_1_creation_normalizes_random_price():
+    from app.services.task.creation import _normalize_c1_1_random_price_config
 
-    normalized = _normalize_c11_random_price_config({
+    normalized = _normalize_c1_1_random_price_config({
         "market_type": "cn",
         "random_price_range": "OPEN_CLOSE",
         "random_group_count": "3",
@@ -380,10 +407,10 @@ def test_c11_creation_normalizes_random_price():
     assert normalized["random_group_count"] == 3
 
 
-def test_c11_creation_keeps_custom_mode_without_price_mode():
-    from app.services.task.creation import _normalize_c11_random_price_config
+def test_c1_1_creation_keeps_custom_mode_without_price_mode():
+    from app.services.task.creation import _normalize_c1_1_random_price_config
 
-    normalized = _normalize_c11_random_price_config({
+    normalized = _normalize_c1_1_random_price_config({
         "kline_source": "custom",
         "price_mode": None,
         "random_price_range": "high_low",
@@ -393,18 +420,18 @@ def test_c11_creation_keeps_custom_mode_without_price_mode():
     assert normalized.get("price_mode") is None
 
 
-def test_c11_creation_rejects_invalid_random_range():
+def test_c1_1_creation_rejects_invalid_random_range():
     from app.exceptions import ValidationError
-    from app.services.task.creation import _normalize_c11_random_price_config
+    from app.services.task.creation import _normalize_c1_1_random_price_config
 
     with pytest.raises(ValidationError):
-        _normalize_c11_random_price_config({"random_price_range": "mid_low"})
+        _normalize_c1_1_random_price_config({"random_price_range": "mid_low"})
 
 
-def test_c11_task_config_shape_validation():
+def test_c1_1_task_config_shape_validation():
     from app.schemas.task_configs import validate_task_config_shape
 
-    shape = validate_task_config_shape("google_sheet_C11", {
+    shape = validate_task_config_shape("google_sheet_C1_1", {
         "sheets": [{"spreadsheet_id": "s1"}],
         "parameters": [["600000"]],
         "price_mode": "random_price",

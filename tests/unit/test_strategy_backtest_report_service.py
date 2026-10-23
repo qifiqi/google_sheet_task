@@ -609,6 +609,112 @@ def test_monthly_returns_subsection_omitted_without_data_keeps_rolling_1_3():
         "1.1 核心收益", "1.2 分年度收益率", "1.3 滚动收益（月度窗口）"]
 
 
+def _parameter_metrics_fixture():
+    return [
+        {
+            "stock_code": "600519.SH", "ratio": "60%", "market_type": "cn",
+            "parameter_metrics": {
+                "turnover_rate": 0.10,
+                "max_theoretical_leverage": 4.0,
+                "avg_theoretical_leverage": 2.0,
+                "unit_theoretical_leverage_return": 0.05,
+                "max_actual_leverage": 3.0,
+                "avg_actual_leverage": 1.5,
+            },
+        },
+        {
+            "stock_code": "QQQ.US", "ratio": "40%", "market_type": "us",
+            "parameter_metrics": {
+                "turnover_rate": 0.20,
+                "max_theoretical_leverage": 2.0,
+                "avg_theoretical_leverage": 1.0,
+                "unit_theoretical_leverage_return": 0.10,
+                "max_actual_leverage": 1.0,
+                "avg_actual_leverage": 0.5,
+            },
+        },
+    ]
+
+
+def test_parameter_config_weighted_sum_and_fee():
+    """参数配置表：结果区指标按比例加权求和，手续费按首个产品市场取 A 股万3.5。"""
+    payload = SimpleNamespace(products=_parameter_metrics_fixture())
+
+    blocks = StrategyBacktestReportService._parameter_config_blocks(payload)
+
+    assert blocks == [{
+        "type": "table", "title": "参数配置", "columns": ["参数", "数值"],
+        "rows": [
+            ["年换手率", "14.00%"],
+            ["最大理论杠杆率", "3.20"],
+            ["平均理论杠杆率", "1.60"],
+            ["单位理论杠杆率收益", "7.00%"],
+            ["最大实际杠杆率", "2.20"],
+            ["平均实际杠杆率", "1.10"],
+            ["手续费", "0.035%"],
+        ],
+    }]
+
+
+def test_parameter_config_missing_metric_shows_dash_but_fee_still_renders():
+    """任一参与产品缺指标时该行显示 "-"（C3 无杠杆列），不输出部分和。"""
+    products = _parameter_metrics_fixture()
+    products[1]["parameter_metrics"].pop("max_actual_leverage")
+    payload = SimpleNamespace(products=products)
+
+    rows = StrategyBacktestReportService._parameter_config_blocks(payload)[0]["rows"]
+
+    assert ["最大实际杠杆率", "-"] in rows
+    assert ["年换手率", "14.00%"] in rows
+    assert ["手续费", "0.035%"] in rows
+
+
+def test_parameter_config_fee_uses_us_rate_for_non_cn_first_product():
+    products = _parameter_metrics_fixture()
+    products.reverse()
+    payload = SimpleNamespace(products=products)
+
+    rows = StrategyBacktestReportService._parameter_config_blocks(payload)[0]["rows"]
+
+    assert rows[-1] == ["手续费", "0.02%"]
+
+
+def test_parameter_config_omitted_without_metrics():
+    """手工收益/Sheet 来源等无指标载荷：整表省略。"""
+    payload = SimpleNamespace(products=[
+        {"stock_code": "AAA.US", "ratio": "50%"},
+        {"stock_code": "BBB.US", "ratio": "50%"},
+    ])
+
+    assert StrategyBacktestReportService._parameter_config_blocks(payload) == []
+
+
+def test_correlation_matrix_includes_same_direction_rates():
+    dates = ["2024-01-02", "2024-01-03", "2024-01-04"]
+    products = [
+        {"stock_code": "AAA.US", "returns": [
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.01},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": -0.02},
+            {"date": "2024-01-04", "index_return": 0.0, "start_return": 0.03},
+        ]},
+        {"stock_code": "BBB.US", "returns": [
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.02},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": -0.01},
+            {"date": "2024-01-04", "index_return": 0.0, "start_return": -0.03},
+        ]},
+    ]
+    payload = SimpleNamespace(products=products, index_benchmarks=[], include_composite_benchmark=False)
+    result = SimpleNamespace(index_df=pd.DataFrame({"date": pd.to_datetime(dates)}))
+
+    data = StrategyBacktestReportService()._correlation_matrix(payload, result)
+
+    assert data["labels"] == ["AAA.US", "BBB.US"]
+    assert data["same_direction"][0][0] == 1.0
+    # 前两日同涨/同跌同向，第三日一涨一跌 → 2/3。
+    assert data["same_direction"][0][1] == pytest.approx(2 / 3)
+    assert data["same_direction"][1][0] == pytest.approx(2 / 3)
+
+
 def test_excess_headers_follow_same_code_ratio_rule():
     """同股不同比例只展示比例；异股展示 代码 比例%，与指数列头对称。"""
     service = StrategyBacktestReportService()
@@ -775,31 +881,32 @@ def _all_stock_report_request():
     })()
 
 
-def test_build_report_data_places_correlation_after_weight_tables(monkeypatch):
-    """相关系数热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
+def test_build_report_data_places_heatmaps_after_weight_tables(monkeypatch):
+    """相关系数与同向率热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
     # 资产值全部缺失（视为个股）时列头为 净资产。
     monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
-    correlation_image = {
-        "type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c",
-    }
+    heatmap_images = [
+        {"type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c"},
+        {"type": "image", "title": "权重日涨跌幅同向率", "path": "same_direction.png", "caption": "c"},
+    ]
 
     report_data = service._build_report_data(
-        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02), correlation_image,
+        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02), heatmap_images,
     )
 
     blocks = report_data["blocks"]
-    assert [(block["type"], block.get("title")) for block in blocks[:4]] == [
+    assert [(block["type"], block.get("title")) for block in blocks[:5]] == [
         ("metadata", None),
         ("table", "策略权重"),
         ("table", "指数权重"),
         ("image", "权重日涨跌幅相关系数"),
+        ("image", "权重日涨跌幅同向率"),
     ]
     # 后续仍是各分析章节表格，热力图不得出现在图表区末尾。
-    assert blocks[4]["type"] == "heading"
-    assert all(not (block["type"] == "image" and block.get("title") == "权重日涨跌幅相关系数")
-               for block in blocks[4:])
+    assert blocks[5]["type"] == "heading"
+    assert all(block["type"] != "image" for block in blocks[5:])
 
 
 def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):

@@ -20,6 +20,7 @@ from app.constants.c_template_layout import (
     C7_ROW_SHIFT,
 )
 from app.exceptions import ValidationError
+from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
@@ -273,17 +274,17 @@ def _generic_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport
 def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool = False) -> GeneratedExport:
     """导出统一入口；路由层负责查任务和结果，本服务只做格式转换。
 
-    - C7/C11：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
+    - C7/C1.1：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
     - C5：展开每个模型为一行，按 K 线范围拆分 worksheet；
     - C3（google_sheet/google_sheet_c3）：每个参数组合一行，按 K 线范围拆分 worksheet；
     - 其余任务类型走通用兜底。
     - by_stock=True（按股票代码分组导出）时列尾只追加结果ID，不重复输出股票代码。
     """
     task_type = _task_type(task)
-    if task_type in ("google_sheet_c7", "google_sheet_c11"):
+    if task_type in ("google_sheet_c7", "google_sheet_c1_1"):
         normalized = (
-            normalize_c11_export_results(results)
-            if task_type == "google_sheet_c11"
+            normalize_c1_1_export_results(results)
+            if task_type == "google_sheet_c1_1"
             else normalize_c7_export_results(results)
         )
         return _excel_export(task, build_c5_worksheets(normalized, by_stock))
@@ -295,10 +296,10 @@ def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool =
 
 
 def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
-    """按股票代码拆分 C7/C11 结果，并将现有 Excel 导出格式打包为 ZIP。"""
+    """按股票代码拆分 C7/C1.1 结果，并将现有 Excel 导出格式打包为 ZIP。"""
 
-    if _task_type(task) not in ("google_sheet_c7", "google_sheet_c11"):
-        raise ValidationError("按股票代码导出仅支持 C7/C11 任务")
+    if _task_type(task) not in ("google_sheet_c7", "google_sheet_c1_1"):
+        raise ValidationError("按股票代码导出仅支持 C7/C1.1 任务")
     if not results:
         raise ValidationError("任务暂无可导出结果")
 
@@ -380,23 +381,21 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
     raw_metrics = metrics if isinstance(metrics, dict) else {}
     key_text = str(model_key)
     key_parts = key_text.split("__")
-
-    # 优先从旧键读取（向后兼容），回退到 flat_result 中读取
-    start_legacy_metrics = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
-    index_legacy_metrics = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
-
-    if not start_legacy_metrics or not index_legacy_metrics:
-        flat_result = raw_metrics.get("flat_result") if isinstance(raw_metrics.get("flat_result"), dict) else {}
-        if not start_legacy_metrics:
-            start_legacy_metrics = {
-                "annual_std_dev": flat_result.get("start_annual_std_dev", flat_result.get("start_monthly_std_dev", "")),
-                "sharpe_ratio": flat_result.get("start_sharpe_ratio", ""),
-            }
-        if not index_legacy_metrics:
-            index_legacy_metrics = {
-                "annual_std_dev": flat_result.get("index_annual_std_dev", flat_result.get("index_monthly_std_dev", "")),
-                "sharpe_ratio": flat_result.get("index_sharpe_ratio", ""),
-            }
+    metrics_payload = raw_metrics.get("metrics_payload")
+    v1_metrics = (
+        metrics_payload.get("metrics")
+        if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict)
+        else {}
+    )
+    flat = flatten_v1_metrics(v1_metrics)
+    start_legacy_metrics = {
+        "annual_std_dev": flat.get("start_annual_std_dev") or flat.get("start_monthly_std_dev", ""),
+        "sharpe_ratio": flat.get("start_sharpe_ratio", ""),
+    }
+    index_legacy_metrics = {
+        "annual_std_dev": flat.get("index_annual_std_dev") or flat.get("index_monthly_std_dev", ""),
+        "sharpe_ratio": flat.get("index_sharpe_ratio", ""),
+    }
 
     return {
         "model_key": key_text,
@@ -468,7 +467,7 @@ def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str,
             continue
 
         parameters = item.get("parameters") or {}
-        if parameters.get("c7_model_version") == "c7_0_3":
+        if parameters.get("model_version") == "c7_0_3":
             normalized_results.append(item)
             continue
 
@@ -507,9 +506,9 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
     return normalized
 
 
-# C11 结果块（默认 AI2:AI26，行序见 result_payload.C11_RESULT_FIELD_SPECS）→ C5 导出 D 键的行偏移。
-# C11 模板没有单位理论/实际杠杆率收益（D17/D20），对应列留空。
-C11_TO_C5_METRIC_OFFSETS = {
+# C1.1 结果块（默认 F2:F26，行序见 result_payload.C1_1_RESULT_FIELD_SPECS）→ C5 导出 D 键的行偏移。
+# C1.1 模板没有单位理论/实际杠杆率收益（D17/D20），对应列留空。
+C1_1_TO_C5_METRIC_OFFSETS = {
     "D2": 2,    # return_rate
     "D3": 3,    # annualized_rate
     "D4": 4,    # maxdd
@@ -519,23 +518,23 @@ C11_TO_C5_METRIC_OFFSETS = {
     "D11": 10,  # return_beats
     "D12": 11,  # dd_beats
 }
-C11_REF_XM_OFFSET = 22
-C11_DEFAULT_RANGE_ANCHOR = ("AI", 2)
+C1_1_REF_XM_OFFSET = 22
+C1_1_DEFAULT_RANGE_ANCHOR = ("F", 2)
 
 
-def _c11_range_anchor(output_range: Any) -> tuple[str, int]:
-    """解析 "AI2:AI26" 式结果块起点；非法输入回退默认 AI2。"""
+def _c1_1_range_anchor(output_range: Any) -> tuple[str, int]:
+    """解析 "F2:F26" 式结果块起点；非法输入回退默认 F2。"""
     start = str(output_range or "").split(":")[0].strip().upper()
     match = re.fullmatch(r"([A-Z]+)(\d+)", start)
     if not match:
-        return C11_DEFAULT_RANGE_ANCHOR
+        return C1_1_DEFAULT_RANGE_ANCHOR
     return match.group(1), int(match.group(2))
 
 
-def normalize_c11_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """把 C11 的 AI 结果块单元格键映射成 C5 导出函数使用的 D2:D20 键。
+def normalize_c1_1_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 C1.1 的结果块单元格键映射成 C5 导出函数使用的 D2:D20 键。
 
-    xm/ml 两列 C11 参数里没有 A1/B1 语义，取结果块 ref_xm 与随机分组补齐。
+    xm/ml 两列 C1.1 参数里没有 A1/B1 语义，取结果块 ref_xm 与随机分组补齐。
     """
 
     normalized_results = []
@@ -546,7 +545,7 @@ def normalize_c11_export_results(results: list[dict[str, Any]]) -> list[dict[str
             continue
 
         parameters = item.get("parameters") if isinstance(item.get("parameters"), dict) else {}
-        output_column, output_row = _c11_range_anchor(parameters.get("c11_output_range"))
+        output_column, output_row = _c1_1_range_anchor(parameters.get("c1_1_output_range"))
 
         normalized_models = {}
         ref_xm = ""
@@ -555,13 +554,13 @@ def normalize_c11_export_results(results: list[dict[str, Any]]) -> list[dict[str
                 normalized_models[model_key] = metrics
                 continue
             normalized = dict(metrics)
-            for c5_key, offset in C11_TO_C5_METRIC_OFFSETS.items():
+            for c5_key, offset in C1_1_TO_C5_METRIC_OFFSETS.items():
                 value = metrics.get(f"{output_column}{output_row + offset}", "")
                 if isinstance(value, str) and value.strip() and "%" not in value:
                     value = f"{value}%"
                 normalized[c5_key] = value
             if not ref_xm:
-                ref_xm = metrics.get(f"{output_column}{output_row + C11_REF_XM_OFFSET}", "")
+                ref_xm = metrics.get(f"{output_column}{output_row + C1_1_REF_XM_OFFSET}", "")
             normalized_models[model_key] = normalized
 
         normalized_item = dict(item)
@@ -1035,8 +1034,14 @@ def c3_result_row(group: C3ResultGroup, by_stock: bool = False) -> list[Any]:
     # 年换手率：优先读取命名键，回退到 year_rate（I23）
     turnover_rate = result.get("turnover_rate") or year_rate
 
-    # ── 绩效分析字段（从 flat_result 子字典读取）──
-    flat = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else {}
+    # ── 绩效分析字段（从 metrics_payload.metrics 读取）──
+    metrics_payload = result.get("metrics_payload")
+    v1_metrics = (
+        metrics_payload.get("metrics")
+        if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict)
+        else {}
+    )
+    flat = flatten_v1_metrics(v1_metrics)
     start_monthly_std_dev = flat.get("start_monthly_std_dev", "")
     index_monthly_std_dev = flat.get("index_monthly_std_dev", "")
     index_sharpe_ratio    = flat.get("index_sharpe_ratio", "")

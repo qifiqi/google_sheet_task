@@ -32,12 +32,16 @@ def test_export_model_name_prefers_explicit_model_name():
 
 
 def test_single_backtest_result_uses_task_sheet_model_name():
-    assert _infer_backtest_export_model_name({"sheets": [{"spreadsheet_id": "s", "title": "C4 单品回测"}]}) == "C4"
-    assert _infer_backtest_export_model_name({"model_version": "c7"}) == "C7"
+    assert _infer_backtest_export_model_name(
+        {"sheets": [{"spreadsheet_id": "s", "title": "C4 单品回测", "model_version": "c4"}]}
+    ) == "C4"
+    assert _infer_backtest_export_model_name({"sheets": [{"model_version": "c7_0_2"}]}) == "C7"
 
 
 def test_multi_backtest_result_uses_product_sheet_model_name():
-    assert _infer_product_export_model_name({"sheet": {"title": "C7 多品回测"}}) == "C7"
+    assert _infer_product_export_model_name(
+        {"sheet": {"title": "C7 多品回测", "model_version": "c7_0_3"}}
+    ) == "C7"
 
 
 def test_analyze_uses_second_column_for_two_column_input():

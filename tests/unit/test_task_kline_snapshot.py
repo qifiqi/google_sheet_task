@@ -11,7 +11,7 @@ from app.exceptions import NotFoundError
 from app.extensions import db
 from app.models import Task, TaskKlineSource, TaskRandomSeries, TaskResultKlineLink
 from app.repositories import task_kline_snapshot_repository, task_result_repository
-from app.services.google_sheet_tasks.c11 import C11Service
+from app.services.google_sheet_tasks.c1_1 import C1_1Service
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.kline_service import KlineService
 from app.services.task.data_cleanup import clear_task_execution_data
@@ -123,6 +123,19 @@ def test_same_kline_key_for_different_stocks_does_not_collide(app_factory):
         first_series = _get_or_create_series(first_source, stock_code="600000")
         second_series = _get_or_create_series(second_source, stock_code="000001")
         assert first_series["id"] != second_series["id"]
+
+
+def test_integer_year_kline_key_is_stored_as_string(app_factory):
+    """整年模式 kline_key 是 int 年份，varchar 列直接绑定会让 PG 报类型不匹配。"""
+    with app_factory.app_context():
+        source = _get_or_create_source(kline_key=2018)
+        assert source["kline_key"] == "2018"
+        assert _get_or_create_source(kline_key=2018)["id"] == source["id"]
+
+        series = _get_or_create_series(source, kline_key=2018)
+        assert series["kline_key"] == "2018"
+        assert series["dataset_key"] == "2018:high_low:random-1"
+        assert len(task_kline_snapshot_service.merge_rows(source, series)) == 31
 
 
 def _create_task(task_id="task-snapshot"):
@@ -267,7 +280,7 @@ def test_expand_random_price_groups_persists_and_reuses_snapshot(app_factory):
             "A1": 1,
             "B1": 2,
             "year": "2026-2025",
-            "Kline_key": "2026-2025",
+            "kline_key": "2026-2025",
         }]
         kline_map = {"2026-2025": _rows()}
         snapshot_meta = {
@@ -298,7 +311,7 @@ def test_expand_random_price_groups_persists_and_reuses_snapshot(app_factory):
             source = task_kline_snapshot_repository.get_source_by_id(
                 series["source_id"]
             )
-            assert series_map[item["Kline_key"]] == (
+            assert series_map[item["kline_key"]] == (
                 task_kline_snapshot_service.merge_rows(source, series)
             )
 
@@ -328,7 +341,7 @@ def test_persisted_values_match_legacy_memory_generation(app_factory):
             "stock_code": "600000",
             "A1": 1,
             "B1": 2,
-            "Kline_key": "2026-2025",
+            "kline_key": "2026-2025",
         }]
         kline_map = {"2026-2025": _rows()}
         snapshot_meta = {
@@ -386,20 +399,20 @@ def test_source_snapshot_without_vwap_keeps_none(app_factory):
         assert all(row["vwap"] is None for row in merged)
 
 
-def test_c11_custom_random_groups_persist_snapshot(app_factory):
+def test_c1_1_custom_random_groups_persist_snapshot(app_factory):
     with app_factory.app_context():
-        task = _create_task(task_id="task-c11-custom")
+        task = _create_task(task_id="task-c1_1-custom")
         rows = _rows()
         for row in rows:
             row["vwap"] = 11.0
             # custom 源来自 Sheet 现有K线，不携带外部数据源标记
             row.pop("data_source", None)
-        service = object.__new__(C11Service)
+        service = object.__new__(C1_1Service)
         service.task_id = task.id
         service.config = {"market_type": "cn", "stock_name": "测试股票"}
         service._random_price_range = "high_low"
         service._random_group_count = 2
-        service._dedupe_label = "C11"
+        service._dedupe_label = "C1_1"
         service._log_info = lambda *_args, **_kwargs: None
 
         data, _column_a_length, kline_map = service._get_custom_parameters(
@@ -424,14 +437,14 @@ def test_c11_custom_random_groups_persist_snapshot(app_factory):
         assert all(row["vwap"] == 11.0 for row in merged)
 
 
-def test_c11_clear_input_columns_covers_all_columns(app_factory):
-    """vwap 选填不影响清空语义：C11 清空必须覆盖 date..ext 全部七列（含 vwap/ext）。"""
+def test_c1_1_clear_input_columns_covers_all_columns(app_factory):
+    """vwap 选填不影响清空语义：C1_1 清空必须覆盖 date..ext 全部七列（含 vwap/ext）。"""
     with app_factory.app_context():
-        service = object.__new__(C11Service)
+        service = object.__new__(C1_1Service)
         service._log_info = lambda *_args, **_kwargs: None
         clears = []
         sheet = SimpleNamespace(
-            title="C11",
+            title="C1_1",
             spreadsheet_id="sheet-1",
             get_last_row=lambda _column: 30,
             clear_range=lambda rng: clears.append(rng),

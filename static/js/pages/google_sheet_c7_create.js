@@ -141,7 +141,7 @@ function init(V) {
             googleSheetIdInput: item.querySelector('#google_sheet_id'),
             spreadsheetHelp: item.querySelector('#spreadsheet-help'),
             modelVersionSelect: V.modelVersion.enabled
-                ? (item.querySelector('.c7-model-version-select') || item.querySelector('#c7_model_version'))
+                ? (item.querySelector('.model-version-select') || item.querySelector('#model_version'))
                 : null,
             titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
             worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
@@ -250,7 +250,7 @@ function init(V) {
     function validateC7ModelVersionSet(sheets, showMessage = true) {
         const versions = new Set(
             sheets
-                .map(sheet => sheet.c7_model_version || 'c7_0_2')
+                .map(sheet => sheet.model_version || 'c7_0_2')
                 .filter(Boolean)
         );
         if (versions.size <= 1) {
@@ -571,8 +571,8 @@ function init(V) {
             if (titleInput && sheetCfg.title !== undefined) {
                 titleInput.value = sheetCfg.title || '';
             }
-            if (modelVersionSelect && sheetCfg.c7_model_version) {
-                modelVersionSelect.value = sheetCfg.c7_model_version;
+            if (modelVersionSelect && sheetCfg.model_version) {
+                modelVersionSelect.value = sheetCfg.model_version;
                 modelVersionSelect.dataset.manual = 'true';
             }
             if (worksheetInput && sheetCfg.sheet_name) {
@@ -664,9 +664,9 @@ function init(V) {
         if (randomRangeSelect) randomRangeSelect.value = normalized.random_price_range || 'high_low';
         const randomGroupInput = document.getElementById('random_group_count');
         if (randomGroupInput) randomGroupInput.value = normalized.random_group_count || 1;
-        const vwapSwitch = document.getElementById('c11_vwap_enabled');
-        if (vwapSwitch && normalized.c11_vwap_enabled !== undefined && normalized.c11_vwap_enabled !== null) {
-            vwapSwitch.checked = !!normalized.c11_vwap_enabled;
+        const vwapSwitch = document.getElementById('c1_1_vwap_enabled');
+        if (vwapSwitch && normalized.c1_1_vwap_enabled !== undefined && normalized.c1_1_vwap_enabled !== null) {
+            vwapSwitch.checked = !!normalized.c1_1_vwap_enabled;
         }
         if (normalized.market_type) document.getElementById('market_type').value = normalized.market_type;
         if (normalized.kline_adjustment) {
@@ -718,7 +718,7 @@ function init(V) {
 
     // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
     function getSelectedDateRangeModes() {
-        if (isCustomKlineMode() || V.noParams) {
+        if (isCustomKlineMode()) {
             return [];
         }
         const modes = [];
@@ -1179,15 +1179,15 @@ function init(V) {
     }
 
     // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
-    // C11 vwap 开关：元素仅存在于 C11 页面，其他版本不下发该字段（后端缺省 True）
+    // C1.1 vwap 开关：元素仅存在于 C1.1 页面，其他版本不下发该字段（后端缺省 True）
     function readVwapEnabled() {
-        const el = document.getElementById('c11_vwap_enabled');
+        const el = document.getElementById('c1_1_vwap_enabled');
         return el ? !!el.checked : null;
     }
 
     function vwapEnabledField() {
         const vwapEnabled = readVwapEnabled();
-        return vwapEnabled === null ? {} : { c11_vwap_enabled: vwapEnabled };
+        return vwapEnabled === null ? {} : { c1_1_vwap_enabled: vwapEnabled };
     }
 
     function readParamValue(id) {
@@ -1435,7 +1435,7 @@ function init(V) {
                     const sheetConfig = {
                         spreadsheet_id: sid,
                         title: stitle,
-                        ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
+                        ...(V.modelVersion.enabled ? { model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                     };
                     if (worksheetInput && worksheetInput.value.trim()) {
                         sheetConfig.sheet_name = worksheetInput.value.trim();
@@ -1449,7 +1449,7 @@ function init(V) {
         if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
             return;
         }
-        if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+        if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.model_version === 'c7_0_3')) {
             priceMode = 'ohlc_price';
         }
 
@@ -1569,7 +1569,7 @@ function init(V) {
                     spreadsheet_id: extractSpreadsheetId(spreadsheetSelect?.value || ''),
                     title: titleInput?.value || '',
                     sheet_name: worksheetInput?.value || '',
-                    c7_model_version: modelVersionSelect?.value || 'c7_0_2'
+                    model_version: modelVersionSelect?.value || 'c7_0_2'
                 };
             }).filter(item => item.spreadsheet_id);
         }
@@ -1643,9 +1643,9 @@ function init(V) {
                 }
                 if (formData.random_price_range) document.getElementById('random_price_range').value = formData.random_price_range;
                 if (formData.random_group_count) document.getElementById('random_group_count').value = formData.random_group_count;
-                if (formData.c11_vwap_enabled !== undefined) {
-                    const draftVwapSwitch = document.getElementById('c11_vwap_enabled');
-                    if (draftVwapSwitch) draftVwapSwitch.checked = !!formData.c11_vwap_enabled;
+                if (formData.c1_1_vwap_enabled !== undefined) {
+                    const draftVwapSwitch = document.getElementById('c1_1_vwap_enabled');
+                    if (draftVwapSwitch) draftVwapSwitch.checked = !!formData.c1_1_vwap_enabled;
                 }
 
                 if (formData.date_range_mode !== undefined) {
@@ -1768,7 +1768,7 @@ function init(V) {
                         const sheetConfig = {
                             spreadsheet_id: sid,
                             title: stitle,
-                            ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
+                            ...(V.modelVersion.enabled ? { model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                         };
                         if (sheetNameValue) {
                             sheetConfig.sheet_name = sheetNameValue;
@@ -1782,7 +1782,7 @@ function init(V) {
             if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
                 return null;
             }
-            if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+            if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.model_version === 'c7_0_3')) {
                 priceMode = 'ohlc_price';
             }
 
@@ -1855,7 +1855,7 @@ function init(V) {
             price_mode: raw.price_mode || 'vwap_price',
             random_price_range: raw.random_price_range || 'high_low',
             random_group_count: raw.random_group_count || 1,
-            c11_vwap_enabled: raw.c11_vwap_enabled === undefined ? true : !!raw.c11_vwap_enabled,
+            c1_1_vwap_enabled: raw.c1_1_vwap_enabled === undefined ? true : !!raw.c1_1_vwap_enabled,
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',

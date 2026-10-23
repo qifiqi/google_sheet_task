@@ -289,13 +289,15 @@ class GoogleSheet:
             logger.error(error_msg)
             raise Exception(error_msg) from e
         
-    def update_jumped_cells(self, cell_updates):
+    def update_jumped_cells(self, cell_updates, value_input_option: str = 'RAW'):
         """
         更新跳跃的单元格（带网络重试）
 
         Args:
             cell_updates: 字典，格式为 {单元格地址: 新值}
             例如: {"A1": "姓名", "I1": "年龄", "N1": "城市", "AI1": "职业"}
+            value_input_option: 'RAW'（默认，原样存储，字符串不解析）或
+                'USER_ENTERED'（按 UI 输入规则解析，日期字符串会转为日期值）
         """
         self._ensure_worksheet()
 
@@ -324,7 +326,7 @@ class GoogleSheet:
 
             # 批量更新单元格（带重试）
             def _update_operation():
-                return self.worksheet.update_cells(cells)
+                return self.worksheet.update_cells(cells, value_input_option=value_input_option)
 
             return self._retry_network_operation(_update_operation, "update_jumped_cells")
 

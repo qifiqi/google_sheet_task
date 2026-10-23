@@ -34,7 +34,7 @@ def test_estimate_custom_formula_endpoint(app_factory, api_user):
     response = client.post(
         "/api/google-sheet/combination-estimate",
         json={
-            "task_type": "google_sheet_c11",
+            "task_type": "google_sheet_c1_1",
             "config": {
                 "kline_source": "custom",
                 "price_mode": "random_price",
@@ -62,4 +62,4 @@ def test_estimate_rejects_unknown_task_type(app_factory, api_user):
     )
 
     assert response.status_code == 400
-    assert "C5/C7/C11" in response.get_json()["message"]
+    assert "C5/C7/C1.1" in response.get_json()["message"]

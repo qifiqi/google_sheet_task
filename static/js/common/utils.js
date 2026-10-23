@@ -31,3 +31,16 @@ function extractSpreadsheetId(url) {
   }
   return url;
 }
+
+function formatModelVersion(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[-.]/g, "_");
+  const labels = {
+    c3: "C3",
+    c4: "C4",
+    c5: "C5",
+    c7_0_2: "C7.0.2",
+    c7_0_3: "C7.0.3",
+    c1_1: "C1.1",
+  };
+  return labels[raw] || String(value || "").trim().toUpperCase();
+}

@@ -1,11 +1,11 @@
-"""C11 vwap 开关：配置归一、行情派生、批次读取与 custom 源剥离。"""
+"""C1_1 vwap 开关：配置归一、行情派生、批次读取与 custom 源剥离。"""
 
 from datetime import date, timedelta
 
 from app.extensions import db
 from app.models import Task
 from app.repositories import task_kline_snapshot_repository
-from app.services.google_sheet_tasks.c11 import C11Service
+from app.services.google_sheet_tasks.c1_1 import C1_1Service
 from app.services.kline_service import KlineService
 from app.services.task.creation import TaskCreationMixin
 from app.services.task_kline_snapshot_service import task_kline_snapshot_service
@@ -17,7 +17,7 @@ class _TaskCreation(TaskCreationMixin):
 
 def _normalize(config):
     return _TaskCreation()._normalize_task_config_for_type(
-        "google_sheet_C11",
+        "google_sheet_C1_1",
         {"kline_source": "auto", "sheets": [{"spreadsheet_id": "sheet-1"}], **config},
     )
 
@@ -39,25 +39,25 @@ def _rows(count=31):
 
 
 def _make_service(task_id, *, vwap_enabled):
-    service = object.__new__(C11Service)
+    service = object.__new__(C1_1Service)
     service.task_id = task_id
     service.config = {"market_type": "cn"}
     service._random_price_range = "high_low"
     service._random_group_count = 1
     service._vwap_enabled = vwap_enabled
-    service._dedupe_label = "C11"
+    service._dedupe_label = "C1_1"
     service._log_info = lambda *_args, **_kwargs: None
     service._log_warning = lambda *_args, **_kwargs: None
     return service
 
 
 def test_vwap_enabled_defaults_true():
-    assert _normalize({})["c11_vwap_enabled"] is True
+    assert _normalize({})["c1_1_vwap_enabled"] is True
 
 
 def test_vwap_disabled_accepts_bool_and_string_false():
-    assert _normalize({"c11_vwap_enabled": False})["c11_vwap_enabled"] is False
-    assert _normalize({"c11_vwap_enabled": "false"})["c11_vwap_enabled"] is False
+    assert _normalize({"c1_1_vwap_enabled": False})["c1_1_vwap_enabled"] is False
+    assert _normalize({"c1_1_vwap_enabled": "false"})["c1_1_vwap_enabled"] is False
 
 
 def test_prepare_batch_reads_vwap_switch(monkeypatch):
@@ -71,7 +71,7 @@ def test_prepare_batch_reads_vwap_switch(monkeypatch):
 
     service = _make_service("task-vwap-batch", vwap_enabled=True)
     batch_off = service._prepare_batch({
-        "kline_source": "auto", "price_mode": "random_price", "c11_vwap_enabled": False,
+        "kline_source": "auto", "price_mode": "random_price", "c1_1_vwap_enabled": False,
     })
     assert batch_off["vwap_enabled"] is False
     assert service._vwap_enabled is False
@@ -92,10 +92,10 @@ def test_normalize_rows_skips_vwap_derivation_when_disabled():
     assert skipped[0]["vwap"] is None
 
 
-def test_c11_custom_source_strips_vwap_when_disabled(app_factory):
+def test_c1_1_custom_source_strips_vwap_when_disabled(app_factory):
     with app_factory.app_context():
         task = Task(
-            id="task-c11-vwap-off", name="t", task_type="google_sheet_C11",
+            id="task-c1_1-vwap-off", name="t", task_type="google_sheet_C1_1",
             status="completed", config="{}",
         )
         db.session.add(task)

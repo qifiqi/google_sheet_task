@@ -5,6 +5,23 @@
 """
 
 
+C_SERIES_TASK_TYPES = frozenset(
+    {
+        "google_sheet",
+        "google_sheet_c3",
+        "google_sheet_c31",
+        "google_sheet_c4",
+        "google_sheet_c5",
+        "google_sheet_c7",
+        "google_sheet_c1_1",
+    }
+)
+
+
+def is_c_series_task_type(task_type: str | None) -> bool:
+    return str(task_type or "").strip().lower() in C_SERIES_TASK_TYPES
+
+
 def normalize_task_type(task_type: str | None) -> str:
     raw = str(task_type or "").strip().lower()
     if raw in {"google_sheet", "google_sheet_c3", "google_sheet_c31"}:
@@ -15,8 +32,8 @@ def normalize_task_type(task_type: str | None) -> str:
         return "google_sheet_c5"
     if raw in {"google_sheet_c7"}:
         return "google_sheet_c7"
-    if raw in {"google_sheet_c11"}:
-        return "google_sheet_c11"
+    if raw in {"google_sheet_c1_1"}:
+        return "google_sheet_c1_1"
     if raw in {"backtest_training", "backtest"}:
         return "backtest_training"
     if raw in {"backtest_multi_product", "multi_product_backtest", "backtest_multi"}:

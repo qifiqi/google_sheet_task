@@ -94,7 +94,7 @@ class TestMigrateConfig:
         }
         migrated, status = migrate_config("google_sheet", legacy)
         assert status == "migrated"
-        # exclude_none 收口：未提供的可空键（google_sheet_id/c7_model_version）不再落 null
+        # exclude_none 收口：未提供的可空键（google_sheet_id/model_version）不再落 null
         assert migrated["sheets"] == [{
             "spreadsheet_id": "abc",
             "sheet_name": "Sheet1",
@@ -123,7 +123,7 @@ class TestMigrateConfig:
                 "sheet_name": "data",
                 "title": "C7 回测",
                 "google_sheet_id": "12",
-                "c7_model_version": "c7_0_3",
+                "model_version": "c7_0_3",
             },
             "stock_code": "600000.SH",
         }
@@ -134,7 +134,7 @@ class TestMigrateConfig:
             "sheet_name": "data",
             "title": "C7 回测",
             "google_sheet_id": "12",
-            "c7_model_version": "c7_0_3",
+            "model_version": "c7_0_3",
         }]
         assert "sheet" not in migrated
 
@@ -177,9 +177,15 @@ class TestUpdateConfigMerge:
     def test_merge_keeps_untouched_keys(self, app_factory, monkeypatch):
         """结构化表单部分提交：payload 未列出的键保留（修复表单重建丢键）。"""
         with app_factory.app_context():
-            from app.models import Task
+            from app.extensions import db
+            from app.models import GoogleSheet
             from app.repositories import task_repository
             from app.services.task import task_manager
+
+            db.session.add(
+                GoogleSheet(name="s1", spreadsheet_id="s1", table_type="c3")
+            )
+            db.session.commit()
 
             existing = {
                 "sheets": [{"spreadsheet_id": "s1", "sheet_name": "data", "title": ""}],
@@ -217,8 +223,15 @@ class TestUpdateConfigMerge:
 
     def test_full_replace_drops_removed_keys(self, app_factory, monkeypatch):
         with app_factory.app_context():
+            from app.extensions import db
+            from app.models import GoogleSheet
             from app.repositories import task_repository
             from app.services.task import task_manager
+
+            db.session.add(
+                GoogleSheet(name="s1", spreadsheet_id="s1", table_type="c3")
+            )
+            db.session.commit()
 
             existing = {
                 "sheets": [{"spreadsheet_id": "s1", "sheet_name": "data", "title": ""}],

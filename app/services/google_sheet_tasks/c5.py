@@ -19,6 +19,8 @@ logger = get_logger(__name__)
 
 
 class C5Service(BaseGoogleSheetService):
+    _model_version = "c5"
+
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C5"
 
@@ -59,7 +61,7 @@ class C5Service(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
-        analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+        analyze_result = (result.get('metrics_payload') or {}).get('metrics', {})
 
         payload.update({
             "multiplier": combination.get("A1", 0),
@@ -93,24 +95,24 @@ class C5Service(BaseGoogleSheetService):
             c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
             cell_updates[c5_parameter_positions[0]] = c5_parameter_1
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
-                kline_data_map.get(Kline_key),
-                context=f"K线区间 {Kline_key}",
+                kline_data_map.get(kline_key),
+                context=f"K线区间 {kline_key}",
             )
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 kline = current_kline
                 _kline_len = len(kline)
 
                 if is_custom_kline:
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
-                elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                elif kline_key != cache_kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
                         A_num = column_A_length
                         self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
@@ -212,9 +214,8 @@ class C5Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
-                        _result["flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result

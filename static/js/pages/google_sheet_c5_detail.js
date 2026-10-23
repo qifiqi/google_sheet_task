@@ -1324,7 +1324,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     return;
                 }
 
-                // sheets：从多行输入收集（逐表附加键 c7_model_version/google_sheet_id 随行保留）
+                // sheets：从多行输入收集（逐表附加键 model_version/google_sheet_id 随行保留）
                 const sheets = Biz.configEdit.collectEditSheetsRows();
 
                 // 其它参数

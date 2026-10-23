@@ -33,7 +33,8 @@
         // 原 Jinja 首页 data-permission：c4 → page:google_sheet:c4，c5 → c5，其余 c3
         const homePermission =
             version === 'c4' ? 'page:google_sheet:c4' :
-            version === 'c5' ? 'page:google_sheet:c5' : 'page:google_sheet:c3';
+            version === 'c5' ? 'page:google_sheet:c5' :
+            version === 'c1_1' ? 'page:google_sheet:c1_1' : 'page:google_sheet:c3';
         const menu =
             '<ul class="navbar-nav me-auto">' +
             item(withVersion('/google-sheet/'), homePermission, 'bi-house', '首页', isIndex && !version) +
@@ -41,6 +42,7 @@
             item('/google-sheet/?version=c4', 'page:google_sheet:c4', 'bi-lightning-charge', 'C4 模式', version === 'c4') +
             item('/google-sheet/?version=c5', 'page:google_sheet:c5', 'bi-lightning-charge', 'C5 模式', version === 'c5') +
             item('/google-sheet/?version=c7', 'page:google_sheet:c7', 'bi-lightning-charge', 'C7 模式', version === 'c7') +
+            item('/google-sheet/?version=c1_1', 'page:google_sheet:c1_1', 'bi-lightning-charge', 'C1.1 模式', version === 'c1_1') +
             '</ul>';
         // 原 Jinja 徽标分支表：c4/c5 → bg-warning，c7 → bg-danger，c3 → bg-success，其余 bg-secondary
         let badgeClass = 'bg-secondary';
@@ -51,6 +53,9 @@
         } else if (version === 'c7') {
             badgeClass = 'bg-danger';
             badgeText = 'C7 模式';
+        } else if (version === 'c1_1') {
+            badgeClass = 'bg-info';
+            badgeText = 'C1.1 模式';
         } else if (version === 'c3') {
             badgeClass = 'bg-success';
             badgeText = 'C3 模式';
