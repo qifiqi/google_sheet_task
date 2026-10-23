@@ -12,10 +12,16 @@ from flask import Blueprint, g, request
 
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery, \
-    TaskConfigUpdateSchema
+    TaskConfigUpdateSchema, KlineSnapshotPageQuery
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.services.task_kline_snapshot_service import task_kline_snapshot_service
-from app.utils.api_response import csv_response, error, success
+from app.utils.api_response import (
+    csv_response,
+    csv_stream_response,
+    error,
+    paginated,
+    success,
+)
 from app.utils.request_parsing import parse_body, parse_query
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
@@ -226,9 +232,22 @@ def create_restart_task_api(task_id):
 @task_api_bp.route('/tasks/<task_id>/kline-snapshots', methods=['GET'])
 @login_required
 def list_task_kline_snapshots(task_id):
-    """任务维度随机K线快照列表（不含数组大字段）。"""
+    """任务维度随机K线快照分页列表（不含数组大字段）。"""
     task_manager.get_required_task(task_id)
-    return success(data=task_kline_snapshot_service.list_task_snapshots(task_id))
+    query = parse_query(KlineSnapshotPageQuery)
+    data = task_kline_snapshot_service.list_task_snapshots(
+        task_id, page=query.page, per_page=query.per_page
+    )
+    return paginated(data["items"], data["total"], query.page, query.per_page)
+
+
+@task_api_bp.route('/tasks/<task_id>/kline-snapshots/export', methods=['GET'])
+@login_required
+def export_task_kline_snapshots(task_id):
+    """任务级随机K线快照合并 CSV（流式下载，含 vwap）。"""
+    task_manager.get_required_task(task_id)
+    filename, chunks = task_kline_snapshot_service.export_task_csv(task_id)
+    return csv_stream_response(filename, chunks)
 
 
 @task_api_bp.route('/tasks/<task_id>/kline-snapshots/<int:series_id>', methods=['GET'])
@@ -243,3 +262,21 @@ def get_task_kline_snapshot(task_id, series_id):
         filename, text = task_kline_snapshot_service.export_csv(detail)
         return csv_response(filename, text)
     return success(data=detail)
+
+
+@task_api_bp.route(
+    '/tasks/<task_id>/kline-snapshots/<int:series_id>/results',
+    methods=['GET'],
+)
+@login_required
+def list_task_kline_snapshot_results(task_id, series_id):
+    """随机K线序列被哪些任务结果使用（审计反查，分页）。"""
+    task_manager.get_required_task(task_id)
+    query = parse_query(KlineSnapshotPageQuery)
+    data = task_kline_snapshot_service.list_series_results(
+        series_id,
+        task_id=task_id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    return paginated(data["items"], data["total"], query.page, query.per_page)

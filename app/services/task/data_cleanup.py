@@ -25,6 +25,7 @@ def delete_task_result_dependencies(result_ids: list[int]) -> None:
     if not result_ids:
         return
     _delete_legacy_performance_analysis_jobs(result_ids=result_ids)
+    task_kline_snapshot_repository.delete_links_by_result_ids(result_ids, commit=False)
     backtest_repository.delete_summary_index_by_result_ids(result_ids, commit=False)
 
 

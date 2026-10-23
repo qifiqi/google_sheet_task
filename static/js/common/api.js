@@ -397,6 +397,14 @@
       taskStocks: function (taskId) {
         return fetch("/api/exports/tasks/" + taskId + "/stocks");
       },
+      // 任务级随机K线快照合并 CSV（C1.1/C5/C7 详情页），文件流下载。
+      taskKlineSnapshots: function (taskId) {
+        return fetch("/api/tasks/" + taskId + "/kline-snapshots/export");
+      },
+      // 单条结果随机K线 CSV（详情页卡片按钮），文件流下载。
+      resultKlineSnapshot: function (resultId) {
+        return fetch("/api/results/" + resultId + "/kline-snapshot?format=csv");
+      },
       // 全局预览 XLSX 导出（backtest 双胞胎 / 全局预览中心），文件流下载，返回原始 Response。
       // query 形如 '?export_name=...' / '?ratios=...'，无参时传空。
       globalPreview: function (taskId, query) {

@@ -36,7 +36,7 @@
 - 清空/重写输入后的稳定等待 `sheet_settle_seconds`（默认 20s，0~300）；轮询刷新触发点 `sheet_refresh_attempts` + `sheet_refresh_interval_attempts`（默认 [5,15,25,35] + 每 10 次，C3/C4/C5/C7/C1.1/回测共用）
 - 日志（任务日志 + DB TaskLog）、钉钉通知（`error_dd` / `task_ok_to_dd`）
 - 收益序列落库 `send_stock_param_result_data`（→ `TaskResultReturn`）、模型汇总索引刷新 `_refresh_model_summary_index`
-- 随机价格K线快照：`price_mode=random_price` 时 `_expand_random_price_groups` 经 `task_kline_snapshot_service` get-or-create 落库（源快照 `t_param_task_kline_sources` 每任务+股票+窗口一行存日期/OHLC 数组，随机序列 `t_param_task_random_series` 每组只存 stock_val 数组），组合打 `kline_series_id` 并经 `_save_task_result` 同事务写 `t_param_task_result_kline_links`；任务删除/全量重启随 `clear_task_execution_data` 清理，断点重启复用同一份随机序列
+- 随机价格K线快照：`price_mode=random_price` 时 `_expand_random_price_groups` 经 `task_kline_snapshot_service` get-or-create 落库（源快照 `t_param_task_kline_sources` 每任务+股票+窗口一行存日期/OHLC 数组，随机序列 `t_param_task_random_series` 每组只存 stock_val 数组），组合打 `kline_series_id` 并经 `_save_task_result` 同事务写 `t_param_task_result_kline_links`；单条结果删除与定时清理旧结果同步删关联行，任务删除/全量重启随 `clear_task_execution_data` 清三表，断点重启复用同一份随机序列
 - JSON 安全化 `_sanitize_json_value`、结果摘要 `_summarize_result_for_log`
 
 | 服务 | 文件 | 要点 |
@@ -73,7 +73,7 @@ C31 页面市场值传英文：`A股→cn`、`美股→en`。新增 C31 字段�
 
 - **K 线字段标准命名**（全项目统一英文 schema，无兼容层）：数据行使用 `open` 开盘、`high` 最高、`low` 最低、`close` 收盘、`volume` 成交量、`amount` 成交额、`vwap` 加权平均价；`stock_date`/`stock_code`/`stock_name` 保留。推送远程的 wire 字段名不变（`stock_open`/`stock_max`/`stock_min`/`stock_close`/...），由 `KlineService.read_internal_kline_data`/`write_internal_kline_data` 负责两套命名翻译。
 - **价格类型唯一映射入口**：`app/services/kline_service.py::get_kline_price_field()`（`kp_price→open`、`sp_price→close`、`vwap_price→vwap`、`ohlc_price→close`，未知兜底 `vwap`）；按价格取序列统一走 `KlineService.build_price_rows()`（取价 + 年份/区间过滤 + 投影 stock_val，可选 OHLC/随机价），不要在 service 里再写取价/投影包装。C4 不走 price_mode，固定按市场取价（A股 `open`、美股 `close`）直传字段。随机价格模式（random_price）的随机值统一 `round(…, 3)` 保留 3 位小数（唯一生成点在 `build_price_rows`，分组种子不变，序列仍可复现）。
-- **随机价格K线快照**：`app/services/task_kline_snapshot_service.py`（源快照 + 随机值数组两张表 + 结果关联表，均无外键）；C5/C7/C1.1 的 random_price 路径（含 C1.1 custom 源，记 `data_source=custom`）均经此落库；生成点唯一在 `base._expand_random_price_groups`，序列唯一键含 `random_price_range`（配置改范围不复用旧值）；源快照存日期/OHLC/vwap 数组，vwap 选填缺省存 null；无 Flask 上下文（纯生成单测）时保留内存生成、不落库；读取 API 见接口总览（任务维度列表/详情、结果维度反查，`format=csv`）。
+- **随机价格K线快照**：`app/services/task_kline_snapshot_service.py`（源快照 + 随机值数组两张表 + 结果关联表，均无外键）；C5/C7/C1.1 的 random_price 路径（含 C1.1 custom 源，记 `data_source=custom`）均经此落库；生成点唯一在 `base._expand_random_price_groups`，序列唯一键含 `random_price_range`（配置改范围不复用旧值）；源快照存日期/OHLC/vwap 数组，vwap 选填缺省存 null；无 Flask 上下文（纯生成单测）时保留内存生成、不落库；读取 API 见接口总览（任务维度分页列表/详情、任务级合并 CSV、结果维度反查、序列→结果分页反查；CSV 含 vwap 列）；C1.1/C5/C7 详情页结果卡片提供单组“随机K线”下载，工具栏提供“导出随机K线”合并 CSV。
 - 统一入口 `app/services/kline_service.py`（装配 DFCF/腾讯 `qq_api.py`/Yahoo `yf_api.py`）；K 线服务自身持有 `StockClient`（地址单一来源 `STOCK_BASE_URL` 环境变量，未配置用 SDK 默认）；复权映射 `app/utils/kline_adjustment.py`；行数校验 `kline_validation.py::require_kline_rows`。
 - `app/utils/dfcf_api.py::DFCJStockApi`：
   - K 线 `get_stock_kline_data`（push2his.eastmoney.com，fqt 由 kline_adjustment 映射）；tenacity `@retry(stop_after_attempt(5), wait_exponential(1,2,30))`；是否走代理由 SystemConfig `dfcf_kline_proxy_enabled` 控制，失败时 `_refresh_proxy_after_failure` 重建 session。

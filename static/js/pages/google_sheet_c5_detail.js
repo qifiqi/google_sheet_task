@@ -506,6 +506,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                 timestamp: item.timestamp || null,
                 taskId: item.task_id || null,
                 rowId: item.id != null ? item.id : null,
+                klineSeriesId: item.kline_series_id != null ? item.kline_series_id : null,
                 parameters: params,
                 stockCode: stockCode,
                 a1: a1,
@@ -563,6 +564,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     timestamp: item.timestamp || null,
                     taskId: item.task_id || null,
                     rowId: item.id != null ? item.id : null,
+                    klineSeriesId: item.kline_series_id != null ? item.kline_series_id : null,
                     parameters: params,
                     stockCode: stockCode,
                     klineRange: klineRange,
@@ -683,6 +685,12 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                                     ${group.success ? '成功' : '失败'}
                                 </span>
                                 <span class="text-muted">ID: ${group.rowId != null ? group.rowId : '-'}</span>
+                                ${group.klineSeriesId != null && group.rowId != null ? `
+                                    <button type="button" class="btn btn-outline-success btn-sm ms-2"
+                                            onclick="Biz.klineSnapshot.downloadResult(${group.rowId})">
+                                        <i class="bi bi-download"></i> 随机K线
+                                    </button>
+                                ` : ''}
                             </div>
                         </div>
                         <div class="card-body p-2">
@@ -726,6 +734,15 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         function refreshResults() {
             Biz.taskPolling.loadTaskResults(currentResultsPage || 1);
             showNotification('结果列表已刷新', 'info');
+        }
+
+        // 导出任务全部随机K线快照（合并 CSV）。
+        function exportTaskKlineSnapshots() {
+            if (!currentTaskId) {
+                showNotification('任务ID为空，无法导出', 'error');
+                return;
+            }
+            Biz.klineSnapshot.downloadTask(currentTaskId);
         }
 
         // 导出所有结果为 Excel：通过 fetch 走统一认证封装，确保携带 Authorization。

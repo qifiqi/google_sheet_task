@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import RootModel, field_validator
+from pydantic import Field, RootModel, field_validator
 
 from app.schemas.common import APIModel, PageQuery
 
@@ -29,6 +29,13 @@ class TaskResultListQuery(PageQuery):
     task_id: str | None = None
     success: bool | None = None
     keyword: str = ""
+
+
+class KlineSnapshotPageQuery(PageQuery):
+    """随机K线快照列表与 series→results 反查的分页参数。"""
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=100, ge=1, le=200)
 
 
 class TaskConfigUpdateSchema(APIModel):

@@ -207,6 +207,9 @@
                     <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
                         <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
                     </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportTaskKlineSnapshots()">
+                        <i class="bi bi-download"></i> 导出随机K线
+                    </button>
                     <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsByStockCode()">
                         <i class="bi bi-file-earmark-zip"></i> 按股票代码导出
                     </button>
@@ -465,6 +468,7 @@
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
         <script src="/static/js/common/business/task-polling.js"></script>
+    <script src="/static/js/common/business/kline-snapshot.js"></script>
     <script src="/static/js/common/business/config-edit.js"></script>
 <script src="/static/js/pages/google_sheet_c1_1_detail.js"></script>
 </body>

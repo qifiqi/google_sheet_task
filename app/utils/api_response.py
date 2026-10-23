@@ -11,7 +11,7 @@
 """
 from urllib.parse import quote
 
-from flask import Response, jsonify
+from flask import Response, jsonify, stream_with_context
 
 
 def success(data=None, message="", http_status=200):
@@ -51,6 +51,21 @@ def csv_response(filename, text):
     encoded_name = quote(str(filename or "download.csv"), safe="")
     return Response(
         text,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="download.csv"; '
+                f"filename*=UTF-8''{encoded_name}"
+            ),
+        },
+    )
+
+
+def csv_stream_response(filename, chunks):
+    """流式 CSV 下载响应（任务级批量导出）；文件名头规则同 csv_response。"""
+    encoded_name = quote(str(filename or "download.csv"), safe="")
+    return Response(
+        stream_with_context(chunks),
         mimetype="text/csv",
         headers={
             "Content-Disposition": (

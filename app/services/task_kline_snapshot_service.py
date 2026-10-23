@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 from app.exceptions import NotFoundError
-from app.repositories import task_kline_snapshot_repository
+from app.repositories import task_kline_snapshot_repository, task_result_repository
 from app.services.kline_service import KlineService
 from app.utils.json_utils import dumps, loads
 
@@ -194,8 +194,41 @@ class TaskKlineSnapshotService:
             merged.append(row)
         return merged
 
-    def list_task_snapshots(self, task_id: str) -> list[dict[str, Any]]:
-        return task_kline_snapshot_repository.list_series_with_source(task_id)
+    def list_task_snapshots(
+        self, task_id: str, *, page: int = 1, per_page: int = 100
+    ) -> dict[str, Any]:
+        total = task_kline_snapshot_repository.count_series_by_task(task_id)
+        return {
+            "items": task_kline_snapshot_repository.list_series_with_source(
+                task_id,
+                offset=(page - 1) * per_page,
+                limit=per_page,
+            ),
+            "total": total,
+        }
+
+    def list_series_results(
+        self,
+        series_id: int,
+        *,
+        task_id: str,
+        page: int = 1,
+        per_page: int = 100,
+    ) -> dict[str, Any]:
+        owner_task_id = task_kline_snapshot_repository.get_series_owner(series_id)
+        if owner_task_id != task_id:
+            raise NotFoundError("随机K线快照不存在")
+        return {
+            "items": task_result_repository.list_by_kline_series(
+                task_id,
+                series_id,
+                offset=(page - 1) * per_page,
+                limit=per_page,
+            ),
+            "total": task_result_repository.count_by_kline_series(
+                task_id, series_id
+            ),
+        }
 
     def get_series_detail(
         self, series_id: int, *, task_id: str | None = None
@@ -212,16 +245,12 @@ class TaskKlineSnapshotService:
             "rows": self.merge_rows(source, series),
         }
 
-    def get_result_snapshot(self, result_id: int) -> dict[str, Any] | None:
-        link = task_kline_snapshot_repository.get_link_by_result(result_id)
-        if not link:
-            return None
-        return self.get_series_detail(link["series_id"], task_id=link["task_id"])
-
     def export_csv(self, detail: dict[str, Any]) -> tuple[str, str]:
         output = io.StringIO()
         writer = csv.writer(output, lineterminator="\n")
-        writer.writerow(["stock_date", "stock_val", "open", "high", "low", "close"])
+        writer.writerow([
+            "stock_date", "stock_val", "open", "high", "low", "close", "vwap",
+        ])
         for row in detail.get("rows") or []:
             writer.writerow([
                 row.get("stock_date", ""),
@@ -230,6 +259,7 @@ class TaskKlineSnapshotService:
                 row.get("high", ""),
                 row.get("low", ""),
                 row.get("close", ""),
+                "" if row.get("vwap") is None else row.get("vwap", ""),
             ])
         series = detail.get("series") or {}
         raw_name = "_".join([
@@ -238,6 +268,54 @@ class TaskKlineSnapshotService:
         ])
         filename = re.sub(r"[^0-9A-Za-z._-]+", "-", raw_name).strip("-") + ".csv"
         return filename, output.getvalue()
+
+    def export_task_csv(self, task_id: str):
+        """任务级合并 CSV：每组元数据逐行重复，流式输出避免整表驻留内存。"""
+        series_rows, sources = task_kline_snapshot_repository.list_series_bundle(task_id)
+        if not series_rows:
+            raise NotFoundError("该任务没有随机K线快照")
+
+        filename = re.sub(
+            r"[^0-9A-Za-z._-]+", "-", f"task-{task_id}-kline-snapshots"
+        ).strip("-") + ".csv"
+
+        def generate():
+            # BOM：stock_name 含中文，Excel 直接打开不乱码。
+            yield "\ufeff"
+            buffer = io.StringIO()
+            writer = csv.writer(buffer, lineterminator="\n")
+            writer.writerow([
+                "stock_code", "stock_name", "market_type", "kline_key",
+                "dataset_key", "random_group", "random_price_range",
+                "stock_date", "stock_val", "open", "high", "low", "close",
+                "vwap",
+            ])
+            for series in series_rows:
+                source = sources.get(series["source_id"])
+                if not source:
+                    continue
+                for row in self.merge_rows(source, series):
+                    writer.writerow([
+                        series["stock_code"],
+                        source.get("stock_name") or "",
+                        source.get("market_type") or "",
+                        series["kline_key"],
+                        series["dataset_key"],
+                        series["random_group"],
+                        series["random_price_range"],
+                        row["stock_date"],
+                        row["stock_val"],
+                        row["open"],
+                        row["high"],
+                        row["low"],
+                        row["close"],
+                        "" if row.get("vwap") is None else row.get("vwap", ""),
+                    ])
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
+
+        return filename, generate()
 
     @staticmethod
     def _series_metadata(series: dict[str, Any]) -> dict[str, Any]:

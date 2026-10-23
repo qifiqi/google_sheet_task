@@ -76,6 +76,49 @@ class TaskResultRepository(BaseRepository):
         data["kline_series_id"] = kline_series_id
         return data
 
+    def count_by_kline_series(self, task_id: str, series_id: int) -> int:
+        return TaskResultKlineLink.query.filter_by(
+            task_id=task_id,
+            series_id=series_id,
+        ).count()
+
+    def list_by_kline_series(
+        self,
+        task_id: str,
+        series_id: int,
+        offset: int | None = None,
+        limit: int | None = None,
+    ):
+        """使用指定随机K线序列的结果列表（审计反查，按执行顺序）。"""
+        query = (
+            db.session.query(
+                TaskResult.id,
+                TaskResult.step_index,
+                TaskResult.success,
+                TaskResult.timestamp,
+            )
+            .join(TaskResultKlineLink, TaskResultKlineLink.result_id == TaskResult.id)
+            .filter(
+                TaskResultKlineLink.task_id == task_id,
+                TaskResultKlineLink.series_id == series_id,
+            )
+            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+        )
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        rows = query.all()
+        return [
+            {
+                "id": row.id,
+                "step_index": row.step_index,
+                "success": row.success,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            }
+            for row in rows
+        ]
+
     def list_by_task(self, task_id):
         return [
             r.to_dict()
@@ -192,8 +235,30 @@ class TaskResultRepository(BaseRepository):
             .limit(size)
             .all()
         )
+        links = {}
+        if items:
+            links = {
+                result_id: series_id
+                for result_id, series_id in (
+                    db.session.query(
+                        TaskResultKlineLink.result_id,
+                        TaskResultKlineLink.series_id,
+                    )
+                    .filter(
+                        TaskResultKlineLink.result_id.in_(
+                            [item.id for item in items]
+                        )
+                    )
+                    .all()
+                )
+            }
+        result_items = []
+        for item in items:
+            data = item.to_dict()
+            data["kline_series_id"] = links.get(item.id)
+            result_items.append(data)
         return {
-            "items": [r.to_dict() for r in items],
+            "items": result_items,
             "total": counts.total,
             "pages": (counts.total + size - 1) // size,
             "current_page": current_page,
@@ -520,6 +585,9 @@ class TaskResultRepository(BaseRepository):
         result = db.session.get(TaskResult, result_id)
         if result is None:
             return False
+        TaskResultKlineLink.query.filter_by(result_id=result_id).delete(
+            synchronize_session=False
+        )
         db.session.delete(result)
         if commit:
             self._commit()

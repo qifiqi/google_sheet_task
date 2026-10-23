@@ -6,15 +6,25 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
 from app.exceptions import NotFoundError
 from app.extensions import db
-from app.models import Task, TaskKlineSource, TaskRandomSeries, TaskResultKlineLink
+from app.models import (
+    Task,
+    TaskKlineSource,
+    TaskRandomSeries,
+    TaskResult,
+    TaskResultKlineLink,
+)
 from app.repositories import task_kline_snapshot_repository, task_result_repository
 from app.services.google_sheet_tasks.c1_1 import C1_1Service
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.kline_service import KlineService
-from app.services.task.data_cleanup import clear_task_execution_data
+from app.services.task.data_cleanup import (
+    clear_task_execution_data,
+    delete_task_result_dependencies,
+)
 from app.services.task_kline_snapshot_service import task_kline_snapshot_service
 
 
@@ -192,14 +202,13 @@ def test_non_random_result_has_no_link(app_factory):
         assert detail["kline_series_id"] is None
 
 
-def test_get_result_snapshot_returns_rows_and_metadata(app_factory):
+def test_get_series_detail_returns_rows_and_metadata(app_factory):
     with app_factory.app_context():
         _create_task()
         source = _get_or_create_source()
         series = _get_or_create_series(source)
-        result = _create_result(series_id=series["id"])
 
-        snapshot = task_kline_snapshot_service.get_result_snapshot(result["id"])
+        snapshot = task_kline_snapshot_service.get_series_detail(series["id"])
 
         assert snapshot["rows"] == task_kline_snapshot_service.merge_rows(source, series)
         assert snapshot["series"]["seed"] == series["seed"]
@@ -217,8 +226,10 @@ def test_list_task_snapshots_returns_metadata_without_values(app_factory):
         _get_or_create_series(source, random_group=1)
         _get_or_create_series(source, random_group=2)
 
-        items = task_kline_snapshot_service.list_task_snapshots(task.id)
+        data = task_kline_snapshot_service.list_task_snapshots(task.id)
+        items = data["items"]
 
+        assert data["total"] == 2
         assert len(items) == 2
         assert all("values_json" not in item for item in items)
         assert {item["random_group"] for item in items} == {1, 2}
@@ -227,20 +238,40 @@ def test_list_task_snapshots_returns_metadata_without_values(app_factory):
         assert all(item["row_count"] == 31 for item in items)
 
 
+def test_list_task_snapshots_paginates(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-list-page")
+        source = _get_or_create_source(task_id=task.id)
+        for group in range(1, 4):
+            _get_or_create_series(
+                source, task_id=task.id, random_group=group
+            )
+
+        first = task_kline_snapshot_service.list_task_snapshots(
+            task.id, page=1, per_page=2
+        )
+        second = task_kline_snapshot_service.list_task_snapshots(
+            task.id, page=2, per_page=2
+        )
+
+        assert first["total"] == 3
+        assert [item["random_group"] for item in first["items"]] == [1, 2]
+        assert [item["random_group"] for item in second["items"]] == [3]
+
+
 def test_export_csv_contains_header_and_rows(app_factory):
     with app_factory.app_context():
         _create_task()
         source = _get_or_create_source()
         series = _get_or_create_series(source)
-        result = _create_result(series_id=series["id"])
-        snapshot = task_kline_snapshot_service.get_result_snapshot(result["id"])
+        snapshot = task_kline_snapshot_service.get_series_detail(series["id"])
 
         filename, text = task_kline_snapshot_service.export_csv(snapshot)
 
         assert filename.endswith(".csv")
         assert ":" not in filename
         lines = text.splitlines()
-        assert lines[0] == "stock_date,stock_val,open,high,low,close"
+        assert lines[0] == "stock_date,stock_val,open,high,low,close,vwap"
         assert "2026-01-01" in lines[1]
 
 
@@ -484,3 +515,155 @@ def test_save_task_result_writes_kline_series_link(app_factory):
         assert result["parameters"]["kline_series_id"] == series["id"]
         detail = task_result_repository.get_with_task_type(result["id"])
         assert detail["kline_series_id"] == series["id"]
+
+
+def test_delete_result_removes_kline_link(app_factory):
+    with app_factory.app_context():
+        _create_task()
+        source = _get_or_create_source()
+        series = _get_or_create_series(source)
+        result = _create_result(series_id=series["id"])
+
+        assert task_result_repository.delete(result["id"]) is True
+
+        assert TaskResult.query.filter_by(id=result["id"]).count() == 0
+        assert TaskResultKlineLink.query.filter_by(result_id=result["id"]).count() == 0
+
+
+def test_delete_task_result_dependencies_removes_links(app_factory):
+    with app_factory.app_context():
+        _create_task()
+        source = _get_or_create_source()
+        series = _get_or_create_series(source)
+        first = _create_result(series_id=series["id"], step_index=0)
+        second = _create_result(series_id=series["id"], step_index=1)
+
+        delete_task_result_dependencies([first["id"]])
+        db.session.commit()
+
+        assert TaskResultKlineLink.query.filter_by(result_id=first["id"]).count() == 0
+        assert TaskResultKlineLink.query.filter_by(result_id=second["id"]).count() == 1
+
+
+def test_list_task_snapshots_does_not_select_blob_columns(app_factory):
+    """列表只投影元数据：values_json 与源表数组列不得进入 SELECT。"""
+    with app_factory.app_context():
+        task = _create_task(task_id="task-list-projection")
+        source = _get_or_create_source(task_id=task.id)
+        _get_or_create_series(source, task_id=task.id)
+        db.session.expire_all()
+
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", capture)
+        try:
+            data = task_kline_snapshot_service.list_task_snapshots(task.id)
+        finally:
+            event.remove(db.engine, "before_cursor_execute", capture)
+
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        lowered = [statement.lower() for statement in statements]
+        assert any("t_param_task_random_series" in statement for statement in lowered)
+        assert all("values_json" not in statement for statement in lowered)
+        assert all("dates_json" not in statement for statement in lowered)
+
+
+def test_export_csv_includes_vwap_when_present(app_factory):
+    with app_factory.app_context():
+        _create_task(task_id="task-csv-vwap")
+        rows = _rows()
+        for row in rows:
+            row["vwap"] = 11.5
+        source = _get_or_create_source(
+            task_id="task-csv-vwap", kline_key="2026-vwap", rows=rows
+        )
+        series = _get_or_create_series(
+            source,
+            task_id="task-csv-vwap",
+            kline_key="2026-vwap",
+            rows=rows,
+        )
+
+        _filename, text = task_kline_snapshot_service.export_csv(
+            task_kline_snapshot_service.get_series_detail(series["id"])
+        )
+
+        lines = text.splitlines()
+        assert lines[0] == "stock_date,stock_val,open,high,low,close,vwap"
+        assert lines[1].endswith(",11.5")
+
+
+def test_list_series_results_returns_linked_results(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-series-results")
+        source = _get_or_create_source(task_id=task.id)
+        series = _get_or_create_series(source, task_id=task.id)
+        result = _create_result(task_id=task.id, series_id=series["id"])
+
+        data = task_kline_snapshot_service.list_series_results(
+            series["id"], task_id=task.id
+        )
+        items = data["items"]
+
+        assert data["total"] == 1
+        assert [item["id"] for item in items] == [result["id"]]
+        assert items[0]["step_index"] == 0
+        assert items[0]["success"] is True
+
+
+def test_list_series_results_paginates(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-series-results-page")
+        source = _get_or_create_source(task_id=task.id)
+        series = _get_or_create_series(source, task_id=task.id)
+        results = [
+            _create_result(
+                task_id=task.id, series_id=series["id"], step_index=step
+            )
+            for step in range(3)
+        ]
+
+        data = task_kline_snapshot_service.list_series_results(
+            series["id"], task_id=task.id, page=2, per_page=2
+        )
+
+        assert data["total"] == 3
+        assert [item["id"] for item in data["items"]] == [results[2]["id"]]
+
+
+def test_export_task_csv_streams_all_groups(app_factory):
+    with app_factory.app_context():
+        task = _create_task(task_id="task-export-all")
+        rows = _rows()
+        for row in rows:
+            row["vwap"] = 11.5
+        source = _get_or_create_source(
+            task_id=task.id, kline_key="2026-export", rows=rows
+        )
+        for group in (1, 2):
+            _get_or_create_series(
+                source,
+                task_id=task.id,
+                kline_key="2026-export",
+                random_group=group,
+                rows=rows,
+            )
+
+        filename, chunks = task_kline_snapshot_service.export_task_csv(task.id)
+        text = "".join(chunks)
+
+        assert filename == "task-task-export-all-kline-snapshots.csv"
+        assert text.startswith("\ufeff")
+        lines = text.lstrip("\ufeff").splitlines()
+        assert lines[0] == (
+            "stock_code,stock_name,market_type,kline_key,dataset_key,"
+            "random_group,random_price_range,stock_date,stock_val,"
+            "open,high,low,close,vwap"
+        )
+        assert len(lines) == 1 + 2 * 31
+        assert {line.split(",")[5] for line in lines[1:]} == {"1", "2"}
+        assert all(line.endswith(",11.5") for line in lines[1:])
