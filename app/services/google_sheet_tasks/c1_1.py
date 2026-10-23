@@ -17,7 +17,11 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.kline_validation import require_kline_rows
 from app.services.google_sheet_tasks.check_policy import C7_INVALID, normalize_check_values
-from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_c1_1_summary_fields
+from app.services.google_sheet_tasks.result_payload import (
+    build_analyze_fields,
+    build_c1_1_summary_fields,
+    to_decimal_ratio,
+)
 from app.services.kline_service import KlineService
 
 
@@ -25,6 +29,11 @@ logger = get_logger(__name__)
 
 # C1.1 结果块取值列（模板 E 列为标签、F 列为值），可经 SystemConfig/task config 的 c1_1_output_range 覆盖
 C1_1_DEFAULT_OUTPUT_RANGE = "F2:F26"
+
+
+def _annualized_collapsed(value: Any) -> bool:
+    """年化收益跌至 -100% 及以下（本金归零）时视为终态，不再等待其余信号刷新。"""
+    return to_decimal_ratio(value) <= -0.9
 
 
 class C1_1Service(BaseGoogleSheetService):
@@ -368,14 +377,20 @@ class C1_1Service(BaseGoogleSheetService):
             def _validate_check_values(check_values: Dict[str, Any], spreadsheet_id, layout: Dict[str, Any]) -> bool:
                 """验证结果块核心单元格已更新且有效。
 
-                变化信号取结果块第 3/4 行（Total Return/Annualized）：
+                变化信号取结果块第 3/4 行（Total Return/MAX DD）：
                 Start/End date 可能是静态值，不能作为重算完成信号。
                 """
                 current_block = check_values.get(layout["output_range"]) or {}
                 _check_values = initial_results[spreadsheet_id]
                 output_column, output_row = parse_range_start(layout["output_range"])
-                for offset in (3, 4):
-                    cell = f"{output_column}{output_row + offset}"
+                for offset in (3, 5):
+                    # cell = f"{output_column}{output_row + offset}"
+                    cell = f"{output_column}{1 + offset}"
+                    if _annualized_collapsed(current_block.get(cell)):
+                        self._log_info(
+                            f"结果块 {cell} 至 -90% 及以下，直接判定完成：{current_block.get(cell)}"
+                        )
+                        return True
                     if C7_INVALID(current_block.get(cell)):
                         return False
                     if _check_values.get(cell) == current_block.get(cell):

@@ -11,7 +11,7 @@ from app.services.google_sheet_tasks.check_policy import (
     C7_INVALID,
     normalize_check_values,
 )
-from app.services.google_sheet_tasks.c1_1 import C1_1Service
+from app.services.google_sheet_tasks.c1_1 import C1_1Service, _annualized_collapsed
 from app.services.google_sheet_tasks.result_payload import build_c1_1_summary_fields
 from app.services.kline_service import KlineService
 
@@ -365,6 +365,41 @@ def test_c1_1_execute_writes_ohlc_vwap_ext(monkeypatch):
     assert analysis_rows[0] == {"date": "2026-01-01", "index_return": 0.0, "start_return": 0.1}
     assert abs(analysis_rows[1]["index_return"] - (13 / 12 - 1)) < 1e-12
     assert analysis_rows[1]["start_return"] == 0.2
+
+
+def test_c1_1_annualized_collapsed_threshold():
+    assert _annualized_collapsed("-100.00%")
+    assert _annualized_collapsed(-100)
+    assert not _annualized_collapsed("-99.99%")
+    assert not _annualized_collapsed(None)
+    assert not _annualized_collapsed("#NUM!")
+
+
+def test_c1_1_total_loss_passes_without_signal_change(monkeypatch):
+    block = {f"F{row}": "" for row in range(2, 27)}
+    block.update({"F5": "-100.00%", "F6": "-100.00%"})
+    sheet = _C1_1ExecuteSheet(dict(block), dict(block))
+    service = C1_1Service({"kline_source": "auto", "market_type": "cn"}, "task-id")
+    service.google_sheets = [sheet]
+    service.performance_analyzer = type(
+        "XPL",
+        (), {"get_return_analysis_v1": lambda _self, rows: ({}, {})},
+    )()
+    monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
+
+    kline = [
+        {"stock_date": "2026-01-01", "stock_val": 8.5, "open": 10, "high": 14, "low": 8, "close": 12, "vwap": 11},
+        {"stock_date": "2026-01-02", "stock_val": 9.5, "open": 12, "high": 15, "low": 11, "close": 13, "vwap": 12},
+    ]
+    success, _result = service._execute_parameter_combination(
+        10,
+        {"stock_code": "600000", "kline_key": "2026-2026", "random_group": 1},
+        {"combination": {}},
+        {"kline_source": "auto", "market_type": "cn"},
+        {"2026-2026": kline},
+    )
+
+    assert success is True
 
 
 # ---- 结果块字段映射 ----
