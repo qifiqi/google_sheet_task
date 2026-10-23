@@ -60,10 +60,11 @@ CORRELATION_CMAP = LinearSegmentedColormap.from_list(
     "correlation_blue_white",
     [(0.0, "#FFFFFF"), (0.5, BLUE), (1.0, "#FFFFFF")],
 ).with_extremes(bad="#F0F0F0")
-# 同向率热力图配色：0% 白 → 100% 蓝（同向占比越高颜色越深）。
+# 同向率热力图配色：同向率通常集中在 40%~60%，中段保持近白以突出文字，
+# 仅高同向率（≥80%）逐步加深，避免整片中间蓝导致发闷。
 SAME_DIRECTION_CMAP = LinearSegmentedColormap.from_list(
     "same_direction_white_blue",
-    [(0.0, "#FFFFFF"), (1.0, BLUE)],
+    [(0.0, "#FFFFFF"), (0.5, "#EAF0FA"), (0.8, "#A8BFE0"), (1.0, BLUE)],
 ).with_extremes(bad="#F0F0F0")
 # 折线主线条宽（pt）：CHART_DPI=240 下 1pt ≈ 3.3 物理像素，视觉粗细按此换算。
 LINE_WIDTH = 0.8
@@ -232,9 +233,9 @@ def generate_same_direction_heatmap(
             if isnan(value):
                 text, color = "-", "#8C8C8C"
             else:
-                # 深蓝区域用白字，浅色区域用正文灰。
+                # 仅最深蓝（高同向率）区域用白字，其余保持正文灰保证对比度。
                 text = f"{value:.1%}"
-                color = "#FFFFFF" if value >= 0.75 else TEXT
+                color = "#FFFFFF" if value >= 0.92 else TEXT
             axis.text(
                 column_index, row_index, text, ha="center", va="center",
                 color=color, fontproperties=_font(cell_font_size),

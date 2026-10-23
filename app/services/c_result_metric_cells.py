@@ -18,8 +18,9 @@ from app.utils.value_parser import parse_percent_like
 
 
 # 报告“参数配置”表行序（概念键, 展示名, 展示格式）：对应 C5 结果区 D10/D15-D20。
+# 年换手率在模板里是普通数值（与 C3 导出“不乘100”口径一致），不按百分比展示。
 PARAMETER_CONFIG_ROWS = (
-    ("turnover_rate", "年换手率", "percent"),
+    ("turnover_rate", "年换手率", "number"),
     ("max_theoretical_leverage", "最大理论杠杆率", "number"),
     ("avg_theoretical_leverage", "平均理论杠杆率", "number"),
     ("unit_theoretical_leverage_return", "单位理论杠杆率收益", "percent"),

@@ -554,6 +554,15 @@ def test_same_direction_heatmap_renders_with_missing_cells(tmp_path: Path):
     assert 0.9 < image.shape[0] / image.shape[1] < 1.0
 
 
+def test_same_direction_cmap_keeps_mid_values_light():
+    """同向率集中在 40%~60%：中段必须接近白色，避免整片中间蓝发闷。"""
+    mid = charts.SAME_DIRECTION_CMAP(0.5)[:3]
+    high = charts.SAME_DIRECTION_CMAP(1.0)[:3]
+
+    assert sum(mid) / 3 > 0.88
+    assert sum(high) / 3 < 0.65
+
+
 def test_correlation_cmap_is_blue_at_zero_and_white_at_extremes():
     import math
 

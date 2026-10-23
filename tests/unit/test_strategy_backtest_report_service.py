@@ -614,7 +614,7 @@ def _parameter_metrics_fixture():
         {
             "stock_code": "600519.SH", "ratio": "60%", "market_type": "cn",
             "parameter_metrics": {
-                "turnover_rate": 0.10,
+                "turnover_rate": 40.0,
                 "max_theoretical_leverage": 4.0,
                 "avg_theoretical_leverage": 2.0,
                 "unit_theoretical_leverage_return": 0.05,
@@ -625,7 +625,7 @@ def _parameter_metrics_fixture():
         {
             "stock_code": "QQQ.US", "ratio": "40%", "market_type": "us",
             "parameter_metrics": {
-                "turnover_rate": 0.20,
+                "turnover_rate": 60.0,
                 "max_theoretical_leverage": 2.0,
                 "avg_theoretical_leverage": 1.0,
                 "unit_theoretical_leverage_return": 0.10,
@@ -645,7 +645,7 @@ def test_parameter_config_weighted_sum_and_fee():
     assert blocks == [{
         "type": "table", "title": "参数配置", "columns": ["参数", "数值"],
         "rows": [
-            ["年换手率", "14.00%"],
+            ["年换手率", "48.00"],
             ["最大理论杠杆率", "3.20"],
             ["平均理论杠杆率", "1.60"],
             ["单位理论杠杆率收益", "7.00%"],
@@ -665,7 +665,7 @@ def test_parameter_config_missing_metric_shows_dash_but_fee_still_renders():
     rows = StrategyBacktestReportService._parameter_config_blocks(payload)[0]["rows"]
 
     assert ["最大实际杠杆率", "-"] in rows
-    assert ["年换手率", "14.00%"] in rows
+    assert ["年换手率", "48.00"] in rows
     assert ["手续费", "0.035%"] in rows
 
 
