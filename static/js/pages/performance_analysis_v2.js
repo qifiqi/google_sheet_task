@@ -373,7 +373,12 @@
         try {
             const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
-            const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.xlsx`;
+            const klineRange = extractKlineRangeFromMetrics(state.lastResults);
+            const defaultFilename = buildExportFilename(`${filenameSafeTitle}_${filenameSafeSheet}`, {
+                modelVersion: state.lastResults?.model_name || '',
+                klineStart: klineRange.start,
+                klineEnd: klineRange.end,
+            });
             const sourceFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
             // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）

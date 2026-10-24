@@ -68,6 +68,7 @@ class C7Service(BaseGoogleSheetService):
             batch["adjust_type"],
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
+            random_series_mode=batch["random_series_mode"],
             data_source=batch["data_source"],
         )
 
@@ -532,7 +533,7 @@ class C7Service(BaseGoogleSheetService):
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=False)
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare"):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare", random_series_mode="per_window"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。"""
         return self._expand_auto_year_parameters(
             parameter,
@@ -550,4 +551,5 @@ class C7Service(BaseGoogleSheetService):
             include_ohlc=True,
             random_price_range=random_price_range,
             random_group_count=random_group_count,
+            random_series_mode=random_series_mode,
         )

@@ -25,12 +25,16 @@ from app.services.backtest_report_query_service import (
     build_global_preview_payload,
     build_global_preview_workbook,
     _build_zip_member_name,
+    _infer_backtest_export_model_name,
     split_global_preview_payload_by_stock,
 )
 from app.services.export_workbook_service import (
     build_c3_worksheets,
     build_c7_stock_code_export_archive,
+    build_export_filename,
     build_task_export,
+    model_version_from_config,
+    normalize_filename_date,
     sanitize_export_filename,
     EXCEL_MIMETYPE,
     ZIP_MIMETYPE,
@@ -41,6 +45,7 @@ from app.services.task import task_manager
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
 from app.utils.logger import get_logger
+from app.utils.model_version import normalize_model_version
 from app.utils.ttl_cache import WORD_EXPORT_TTL_SECONDS, get_or_build_word_export
 from app.utils.value_parser import parse_int
 
@@ -196,6 +201,7 @@ class ExportService:
         task_id: str,
         ratios_override: list[Any] | None = None,
         runtime_params: dict[str, Any] | None = None,
+        export_name: str | None = None,
     ) -> GeneratedFile:
         """处理export_global_preview相关逻辑。"""
         task = self._get_task(task_id)
@@ -211,7 +217,19 @@ class ExportService:
         workbook.save(buffer)
         buffer.seek(0)
         task_name = (payload.get("task") or {}).get("name") or task_id
-        filename = f"{sanitize_export_filename(task_name)}_global_preview.xlsx"
+        # 手输名替换基名，统一后缀（模型版本/区间/导出时间）照加。
+        base = (
+            sanitize_export_filename(export_name)
+            if export_name
+            else f"{sanitize_export_filename(task_name)}_global_preview"
+        )
+        kline_start, kline_end = self._preview_kline_bounds(payload)
+        filename = build_export_filename(
+            base,
+            model_version=self._preview_model_text(task, payload),
+            kline_start=kline_start,
+            kline_end=kline_end,
+        )
         return GeneratedFile(filename, EXCEL_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
     def export_global_preview_by_stock(
@@ -219,6 +237,7 @@ class ExportService:
         task_id: str,
         ratios_override: list[Any] | None = None,
         runtime_params: dict[str, Any] | None = None,
+        export_name: str | None = None,
     ) -> GeneratedStream:
         """处理export_global_preview_by_stock相关逻辑。"""
         task = self._get_task(task_id)
@@ -229,11 +248,14 @@ class ExportService:
         )
         if payload is None:
             raise NotFoundError("任务不存在")
-        task_name = sanitize_export_filename(task.name or task_id)
+        task_name = sanitize_export_filename(export_name or task.name or task_id)
+        base = task_name if export_name else f"{task_name}_global_preview"
+        # zip 外层按规范不带区间段；每个成员文件带各自包络。
+        model_text = self._preview_model_text(task, payload)
         return GeneratedStream(
-            filename=f"{task_name}_global_preview.zip",
+            filename=build_export_filename(base, model_version=model_text, extension="zip"),
             mimetype=ZIP_MIMETYPE,
-            generate=lambda: self._stream_stock_zip(payload, task_name),
+            generate=lambda: self._stream_stock_zip(payload, task_name, model_text),
         )
 
     def export_global_preview_batch(self, task_ids: list[str]) -> GeneratedFile:
@@ -255,14 +277,21 @@ class ExportService:
                 workbook = build_global_preview_workbook(payload)
                 workbook_buffer = BytesIO()
                 workbook.save(workbook_buffer)
+                kline_start, kline_end = self._preview_kline_bounds(payload)
+                member_stem = build_export_filename(
+                    f"{sanitize_export_filename(task.name)}_global_preview",
+                    model_version=self._preview_model_text(task, payload),
+                    kline_start=kline_start,
+                    kline_end=kline_end,
+                    extension="",
+                )
                 archive.writestr(
-                    _build_zip_member_name(task.name, task_id, used_names),
+                    _build_zip_member_name(task.name, task_id, used_names, member_stem=member_stem),
                     workbook_buffer.getvalue(),
                 )
         zip_buffer.seek(0)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return GeneratedFile(
-            f"backtest_global_preview_batch_{stamp}.zip",
+            build_export_filename("global_preview_batch", extension="zip"),
             ZIP_MIMETYPE,
             zip_buffer,
             zip_buffer.getbuffer().nbytes,
@@ -410,7 +439,7 @@ class ExportService:
             )
         return build_global_preview_payload(task.id)
 
-    def _stream_stock_zip(self, payload: dict[str, Any], task_name: str):
+    def _stream_stock_zip(self, payload: dict[str, Any], task_name: str, model_text: str = ""):
         """按股票流式生成 ZIP 文件。"""
         output_queue: Queue = Queue(maxsize=8)
         finished = object()
@@ -426,7 +455,13 @@ class ExportService:
                 with ZipFile(_ZipStreamWriter(output_queue), "w", ZIP_STORED) as archive:
                     for stock_code, stock_payload in stock_payloads:
                         workbook = build_global_preview_workbook(stock_payload)
-                        filename = f"{sanitize_export_filename(f'{task_name}_{stock_code}')}.xlsx"
+                        stock_start, stock_end = self._preview_kline_bounds(stock_payload)
+                        filename = build_export_filename(
+                            f"{task_name}_{stock_code}",
+                            model_version=model_text,
+                            kline_start=stock_start,
+                            kline_end=stock_end,
+                        )
                         zip_info = ZipInfo(filename, date_time=datetime.now().timetuple()[:6])
                         zip_info.compress_type = ZIP_STORED
                         with archive.open(zip_info, "w") as xlsx_file:
@@ -443,6 +478,70 @@ class ExportService:
             if chunk is finished:
                 break
             yield chunk
+
+    @staticmethod
+    def _preview_model_text(task: Task, payload: dict[str, Any]) -> str:
+        """预览导出的模型段：多品组合无单一模型语义省略。
+
+        单品优先取结果打标版本（唯一才写，混版本省略），回落按任务配置推断族名。
+        """
+        if str(task.task_type or "").strip().lower() == "backtest_multi_product":
+            return ""
+        versions = {
+            normalized
+            for group in payload.get("groups") or []
+            if isinstance(group, dict)
+            for column in group.get("columns") or []
+            if isinstance(column, dict)
+            for normalized in (normalize_model_version(column.get("model_version")),)
+            if normalized
+        }
+        if len(versions) == 1:
+            return next(iter(versions))
+        task_config = task.to_dict().get("config") or {}
+        config_version = model_version_from_config(task_config)
+        if config_version:
+            return config_version
+        return _infer_backtest_export_model_name(task_config, task.task_type)
+
+    @staticmethod
+    def _preview_kline_bounds(payload: dict[str, Any]) -> tuple[str, str]:
+        """预览载荷的真实 K 线包络（min起~max止）；缺失返回 ("", "")。
+
+        多品取 products[].start_date/end_date（收益行首末），单品取分组 period
+        （"起/止" 文本）；两者皆缺回落任务请求区间 task.start_date/end_date。
+        """
+        starts: list[str] = []
+        ends: list[str] = []
+
+        def _collect(start_raw: Any, end_raw: Any) -> None:
+            start = normalize_filename_date(start_raw)
+            end = normalize_filename_date(end_raw)
+            if start and end:
+                starts.append(start)
+                ends.append(end)
+
+        for product in payload.get("products") or []:
+            if isinstance(product, dict):
+                _collect(product.get("start_date"), product.get("end_date"))
+        if not starts:
+            for group in payload.get("groups") or []:
+                if not isinstance(group, dict):
+                    continue
+                period_parts = str(group.get("period") or "").split("/")
+                _collect(
+                    period_parts[0] if period_parts else "",
+                    period_parts[1] if len(period_parts) > 1 else "",
+                )
+        if starts:
+            return min(starts), max(ends)
+        task_info = payload.get("task") or {}
+        if isinstance(task_info, dict):
+            start = normalize_filename_date(task_info.get("start_date"))
+            end = normalize_filename_date(task_info.get("end_date"))
+            if start and end:
+                return start, end
+        return "", ""
 
 
 export_service = ExportService()

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from io import BytesIO
 from zipfile import ZipFile
+import re
 
 import pytest
 from openpyxl import load_workbook
@@ -97,12 +98,17 @@ def test_c7_stock_code_export_archive_keeps_workbooks_separate():
 
     archive = build_c7_stock_code_export_archive(task, results)
 
-    assert archive.filename == "C7 导出_按股票代码导出.zip"
+    # 统一命名规范：{基名}-{模型版本}-{K线起}-{K线止}-{导出时间}；本例无 kline 区间段
+    assert re.fullmatch(r"C7 导出_按股票代码导出-c7_0_3-\d{8}_\d{6}\.zip", archive.filename)
     with ZipFile(archive.buffer) as zip_file:
-        assert zip_file.namelist() == ["C7 导出_600001.xlsx", "C7 导出_600000.xlsx"]
+        member_names = zip_file.namelist()
+        assert [re.sub(r"-\d{8}_\d{6}\.xlsx$", "", name) for name in member_names] == [
+            "C7 导出_600001-c7_0_3",
+            "C7 导出_600000-c7_0_3",
+        ]
 
-        first_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600001.xlsx")), data_only=True)
-        second_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600000.xlsx")), data_only=True)
+        first_workbook = load_workbook(BytesIO(zip_file.read(member_names[0])), data_only=True)
+        second_workbook = load_workbook(BytesIO(zip_file.read(member_names[1])), data_only=True)
 
     assert first_workbook.active["A2"].value == 2
     assert second_workbook.active["A2"].value == 1

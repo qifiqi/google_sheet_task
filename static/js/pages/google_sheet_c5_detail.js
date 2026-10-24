@@ -289,14 +289,6 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
     window.openEditConfigModal = Biz.configEdit.openEditConfigModal;
 
     // 加载任务配置
-    function formatPriceMode(value) {
-        return Biz.configEdit.formatConfigDisplayValue(value, {
-            kp_price: '开盘价',
-            sp_price: '收盘价',
-            vwap_price: '加权平均价'
-        });
-    }
-
     function formatExcludedYears(value) {
         if (!value || !Array.isArray(value) || value.length === 0) {
             return '<span class="text-muted">无</span>';
@@ -336,6 +328,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             ? `${config.start_date || '-'} ~ ${config.end_date || '-'}`
             : '未指定';
         const dateRangeModeDisplay = Biz.configEdit.formatDateRangeMode(config.date_range_mode || 'full');
+        const isCustomKline = (config.kline_source || 'auto') === 'custom';
 
         // 工作表列表：每个表一行（表N + ID + 名称）
         const sheetsBlock = document.createElement('div');
@@ -366,6 +359,12 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
 
         container.appendChild(sheetsBlock);
 
+        // 随机价任务的关键配置单独成卡，避免只藏在“更多参数”里
+        Biz.configEdit.appendRandomPriceConfigBlock(
+            config,
+            moreContainer || container
+        );
+
         // 汇总信息折叠显示（只在需要时展开查看）
         const details = document.createElement('details');
         details.className = 'mt-2 small';
@@ -380,7 +379,9 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
 
         const configItems = [
             {label: '统计方式', value: Biz.configEdit.formatCountMode(config.count_mode || 'total'), icon: 'bi-calculator'},
-            {label: '价格类型', value: formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
+            {label: '价格类型', value: isCustomKline ? '自定义K线（不适用）' : Biz.configEdit.formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
+            {label: 'K线来源', value: Biz.configEdit.formatKlineSource(config.kline_source || 'auto'), icon: 'bi-activity'},
+            {label: 'K线复权', value: isCustomKline ? '自定义K线（不适用）' : Biz.configEdit.formatKlineAdjustment(config.kline_adjustment || 'forward'), icon: 'bi-sliders'},
             {label: '市场类型', value: Biz.configEdit.formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
             {label: '市场代码', value: config.exchange_market || config.market || null, icon: 'bi-building'},
             {label: '数据源', value: Biz.configEdit.formatKlineDataSource(config.kline_data_source || config.data_source), icon: 'bi-database'},
@@ -446,6 +447,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         resultsArray.forEach((item) => {
             const params = item.parameters || {};
             const stockCode = params.stock_code || '-';
+            const randomGroup = params.random_group != null ? params.random_group : null;
 
             let klineRange = '-';
             if (Array.isArray(params.kline) && params.kline.length > 0) {
@@ -509,6 +511,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                 klineSeriesId: item.kline_series_id != null ? item.kline_series_id : null,
                 parameters: params,
                 stockCode: stockCode,
+                randomGroup: randomGroup,
                 a1: a1,
                 b1: b1,
                 klineRange: klineRange,
@@ -530,6 +533,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         resultsArray.forEach((item) => {
             const params = item.parameters || {};
             const stockCode = params.stock_code || '-';
+            const randomGroup = params.random_group != null ? params.random_group : null;
 
             let klineRange = '-';
             if (Array.isArray(params.kline) && params.kline.length > 0) {
@@ -567,6 +571,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     klineSeriesId: item.kline_series_id != null ? item.kline_series_id : null,
                     parameters: params,
                     stockCode: stockCode,
+                    randomGroup: randomGroup,
                     klineRange: klineRange,
                     modelKey: keyName,
                     modelCode: modelCode,
@@ -672,6 +677,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                                 <div class="small text-muted result-header-meta">
                                     <span>股票代码：</span>
                                     <span class="fw-semibold">${group.stockCode}</span>
+                                    ${group.randomGroup != null ? `<span> · 随机分组：${group.randomGroup}</span>` : ''}
                                     <span> · K线区间：${group.klineRange}</span>
                                     <span> · 步骤 ${group.stepIndex + 1}</span>
                                     <span> · A1：${group.a1 != null ? group.a1 : '-'}</span>
@@ -895,12 +901,14 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         }
 
         // 显示单条结果详情（指定分组和模型索引）
+        // 「更多」按钮挂在筛选后的 filteredResults 上，这里必须同源取数；
+        // 若读 groupedResults，「仅成功/仅失败」筛选下索引错位，弹窗会显示成别的行。
         function showResultDetail(groupIndex, modelIndex) {
-            if (!Array.isArray(groupedResults) || groupIndex < 0 || groupIndex >= groupedResults.length) {
+            if (!Array.isArray(filteredResults) || groupIndex < 0 || groupIndex >= filteredResults.length) {
                 return;
             }
 
-            const group = groupedResults[groupIndex];
+            const group = filteredResults[groupIndex];
             const models = group.models || [];
             if (modelIndex < 0 || modelIndex >= models.length) {
                 return;
@@ -909,9 +917,9 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             const result = models[modelIndex];
             const modalTitle = document.getElementById('resultDetailModalLabel');
             const metaEl = document.getElementById('result-detail-meta');
-            const tbody = document.getElementById('result-detail-body');
+            const bodyEl = document.getElementById('result-detail-body');
 
-            if (!modalTitle || !metaEl || !tbody) {
+            if (!modalTitle || !metaEl || !bodyEl) {
                 return;
             }
 
@@ -921,118 +929,47 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                 modalTitle.textContent = `${result.modelKey || ''}`;
             }
 
-            metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · A1：${group.a1 != null ? group.a1 : '-'} · B1：${group.b1 != null ? group.b1 : '-'} · 执行时间：${formatTime(group.timestamp) || '-'}`;
+            metaEl.innerHTML = Biz.taskPolling.renderResultDetailMeta([
+                {label: '股票代码', value: group.stockCode || '-'},
+                ...(group.randomGroup != null ? [{label: '随机分组', value: group.randomGroup}] : []),
+                {label: 'K线区间', value: group.klineRange || '-'},
+                {label: '步骤', value: group.stepIndex + 1},
+                {label: 'A1', value: group.a1 != null ? group.a1 : '-'},
+                {label: 'B1', value: group.b1 != null ? group.b1 : '-'},
+                {label: '状态', html: `<span class="badge ${group.success ? 'bg-success' : 'bg-danger'}">${group.success ? '成功' : '失败'}</span>`},
+                {label: '执行时间', value: formatTime(group.timestamp) || '-'}
+            ]);
 
             const metrics = result.rawMetrics || {};
             const detailMetrics = Biz.taskPolling.getDetailMetricSource(metrics);
             const hasFlatResult = !!Biz.taskPolling.getFlatResult(metrics);
 
-            // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片
-            const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);
-            const indexReturn = hasFlatResult ? null : (metrics.index_return_xpl || null);
-
+            // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片；
+            // metrics_payload 平铺结果没有这两个字典，跳过
             const cards = [];
-
-            if (startReturn) {
-                cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">模型收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', startReturn.start_date)}
-                            ${renderStatLine('结束日期', startReturn.end_date)}
-                            ${renderStatLine('月份数', startReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(startReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(startReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(startReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(startReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
+            if (!hasFlatResult) {
+                cards.push(Biz.taskPolling.renderReturnAnalysisCard('模型收益分析', metrics.start_return_xpl, (v) => formatMetricRawValue(v, 6)));
+                cards.push(Biz.taskPolling.renderReturnAnalysisCard('指数收益分析', metrics.index_return_xpl, (v) => formatMetricRawValue(v, 6)));
             }
 
-            if (indexReturn) {
-                cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">指数收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', indexReturn.start_date)}
-                            ${renderStatLine('结束日期', indexReturn.end_date)}
-                            ${renderStatLine('月份数', indexReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(indexReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(indexReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(indexReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(indexReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
-            }
+            // 剩余字段进入通用指标网格（剔除字典字段），并按排序规则排
+            const keys = sortMetricKeys(Object.keys(detailMetrics).filter(Biz.taskPolling.shouldShowDetailMetric));
+            const entries = keys.map((key) => {
+                const value = detailMetrics[key];
+                return {
+                    label: getMetricDisplayLabel(key),
+                    html: formatMetricDisplayValue(value),
+                    wide: Array.isArray(value) || (value != null && typeof value === 'object')
+                };
+            });
 
-            // 剩余字段进入通用两列表格（剔除字典字段），并按排序规则排
-            const metricKeys = Object.keys(detailMetrics).filter(Biz.taskPolling.shouldShowDetailMetric);
-            const keys = sortMetricKeys(metricKeys);
-            const rows = [];
-
-            for (let i = 0; i < keys.length; i += 2) {
-                const k1 = keys[i];
-                const k2 = keys[i + 1];
-
-                const v1 = detailMetrics[k1];
-                const v2 = k2 != null ? detailMetrics[k2] : undefined;
-
-                const display1 = formatMetricDisplayValue(v1);
-                const display2 = k2 != null ? formatMetricDisplayValue(v2) : '<span class="text-muted small">-</span>';
-
-                rows.push(`
-                <tr>
-                    <td class="small fw-semibold">${getMetricDisplayLabel(k1)}</td>
-                    <td>${display1}</td>
-                    <td class="small fw-semibold">${k2 != null ? getMetricDisplayLabel(k2) : ''}</td>
-                    <td>${k2 != null ? display2 : ''}</td>
-                </tr>
-            `);
-            }
-
-            // 先渲染统计卡片，再渲染表格行
-            const cardsHtml = cards.length > 0
-                    ? `<tr><td colspan="4" class="p-0"><div class="row g-2 m-0">${cards.join('')}</div></td></tr>`
-                    : '';
-
-            if (rows.length === 0 && !cardsHtml) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">无详细指标</td></tr>';
-            } else {
-                tbody.innerHTML = cardsHtml + rows.join('');
-            }
+            bodyEl.innerHTML = Biz.taskPolling.renderResultDetailBody({cards: cards, entries: entries});
 
             if (typeof bootstrap !== 'undefined') {
                 const modalEl = document.getElementById('resultDetailModal');
                 const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
                 modal.show();
             }
-        }
-
-        // 在统计卡片中渲染一行 label + value
-        function renderStatLine(label, value) {
-            const safeLabel = escapeHtml(String(label));
-            let safeValue;
-
-            if (value == null || value === '') {
-                safeValue = '<span class="text-muted">-</span>';
-            } else if (typeof value === 'number') {
-                safeValue = formatMetricRawValue(value, 6);
-            } else {
-                safeValue = escapeHtml(String(value));
-            }
-
-            return `
-            <div class="d-flex justify-content-between mb-1">
-                <span class="text-muted me-2">${safeLabel}</span>
-                <span class="text-end">${safeValue}</span>
-            </div>
-        `;
         }
 
         // HTML 转义
@@ -1367,25 +1304,37 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                 const sheets = Biz.configEdit.collectEditSheetsRows();
 
                 // 其它参数
-                const countMode = document.getElementById('edit-count-mode').value || 'total';
+                // 自定义K线模式只能 total + 空日期/市场，切换来源不在详情页开放
+                const isCustomKline = Biz.configEdit.isEditCustomKline();
+                const countMode = isCustomKline
+                    ? 'total'
+                    : (document.getElementById('edit-count-mode').value || 'total');
                 const fullModeEl = document.getElementById('edit-date-range-full');
                 const recentModeEl = document.getElementById('edit-date-range-recent');
                 const dateRangeModeList = [];
-                if (fullModeEl && fullModeEl.checked) {
-                    dateRangeModeList.push('full');
-                }
-                if (recentModeEl && recentModeEl.checked) {
-                    dateRangeModeList.push('recent');
-                }
-                if (dateRangeModeList.length === 0) {
-                    dateRangeModeList.push('full');
-                    if (fullModeEl) {
-                        fullModeEl.checked = true;
+                if (!isCustomKline) {
+                    if (fullModeEl && fullModeEl.checked) {
+                        dateRangeModeList.push('full');
+                    }
+                    if (recentModeEl && recentModeEl.checked) {
+                        dateRangeModeList.push('recent');
+                    }
+                    if (dateRangeModeList.length === 0) {
+                        dateRangeModeList.push('full');
+                        if (fullModeEl) {
+                            fullModeEl.checked = true;
+                        }
                     }
                 }
-                const startDate = document.getElementById('edit-start-date').value || null;
-                const endDate = document.getElementById('edit-end-date').value || null;
-                const marketType = document.getElementById('edit-market-type').value.trim() || null;
+                const startDate = isCustomKline
+                    ? null
+                    : (document.getElementById('edit-start-date').value || null);
+                const endDate = isCustomKline
+                    ? null
+                    : (document.getElementById('edit-end-date').value || null);
+                const marketType = isCustomKline
+                    ? 'custom'
+                    : (document.getElementById('edit-market-type').value.trim() || null);
 
                 const tokenType = document.getElementById('edit-token-type').value;
                 const tokenFile = document.getElementById('edit-token-file').value.trim();
@@ -1401,7 +1350,13 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     return;
                 }
 
+                const klinePriceConfig = Biz.configEdit.collectEditKlinePriceFields();
+                if (klinePriceConfig === null) {
+                    return;
+                }
+
                 const config = {
+                    ...klinePriceConfig,
                     count_mode: countMode,
                     date_range_mode: dateRangeModeList,
                     start_date: startDate,

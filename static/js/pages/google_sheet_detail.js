@@ -762,26 +762,6 @@
         renderResultsPagination();
     }
 
-    function renderStatLine(label, value) {
-        const safeLabel = escapeHtml(String(label));
-        let safeValue;
-
-        if (value == null || value === '') {
-            safeValue = '<span class="text-muted">-</span>';
-        } else if (typeof value === 'number') {
-            safeValue = formatMetricRawValue(value, 6);
-        } else {
-            safeValue = escapeHtml(String(value));
-        }
-
-        return `
-            <div class="d-flex justify-content-between mb-1">
-                <span class="text-muted me-2">${safeLabel}</span>
-                <span class="text-end">${safeValue}</span>
-            </div>
-        `;
-    }
-
     function showResultDetail(resultIndex) {
         if (!Array.isArray(allResults) || resultIndex < 0 || resultIndex >= allResults.length) {
             return;
@@ -793,91 +773,43 @@
         const hasFlatResult = !!getFlatResult(metrics);
         const modalTitle = document.getElementById('resultDetailModalLabel');
         const metaEl = document.getElementById('result-detail-meta');
-        const tbody = document.getElementById('result-detail-body');
+        const bodyEl = document.getElementById('result-detail-body');
 
-        if (!modalTitle || !metaEl || !tbody) {
+        if (!modalTitle || !metaEl || !bodyEl) {
             return;
         }
 
         modalTitle.textContent = `结果详情 #${result.step_index + 1}`;
         const paramsText = formatParameterCombinationText(result.parameters);
-        metaEl.textContent = `参数组合：${paramsText || '-'} · 执行时间：${formatTime(result.timestamp) || '-'} · 状态：${result.success ? '成功' : '失败'}`;
+        metaEl.innerHTML = Biz.taskPolling.renderResultDetailMeta([
+            {label: '参数组合', value: paramsText || '-'},
+            {label: '状态', html: `<span class="badge ${result.success ? 'bg-success' : 'bg-danger'}">${result.success ? '成功' : '失败'}</span>`},
+            {label: '执行时间', value: formatTime(result.timestamp) || '-'}
+        ]);
 
-        const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);
-        const indexReturn = hasFlatResult ? null : (metrics.index_return_xpl || null);
+        // start_return_xpl / index_return_xpl 为字典，显示为卡片；
+        // metrics_payload 平铺结果没有这两个字典，跳过
         const cards = [];
-
-        if (startReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">模型收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', startReturn.start_date)}
-                            ${renderStatLine('结束日期', startReturn.end_date)}
-                            ${renderStatLine('月份数', startReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(startReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(startReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(startReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(startReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
+        if (!hasFlatResult) {
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('模型收益分析', metrics.start_return_xpl, (v) => formatMetricRawValue(v, 6)));
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('指数收益分析', metrics.index_return_xpl, (v) => formatMetricRawValue(v, 6)));
         }
 
-        if (indexReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">指数收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', indexReturn.start_date)}
-                            ${renderStatLine('结束日期', indexReturn.end_date)}
-                            ${renderStatLine('月份数', indexReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(indexReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(indexReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(indexReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(indexReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
-        }
-
+        // 剩余指标进入通用指标网格：I15-I23 结果块键优先，再合并兜底明细键
         const baseKeys = ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23']
                 .filter(key => metrics[key] != null);
         const detailKeys = sortMetricKeys(Object.keys(detailMetrics).filter(shouldShowDetailMetric));
         const keys = Array.from(new Set([...baseKeys, ...detailKeys]));
-        const rows = [];
+        const entries = keys.map((key) => {
+            const value = metrics[key] != null ? metrics[key] : detailMetrics[key];
+            return {
+                label: getMetricDisplayLabel(key),
+                html: formatMetricDisplayValue(value),
+                wide: Array.isArray(value) || (value != null && typeof value === 'object')
+            };
+        });
 
-        for (let i = 0; i < keys.length; i += 2) {
-            const k1 = keys[i];
-            const k2 = keys[i + 1];
-            const source1 = metrics[k1] != null ? metrics : detailMetrics;
-            const source2 = k2 != null && metrics[k2] != null ? metrics : detailMetrics;
-            const display1 = formatMetricDisplayValue(source1[k1]);
-            const display2 = k2 != null ? formatMetricDisplayValue(source2[k2]) : '<span class="text-muted small">-</span>';
-
-            rows.push(`
-                <tr>
-                    <td class="small fw-semibold">${getMetricDisplayLabel(k1)}</td>
-                    <td>${display1}</td>
-                    <td class="small fw-semibold">${k2 != null ? getMetricDisplayLabel(k2) : ''}</td>
-                    <td>${k2 != null ? display2 : ''}</td>
-                </tr>
-            `);
-        }
-
-        const cardsHtml = cards.length > 0
-                ? `<tr><td colspan="4" class="p-0"><div class="row g-2 m-0">${cards.join('')}</div></td></tr>`
-                : '';
-
-        if (rows.length === 0 && !cardsHtml) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">无详细指标</td></tr>';
-        } else {
-            tbody.innerHTML = cardsHtml + rows.join('');
-        }
+        bodyEl.innerHTML = Biz.taskPolling.renderResultDetailBody({cards: cards, entries: entries});
 
         if (typeof bootstrap !== 'undefined') {
             const modalEl = document.getElementById('resultDetailModal');

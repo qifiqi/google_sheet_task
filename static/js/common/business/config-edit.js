@@ -9,6 +9,34 @@
   // 打开弹窗时暂存的 parameters[1..]（保存时原样回写）
   var originalExtraParameters = [];
 
+  // 最近一次打开弹窗时的 config，用于价格类型与版本联动
+  var editModalConfig = {};
+
+  function hasSheetModelVersion(config, version) {
+    return (
+      Array.isArray(config && config.sheets) &&
+      config.sheets.some(function (sheet) {
+        return sheet && sheet.model_version === version;
+      })
+    );
+  }
+
+  function isC1_1Config(config) {
+    return hasSheetModelVersion(config, "c1_1");
+  }
+
+  function isC7V03Config(config) {
+    return hasSheetModelVersion(config, "c7_0_3");
+  }
+
+  function isRandomPriceMode(config) {
+    if (String((config && config.price_mode) || "") === "random_price") {
+      return true;
+    }
+    // C1.1 运行期强制随机价，旧任务缺 price_mode 时也按随机价展示
+    return isC1_1Config(config);
+  }
+
   function openEditConfigModal() {
     if (!currentTaskData) {
       showNotification("任务数据未加载", "error");
@@ -109,6 +137,8 @@
     if (countModeEl) {
       countModeEl.addEventListener("change", function () {
         applyEditDateRangeModes(true);
+        // 等所有联动监听执行完再决定“移除的近年区间”是否可见
+        setTimeout(syncEditExcludeYearsVisibility, 0);
       });
     }
 
@@ -167,6 +197,8 @@
     if (editProxyUrlEl) {
       editProxyUrlEl.value = config.proxy_url || "";
     }
+
+    populateEditKlinePriceFields(config);
 
     // 打开模态框
     if (editConfigModal) {
@@ -375,6 +407,349 @@
     });
   }
 
+  function formatPriceMode(value) {
+    return formatConfigDisplayValue(value, {
+      kp_price: "开盘价",
+      sp_price: "收盘价",
+      vwap_price: "加权平均价",
+      random_price: "随机价",
+      ohlc_price: "OHLC（开高低收）",
+    });
+  }
+
+  function formatKlineSource(value) {
+    return formatConfigDisplayValue(value || "auto", {
+      auto: "自动K线",
+      custom: "自定义K线",
+    });
+  }
+
+  function formatKlineAdjustment(value) {
+    return formatConfigDisplayValue(value || "forward", {
+      forward: "前复权",
+      back: "后复权",
+      none: "不复权",
+    });
+  }
+
+  function formatRandomPriceRange(value) {
+    return formatConfigDisplayValue(value || "high_low", {
+      high_low: "最高价 - 最低价",
+      open_close: "开盘价 - 收盘价",
+    });
+  }
+
+  function formatRandomSeriesMode(value) {
+    return formatConfigDisplayValue(value || "per_window", {
+      per_window: "各窗口独立随机",
+      full_truncate: "全区间生成后按窗口截断",
+    });
+  }
+
+  // 详情页可见的“随机价配置”卡片（random_price / C1.1 才渲染）
+  function appendRandomPriceConfigBlock(config, container) {
+    if (!container || !isRandomPriceMode(config)) {
+      return;
+    }
+
+    const block = document.createElement("div");
+    block.className = "mb-3";
+    block.innerHTML = '<strong class="d-block mb-2">随机价配置</strong>';
+
+    const grid = document.createElement("div");
+    grid.className = "detail-config-grid";
+    const randomGroupCount = Math.max(
+      1,
+      parseInt(config.random_group_count, 10) || 1
+    );
+    const items = [
+      {
+        label: "随机价格范围",
+        value: formatRandomPriceRange(config.random_price_range),
+        icon: "bi-shuffle",
+      },
+      {
+        label: "随机组数",
+        value: String(randomGroupCount),
+        icon: "bi-collection",
+      },
+      {
+        label: "随机序列模式",
+        value: formatRandomSeriesMode(config.random_series_mode),
+        icon: "bi-diagram-3",
+      },
+    ];
+    if (
+      Object.prototype.hasOwnProperty.call(config, "c1_1_vwap_enabled")
+    ) {
+      items.push({
+        label: "VWAP 计算",
+        value: config.c1_1_vwap_enabled === false ? "不计算" : "计算并写入",
+        icon: "bi-calculator",
+      });
+    }
+    items.forEach(function (item) {
+      grid.appendChild(createConfigGridItem(item));
+    });
+
+    block.appendChild(grid);
+    container.appendChild(block);
+  }
+
+  function renderEditExcludeYearOptions(selected) {
+    const container = document.getElementById("edit-exclude-years-options");
+    if (!container) return;
+
+    const selectedSet = new Set(
+      (Array.isArray(selected) ? selected : []).map(Number)
+    );
+    container.innerHTML = "";
+    [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach(function (value) {
+      const id = "edit-exclude-year-" + String(value).replace(".", "_");
+      const wrapper = document.createElement("div");
+      wrapper.className = "form-check form-check-inline";
+      wrapper.innerHTML = `
+                <input class="form-check-input edit-exclude-year" type="checkbox" id="${id}" value="${value}">
+                <label class="form-check-label" for="${id}">${value === 0.5 ? "近半年" : "近" + value + "年"}</label>
+            `;
+      wrapper.querySelector("input").checked = selectedSet.has(value);
+      container.appendChild(wrapper);
+    });
+  }
+
+  function syncEditExcludeYearsVisibility() {
+    const container = document.getElementById("edit-exclude-years-container");
+    if (!container) return;
+
+    const countModeEl = document.getElementById("edit-count-mode");
+    const recentModeEl = document.getElementById("edit-date-range-recent");
+    const sourceEl = document.getElementById("edit-kline-source");
+    const visible =
+      (!countModeEl || countModeEl.value === "n_plus_1") &&
+      (!recentModeEl || recentModeEl.checked) &&
+      (!sourceEl || sourceEl.value !== "custom");
+    container.classList.toggle("d-none", !visible);
+  }
+
+  function ensureEmptyOption(select, label) {
+    if (!select || select.querySelector('option[value=""]')) {
+      return;
+    }
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = label;
+    select.insertBefore(option, select.firstChild);
+  }
+
+  function syncEditKlinePriceState() {
+    const sourceEl = document.getElementById("edit-kline-source");
+    const priceModeEl = document.getElementById("edit-price-mode");
+    const adjustmentEl = document.getElementById("edit-kline-adjustment");
+    const isCustom = !!sourceEl && sourceEl.value === "custom";
+    const c1_1 = isC1_1Config(editModalConfig);
+    const forceOhlc =
+      isC7V03Config(editModalConfig) &&
+      (!sourceEl || sourceEl.value === "auto");
+
+    if (priceModeEl) {
+      if (isCustom) {
+        priceModeEl.disabled = true;
+      } else if (c1_1) {
+        priceModeEl.value = "random_price";
+        priceModeEl.disabled = true;
+      } else if (forceOhlc) {
+        priceModeEl.value = "ohlc_price";
+        priceModeEl.disabled = true;
+      } else {
+        priceModeEl.disabled = false;
+      }
+    }
+    if (adjustmentEl) {
+      adjustmentEl.disabled = isCustom;
+    }
+
+    const randomFields = document.getElementById("edit-random-price-fields");
+    if (randomFields) {
+      randomFields.classList.toggle(
+        "d-none",
+        isCustom || !priceModeEl || priceModeEl.value !== "random_price"
+      );
+    }
+    syncEditExcludeYearsVisibility();
+  }
+
+  function populateEditKlinePriceFields(config) {
+    editModalConfig = config || {};
+
+    const sourceEl = document.getElementById("edit-kline-source");
+    const isCustom = !!sourceEl && (config.kline_source || "auto") === "custom";
+    if (sourceEl) {
+      sourceEl.value = config.kline_source || "auto";
+      // K线来源决定 Sheet 输入列布局，创建后不允许在详情页切换
+      sourceEl.disabled = true;
+      sourceEl.title = "K线来源在任务创建后不可修改，如需切换请创建新任务";
+    }
+
+    const priceModeEl = document.getElementById("edit-price-mode");
+    if (priceModeEl) {
+      if (isCustom) {
+        ensureEmptyOption(priceModeEl, "自定义K线（不适用）");
+        priceModeEl.value = "";
+      } else {
+        priceModeEl.value =
+          config.price_mode ||
+          (isC1_1Config(config) ? "random_price" : "vwap_price");
+      }
+      if (!priceModeEl._bindedForKlinePrice) {
+        priceModeEl.addEventListener("change", syncEditKlinePriceState);
+        priceModeEl._bindedForKlinePrice = true;
+      }
+    }
+
+    const adjustmentEl = document.getElementById("edit-kline-adjustment");
+    if (adjustmentEl) {
+      if (isCustom) {
+        ensureEmptyOption(adjustmentEl, "自定义K线（不适用）");
+        adjustmentEl.value = "";
+      } else {
+        adjustmentEl.value = config.kline_adjustment || "forward";
+      }
+    }
+
+    const dataSourceEl = document.getElementById("edit-kline-data-source");
+    if (dataSourceEl) {
+      dataSourceEl.value = config.kline_data_source || "akshare";
+    }
+
+    const vwapEl = document.getElementById("edit-c1-1-vwap-enabled");
+    if (vwapEl) {
+      vwapEl.checked = config.c1_1_vwap_enabled !== false;
+    }
+
+    const randomRangeEl = document.getElementById(
+      "edit-random-price-range"
+    );
+    if (randomRangeEl) {
+      randomRangeEl.value = config.random_price_range || "high_low";
+    }
+
+    const randomGroupEl = document.getElementById(
+      "edit-random-group-count"
+    );
+    if (randomGroupEl) {
+      randomGroupEl.value = config.random_group_count || 1;
+    }
+
+    const randomSeriesEl = document.getElementById(
+      "edit-random-series-mode"
+    );
+    if (randomSeriesEl) {
+      randomSeriesEl.value = config.random_series_mode || "per_window";
+    }
+
+    const recentModeEl = document.getElementById("edit-date-range-recent");
+    if (recentModeEl && !recentModeEl._bindedForExcludeYears) {
+      recentModeEl.addEventListener(
+        "change",
+        syncEditExcludeYearsVisibility
+      );
+      recentModeEl._bindedForExcludeYears = true;
+    }
+
+    renderEditExcludeYearOptions(config.exclude_recent_years);
+    syncEditKlinePriceState();
+  }
+
+  function isEditCustomKline() {
+    const sourceEl = document.getElementById("edit-kline-source");
+    return !!sourceEl && sourceEl.value === "custom";
+  }
+
+  // 收集编辑弹窗中的 K线/价格字段；无该区域（C4）时返回空对象
+  function collectEditKlinePriceFields() {
+    const sourceEl = document.getElementById("edit-kline-source");
+    if (!sourceEl) {
+      return {};
+    }
+
+    const result = {
+      kline_source: sourceEl.value || "auto",
+    };
+
+    const dataSourceEl = document.getElementById("edit-kline-data-source");
+    if (dataSourceEl) {
+      result.kline_data_source = dataSourceEl.value || "akshare";
+    }
+
+    const vwapEl = document.getElementById("edit-c1-1-vwap-enabled");
+
+    // 自定义K线：价格类型/复权/随机价/近年区间必须为空（后端强校验）
+    if (result.kline_source === "custom") {
+      result.price_mode = null;
+      result.kline_adjustment = null;
+      result.random_price_range = null;
+      result.random_group_count = null;
+      result.random_series_mode = null;
+      result.exclude_recent_years = [];
+      if (vwapEl) {
+        result.c1_1_vwap_enabled = !!vwapEl.checked;
+      }
+      return result;
+    }
+
+    const priceModeEl = document.getElementById("edit-price-mode");
+    result.price_mode = priceModeEl
+      ? priceModeEl.value || "vwap_price"
+      : "vwap_price";
+
+    const adjustmentEl = document.getElementById("edit-kline-adjustment");
+    if (adjustmentEl) {
+      result.kline_adjustment = adjustmentEl.value || "forward";
+    }
+
+    if (result.price_mode === "random_price") {
+      const groupEl = document.getElementById("edit-random-group-count");
+      const groupCount = groupEl ? parseInt(groupEl.value, 10) : 1;
+      if (!Number.isInteger(groupCount) || groupCount < 1) {
+        showNotification("随机组数必须是正整数", "error");
+        return null;
+      }
+      const rangeEl = document.getElementById("edit-random-price-range");
+      const seriesEl = document.getElementById("edit-random-series-mode");
+      result.random_price_range = rangeEl ? rangeEl.value : "high_low";
+      result.random_group_count = groupCount;
+      result.random_series_mode = seriesEl
+        ? seriesEl.value || "per_window"
+        : "per_window";
+    } else {
+      // 非随机价时显式清空，服务端 exclude_none 会移除这些键
+      result.random_price_range = null;
+      result.random_group_count = null;
+      result.random_series_mode = null;
+    }
+
+    if (vwapEl) {
+      result.c1_1_vwap_enabled = !!vwapEl.checked;
+    }
+
+    const excludeContainer = document.getElementById(
+      "edit-exclude-years-container"
+    );
+    result.exclude_recent_years =
+      excludeContainer && !excludeContainer.classList.contains("d-none")
+        ? Array.prototype.slice
+            .call(excludeContainer.querySelectorAll(".edit-exclude-year"))
+            .filter(function (el) {
+              return el.checked;
+            })
+            .map(function (el) {
+              return Number(el.value);
+            })
+        : [];
+
+    return result;
+  }
+
   Biz.configEdit = {
     openEditConfigModal: openEditConfigModal,
     renderEditProductCodeChips: renderEditProductCodeChips,
@@ -389,5 +764,14 @@
     formatMarketType: formatMarketType,
     formatTokenType: formatTokenType,
     formatKlineDataSource: formatKlineDataSource,
+    formatPriceMode: formatPriceMode,
+    formatKlineSource: formatKlineSource,
+    formatKlineAdjustment: formatKlineAdjustment,
+    formatRandomPriceRange: formatRandomPriceRange,
+    formatRandomSeriesMode: formatRandomSeriesMode,
+    appendRandomPriceConfigBlock: appendRandomPriceConfigBlock,
+    collectEditKlinePriceFields: collectEditKlinePriceFields,
+    isEditCustomKline: isEditCustomKline,
+    isRandomPriceMode: isRandomPriceMode,
   };
 })();

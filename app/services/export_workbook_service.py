@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import cmp_to_key
 from io import BytesIO
-from typing import Any
+from typing import Any, Callable
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
@@ -22,10 +22,17 @@ from app.constants.c_template_layout import (
 from app.exceptions import ValidationError
 from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
+from app.utils.model_version import normalize_model_version, resolve_model_version
 
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ZIP_MIMETYPE = "application/zip"
+
+# 统一导出文件名规范：{基名}-{模型版本}-{K线起}-{K线止}-{导出时间}.{扩展名}
+# 段间 `-`、段内 `_`；模型版本/区间缺失时整段省略；导出时间恒在。
+EXPORT_FILENAME_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
+# 基名+后缀总长上限（含扩展名），超长时截断基名，保护 Windows 路径长度。
+EXPORT_FILENAME_MAX_LENGTH = 180
 
 # C5 分组 sheet 只展示业务关注列；kline_range 仅作为拆 sheet 的分组依据，不展示在表格里。
 C5_EXPORT_COLUMNS = [
@@ -81,6 +88,7 @@ PERCENT_COLUMN_NAMES = {
     "Index max dd",
     "单位理论杠杆率收益",
     "单位实际杠杆率收益",
+    "平均波动率",
 }
 
 FOUR_DECIMAL_COLUMN_NAMES = {
@@ -189,6 +197,12 @@ C5_COLUMN_WIDTHS = {
     "模型夏普": 11,
 }
 
+# C1.1 导出列 = C5 导出列在"单位实际杠杆率收益"右侧追加"平均波动率"（结果块 F23）；
+# ml 列保留表头但 C1.1 无 B1 语义，内容留空。
+C1_1_EXPORT_COLUMNS = [*C5_EXPORT_COLUMNS]
+C1_1_AVG_VOLATILITY_COLUMN_INDEX = C1_1_EXPORT_COLUMNS.index("单位实际杠杆率收益") + 1
+C1_1_EXPORT_COLUMNS.insert(C1_1_AVG_VOLATILITY_COLUMN_INDEX, "平均波动率")
+
 
 @dataclass(frozen=True)
 class GeneratedExport:
@@ -234,10 +248,150 @@ class C5ExportRecord:
     row: list[Any]
 
 
-def _excel_export(task: Any, worksheets: list[WorksheetData]) -> GeneratedExport:
-    """C7/C5/C3 共用的 Excel 组装：文件名取任务名，worksheet 由各类型给定。"""
+def normalize_filename_date(value: Any) -> str:
+    """日期归一为 YYYYMMDD 文件名段；无法识别返回空串。"""
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y%m%d")
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    head = re.split(r"[ T]", text)[0]
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(head, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+    return ""
+
+
+def build_export_filename(
+    base: Any,
+    model_version: Any = "",
+    kline_start: Any = "",
+    kline_end: Any = "",
+    extension: str = "xlsx",
+    *,
+    now: datetime | None = None,
+) -> str:
+    """按统一规范组装导出文件名。
+
+    模型版本/K线区间缺失时整段省略，区间段成对出现（起止归一后按时间升序）；
+    导出时间段恒在；总长超上限时截断基名。
+    """
+
+    stamp = (now or datetime.now()).strftime(EXPORT_FILENAME_TIMESTAMP_FORMAT)
+    start_text = normalize_filename_date(kline_start)
+    end_text = normalize_filename_date(kline_end)
+    if start_text and end_text and start_text > end_text:
+        start_text, end_text = end_text, start_text
+    if not (start_text and end_text):
+        start_text = end_text = ""
+    version_text = str(model_version or "").strip()
+    segments = [
+        sanitize_export_filename(base),
+        sanitize_export_filename(version_text) if version_text else "",
+        start_text,
+        end_text,
+        stamp,
+    ]
+    filename = "-".join(segment for segment in segments if segment)
+    if len(filename) > EXPORT_FILENAME_MAX_LENGTH:
+        overflow = len(filename) - EXPORT_FILENAME_MAX_LENGTH
+        kept_base = segments[0][: max(len(segments[0]) - overflow, 1)].rstrip("-_ .")
+        filename = "-".join([kept_base, *(segment for segment in segments[1:] if segment)])
+    return f"{filename}.{extension}" if extension else filename
+
+
+def kline_bounds_from_params(params: dict[str, Any]) -> tuple[str, str]:
+    """从参数 kline 明细取真实首末交易日（原样字符串）；缺失返回 ("", "")。"""
+
+    kline = params.get("kline") if isinstance(params, dict) else None
+    if not isinstance(kline, list):
+        return "", ""
+    dated = sorted(
+        str(row.get("stock_date") or "")
+        for row in kline
+        if isinstance(row, dict) and row.get("stock_date")
+    )
+    if not dated:
+        return "", ""
+    return dated[0], dated[-1]
+
+
+def kline_bounds_from_results(results: list[dict[str, Any]]) -> tuple[str, str]:
+    """结果集整体 K 线包络（所有组合真实首末交易日的 min/max）；缺失返回 ("", "")。"""
+
+    bounds = [
+        kline_bounds_from_params(
+            item.get("parameters") if isinstance(item.get("parameters"), dict) else {}
+        )
+        for item in results or []
+    ]
+    starts = sorted(bound[0] for bound in bounds if bound[0])
+    ends = sorted(bound[1] for bound in bounds if bound[1])
+    if not starts or not ends:
+        return "", ""
+    return starts[0], ends[-1]
+
+
+def model_version_from_config(config: Any) -> str:
+    """任务配置里的模型版本：sheets[0].model_version 优先，回落根级 model_version（历史平铺形态）。"""
+
+    if not isinstance(config, dict):
+        return ""
+    sheets = config.get("sheets")
+    first_sheet = (
+        sheets[0]
+        if isinstance(sheets, list) and sheets and isinstance(sheets[0], dict)
+        else {}
+    )
+    version = normalize_model_version(first_sheet.get("model_version"))
+    if version:
+        return version
+    return normalize_model_version(config.get("model_version")) or ""
+
+
+def model_version_from_results(results: list[dict[str, Any]], task: Any = None) -> str:
+    """结果组合打标的模型版本：唯一则返回，混版本/未知返回空串（文件名省略该段）。
+
+    历史 taskId 无打标时回落任务配置（sheets[]/根级 model_version）与任务类型推断。
+    """
+
+    versions = {
+        normalized
+        for item in results or []
+        if isinstance(item.get("parameters"), dict)
+        for normalized in (normalize_model_version(item["parameters"].get("model_version")),)
+        if normalized
+    }
+    if len(versions) == 1:
+        return next(iter(versions))
+    if versions or task is None:
+        return ""
+    config = getattr(task, "config", None)
+    fallback = model_version_from_config(config)
+    if fallback:
+        return fallback
+    sheets = config.get("sheets") if isinstance(config, dict) and isinstance(config.get("sheets"), list) else []
+    first_sheet = sheets[0] if sheets and isinstance(sheets[0], dict) else {}
+    return resolve_model_version(_task_type(task), first_sheet)
+
+
+def _excel_export(
+    task: Any,
+    worksheets: list[WorksheetData],
+    results: list[dict[str, Any]] | None = None,
+) -> GeneratedExport:
+    """C7/C5/C3 共用的 Excel 组装：文件名走统一命名规范，worksheet 由各类型给定。"""
+    kline_start, kline_end = kline_bounds_from_results(results or [])
     return GeneratedExport(
-        filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
+        filename=build_export_filename(
+            _task_name(task),
+            model_version=model_version_from_results(results or [], task),
+            kline_start=kline_start,
+            kline_end=kline_end,
+        ),
         mimetype=EXCEL_MIMETYPE,
         workbook=build_workbook(worksheets),
     )
@@ -268,13 +422,18 @@ def _generic_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport
         ]
         for item in results
     ]
-    return _excel_export(task, [WorksheetData(name="任务结果", header=header, rows=rows)])
+    return _excel_export(
+        task,
+        [WorksheetData(name="任务结果", header=header, rows=rows)],
+        results=results,
+    )
 
 
 def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool = False) -> GeneratedExport:
     """导出统一入口；路由层负责查任务和结果，本服务只做格式转换。
 
     - C7/C1.1：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
+      C1.1 用自身列布局（单位实际杠杆率收益右侧加平均波动率），其余走 C5 列；
     - C5：展开每个模型为一行，按 K 线范围拆分 worksheet；
     - C3（google_sheet/google_sheet_c3）：每个参数组合一行，按 K 线范围拆分 worksheet；
     - 其余任务类型走通用兜底。
@@ -287,11 +446,13 @@ def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool =
             if task_type == "google_sheet_c1_1"
             else normalize_c7_export_results(results)
         )
-        return _excel_export(task, build_c5_worksheets(normalized, by_stock))
+        if task_type == "google_sheet_c1_1":
+            return _excel_export(task, build_c1_1_worksheets(normalized, by_stock), results)
+        return _excel_export(task, build_c5_worksheets(normalized, by_stock), results)
     if task_type == "google_sheet_c5":
-        return _excel_export(task, build_c5_worksheets(results, by_stock))
+        return _excel_export(task, build_c5_worksheets(results, by_stock), results)
     if task_type in ("google_sheet", "google_sheet_c3"):
-        return _excel_export(task, build_c3_worksheets(results, by_stock))
+        return _excel_export(task, build_c3_worksheets(results, by_stock), results)
     return _generic_export(task, results)
 
 
@@ -314,13 +475,25 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     archive_buffer = BytesIO()
     used_filenames: set[str] = set()
     task_name = sanitize_export_filename(_task_name(task))
+    # 混版本（C7 多表各选版本）时版本段省略；zip 外层按规范不带区间段。
+    model_version = model_version_from_results(results, task)
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
         for stock_code in sorted(grouped_results, reverse=True):
-            workbook_export = build_task_export(task, grouped_results[stock_code], by_stock=True)
+            stock_results = grouped_results[stock_code]
+            workbook_export = build_task_export(task, stock_results, by_stock=True)
             workbook_buffer = BytesIO()
             workbook_export.workbook.save(workbook_buffer)
 
-            filename_base = sanitize_export_filename(f"{task_name}_{stock_code}")
+            stock_start, stock_end = kline_bounds_from_results(stock_results)
+            filename_base = sanitize_export_filename(
+                build_export_filename(
+                    f"{task_name}_{stock_code}",
+                    model_version=model_version_from_results(stock_results, task) or model_version,
+                    kline_start=stock_start,
+                    kline_end=stock_end,
+                    extension="",
+                )
+            )
             filename = f"{filename_base}.xlsx"
             suffix = 2
             while filename in used_filenames:
@@ -331,23 +504,39 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
 
     archive_buffer.seek(0)
     return GeneratedArchive(
-        filename=f"{task_name}_按股票代码导出.zip",
+        filename=build_export_filename(
+            f"{task_name}_按股票代码导出",
+            model_version=model_version,
+            extension="zip",
+        ),
         mimetype=ZIP_MIMETYPE,
         buffer=archive_buffer,
     )
 
 
-def build_c5_records(results: list[dict[str, Any]], by_stock: bool = False) -> list[C5ExportRecord]:
-    """生成带分组上下文的导出行；上下文用于排序和拆 sheet，不写入最终 Excel。"""
+def build_c5_records(
+    results: list[dict[str, Any]],
+    by_stock: bool = False,
+    *,
+    empty_model_row: Callable[[C5ResultGroup, bool], list[Any]] | None = None,
+    model_row: Callable[[C5ResultGroup, dict[str, Any], bool], list[Any]] | None = None,
+) -> list[C5ExportRecord]:
+    """生成带分组上下文的导出行；上下文用于排序和拆 sheet，不写入最终 Excel。
+
+    行构建器可替换：C1.1 复用分组/排序骨架，仅替换行投影（见 build_c1_1_worksheets）。
+    """
+
+    empty_row_builder = empty_model_row or c5_empty_model_row
+    row_builder = model_row or c5_model_row
 
     records = []
     for group in build_c5_groups(results):
         if not group.models:
-            records.append(C5ExportRecord(group=group, row=c5_empty_model_row(group, by_stock)))
+            records.append(C5ExportRecord(group=group, row=empty_row_builder(group, by_stock)))
             continue
 
         for model in group.models:
-            records.append(C5ExportRecord(group=group, row=c5_model_row(group, model, by_stock)))
+            records.append(C5ExportRecord(group=group, row=row_builder(group, model, by_stock)))
 
     return sort_c5_records(records)
 
@@ -507,7 +696,8 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
 
 
 # C1.1 结果块（默认 F2:F26，行序见 result_payload.C1_1_RESULT_FIELD_SPECS）→ C5 导出 D 键的行偏移。
-# C1.1 模板没有单位理论/实际杠杆率收益（D17/D20），对应列留空。
+# 单位理论杠杆率收益（D17）按业务约定用 F16 最大杠杆率补充（非百分数，原样透传）；
+# 单位实际杠杆率收益（D20）无对应单元格，留空。
 C1_1_TO_C5_METRIC_OFFSETS = {
     "D2": 2,    # return_rate
     "D3": 3,    # annualized_rate
@@ -518,8 +708,17 @@ C1_1_TO_C5_METRIC_OFFSETS = {
     "D11": 10,  # return_beats
     "D12": 11,  # dd_beats
 }
+C1_1_MAX_LEVERAGE_OFFSET = 14    # F16 最大杠杆率 → D17 单位理论杠杆率收益列
+C1_1_AVG_VOLATILITY_OFFSET = 21  # F23 平均波动率 → 独立导出列
 C1_1_REF_XM_OFFSET = 22
 C1_1_DEFAULT_RANGE_ANCHOR = ("F", 2)
+
+
+def _with_percent_suffix(value: Any) -> Any:
+    """结果块百分数裸数字补 "%"；已带 "%" 或非字符串原样返回。"""
+    if isinstance(value, str) and value.strip() and "%" not in value:
+        return f"{value}%"
+    return value
 
 
 def _c1_1_range_anchor(output_range: Any) -> tuple[str, int]:
@@ -534,7 +733,9 @@ def _c1_1_range_anchor(output_range: Any) -> tuple[str, int]:
 def normalize_c1_1_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """把 C1.1 的结果块单元格键映射成 C5 导出函数使用的 D2:D20 键。
 
-    xm/ml 两列 C1.1 参数里没有 A1/B1 语义，取结果块 ref_xm 与随机分组补齐。
+    xm/ml 两列 C1.1 参数里没有 A1/B1 语义：xm 取结果块 ref_xm，ml 列保留表头但内容留空。
+    D17 用结果块最大杠杆率（F16）补充；平均波动率（F23）以 "avg_volatility" 键透出，
+    由 C1.1 行构建器插入单位实际杠杆率收益右侧。
     """
 
     normalized_results = []
@@ -555,10 +756,13 @@ def normalize_c1_1_export_results(results: list[dict[str, Any]]) -> list[dict[st
                 continue
             normalized = dict(metrics)
             for c5_key, offset in C1_1_TO_C5_METRIC_OFFSETS.items():
-                value = metrics.get(f"{output_column}{output_row + offset}", "")
-                if isinstance(value, str) and value.strip() and "%" not in value:
-                    value = f"{value}%"
-                normalized[c5_key] = value
+                normalized[c5_key] = _with_percent_suffix(
+                    metrics.get(f"{output_column}{output_row + offset}", "")
+                )
+            normalized["D17"] = metrics.get(f"{output_column}{output_row + C1_1_MAX_LEVERAGE_OFFSET}", "")
+            normalized["avg_volatility"] = _with_percent_suffix(
+                metrics.get(f"{output_column}{output_row + C1_1_AVG_VOLATILITY_OFFSET}", "")
+            )
             if not ref_xm:
                 ref_xm = metrics.get(f"{output_column}{output_row + C1_1_REF_XM_OFFSET}", "")
             normalized_models[model_key] = normalized
@@ -567,7 +771,6 @@ def normalize_c1_1_export_results(results: list[dict[str, Any]]) -> list[dict[st
         normalized_item["result"] = normalized_models
         normalized_params = dict(parameters)
         normalized_params["A1"] = ref_xm
-        normalized_params["B1"] = parameters.get("random_group", "")
         normalized_item["parameters"] = normalized_params
         normalized_results.append(normalized_item)
     return normalized_results
@@ -592,6 +795,39 @@ def build_c5_worksheets(results: list[dict[str, Any]], by_stock: bool = False) -
 
     records = build_c5_records(results, by_stock)
     header = C5_EXPORT_COLUMNS + export_tail_columns(by_stock)
+    if not records:
+        return [WorksheetData(name="无K线区间", header=header, rows=[])]
+
+    grouped_rows = group_c5_records_by_kline_range(records)
+
+    return [
+        WorksheetData(name=group_name, header=header, rows=group_rows)
+        for group_name, group_rows in grouped_rows.items()
+    ]
+
+
+def c1_1_empty_model_row(group: C5ResultGroup, by_stock: bool = False) -> list[Any]:
+    row = c5_empty_model_row(group, by_stock)
+    row.insert(C1_1_AVG_VOLATILITY_COLUMN_INDEX, "")
+    return row
+
+
+def c1_1_model_row(group: C5ResultGroup, model: dict[str, Any], by_stock: bool = False) -> list[Any]:
+    row = c5_model_row(group, model, by_stock)
+    row.insert(C1_1_AVG_VOLATILITY_COLUMN_INDEX, model["metrics"].get("avg_volatility") or "")
+    return row
+
+
+def build_c1_1_worksheets(results: list[dict[str, Any]], by_stock: bool = False) -> list[WorksheetData]:
+    """C1.1 列布局：在 C5 行基础上于单位实际杠杆率收益右侧插入平均波动率（F23）。"""
+
+    records = build_c5_records(
+        results,
+        by_stock,
+        empty_model_row=c1_1_empty_model_row,
+        model_row=c1_1_model_row,
+    )
+    header = C1_1_EXPORT_COLUMNS + export_tail_columns(by_stock)
     if not records:
         return [WorksheetData(name="无K线区间", header=header, rows=[])]
 
@@ -632,16 +868,10 @@ def sort_c5_sheet_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]
 def kline_range_from_params(params: dict[str, Any]) -> str:
     """从参数里的 kline 明细推导展示区间；缺失时统一归到 '-' 分组。"""
 
-    kline = params.get("kline")
-    if not isinstance(kline, list):
+    start, end = kline_bounds_from_params(params)
+    if not start:
         return "-"
-
-    dated_rows = [row for row in kline if isinstance(row, dict) and row.get("stock_date")]
-    if not dated_rows:
-        return "-"
-
-    dated_rows.sort(key=lambda row: str(row.get("stock_date") or ""))
-    return f"{dated_rows[0].get('stock_date', '-')} ~ {dated_rows[-1].get('stock_date', '-')}"
+    return f"{start} ~ {end}"
 
 
 def build_workbook(worksheets: list[WorksheetData]) -> Workbook:

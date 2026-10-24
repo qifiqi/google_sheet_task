@@ -463,6 +463,41 @@ def test_c1_1_creation_rejects_invalid_random_range():
         _normalize_c1_1_random_price_config({"random_price_range": "mid_low"})
 
 
+def test_c1_1_creation_normalizes_random_series_mode():
+    from app.services.task.creation import _normalize_c1_1_random_price_config
+
+    normalized = _normalize_c1_1_random_price_config({
+        "random_series_mode": " FULL_TRUNCATE ",
+    })
+    assert normalized["random_series_mode"] == "full_truncate"
+
+    defaulted = _normalize_c1_1_random_price_config({})
+    assert defaulted["random_series_mode"] == "per_window"
+
+
+def test_c1_1_creation_rejects_invalid_random_series_mode():
+    from app.exceptions import ValidationError
+    from app.services.task.creation import _normalize_c1_1_random_price_config
+
+    with pytest.raises(ValidationError):
+        _normalize_c1_1_random_price_config({"random_series_mode": "by_year"})
+
+
+def test_c7_creation_pops_random_series_mode_when_not_random_price():
+    from app.services.task.creation import _normalize_c7_random_price_config
+
+    normalized = _normalize_c7_random_price_config({
+        "price_mode": "sp_price",
+        "random_price_range": "high_low",
+        "random_group_count": 2,
+        "random_series_mode": "full_truncate",
+    })
+
+    assert "random_series_mode" not in normalized
+    assert "random_price_range" not in normalized
+    assert "random_group_count" not in normalized
+
+
 def test_c1_1_task_config_shape_validation():
     from app.schemas.task_configs import validate_task_config_shape
 

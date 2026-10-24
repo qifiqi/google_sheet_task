@@ -664,6 +664,8 @@ function init(V) {
         if (randomRangeSelect) randomRangeSelect.value = normalized.random_price_range || 'high_low';
         const randomGroupInput = document.getElementById('random_group_count');
         if (randomGroupInput) randomGroupInput.value = normalized.random_group_count || 1;
+        const randomSeriesModeSelect = document.getElementById('random_series_mode');
+        if (randomSeriesModeSelect) randomSeriesModeSelect.value = normalized.random_series_mode || 'per_window';
         const vwapSwitch = document.getElementById('c1_1_vwap_enabled');
         if (vwapSwitch && normalized.c1_1_vwap_enabled !== undefined && normalized.c1_1_vwap_enabled !== null) {
             vwapSwitch.checked = !!normalized.c1_1_vwap_enabled;
@@ -759,6 +761,23 @@ function init(V) {
 
     function isCustomKlineMode() {
         return document.querySelector('input[name="kline_source"]:checked')?.value === 'custom';
+    }
+
+    // 市场联动 K 线数据源：akshare/dfcf/qq/tdx 仅覆盖 A股行情，
+    // 用户把市场切换为非 A股（en/hk/...）时，数据源自动切到 Yahoo；切回 A股不自动还原。
+    function linkKlineSourceToMarket(marketType) {
+        const sourceSelect = document.getElementById('kline_data_source');
+        if (!sourceSelect) {
+            return;
+        }
+        const market = String(marketType || '').trim().toLowerCase();
+        if (!market || market === 'cn') {
+            return;
+        }
+        if (sourceSelect.value !== 'yahoo') {
+            sourceSelect.value = 'yahoo';
+            showNotification('非A股市场：K线数据源已联动切换为 Yahoo', 'info');
+        }
     }
 
     function setControlDisabled(element, disabled) {
@@ -986,7 +1005,7 @@ function init(V) {
         // 为所有输入字段添加自动保存
         const inputFields = [
             'token_file', 'token_json', 'proxy_url',
-            'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'kline_adjustment'
+            'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'random_series_mode', 'kline_adjustment'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1001,7 +1020,10 @@ function init(V) {
             bindSheetConfigItemEvents(item, debouncedSaveFormData);
         });
 
-        document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
+        document.getElementById('market_type')?.addEventListener('change', function() {
+            linkKlineSourceToMarket(this.value);
+            debouncedSaveFormData();
+        });
         const priceModeSelect = document.getElementById('price_mode');
         if (priceModeSelect && V.modelVersion.enabled) {
             priceModeSelect.addEventListener('change', function() {
@@ -1224,6 +1246,7 @@ function init(V) {
                 price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
                 random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
                 random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+                random_series_mode: document.getElementById('random_series_mode')?.value || 'per_window',
                 market_type: document.getElementById('market_type')?.value || 'cn',
                 kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
                 kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1465,6 +1488,7 @@ function init(V) {
             price_mode: priceMode,
             random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
             random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+            random_series_mode: priceMode === 'random_price' ? (document.getElementById('random_series_mode')?.value || 'per_window') : null,
             ...vwapEnabledField(),
             market_type: marketType,
             kline_adjustment: klineAdjustment,
@@ -1552,6 +1576,7 @@ function init(V) {
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
             random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+            random_series_mode: document.getElementById('random_series_mode')?.value || 'per_window',
             ...vwapEnabledField(),
             market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
@@ -1643,6 +1668,7 @@ function init(V) {
                 }
                 if (formData.random_price_range) document.getElementById('random_price_range').value = formData.random_price_range;
                 if (formData.random_group_count) document.getElementById('random_group_count').value = formData.random_group_count;
+                if (formData.random_series_mode) document.getElementById('random_series_mode').value = formData.random_series_mode;
                 if (formData.c1_1_vwap_enabled !== undefined) {
                     const draftVwapSwitch = document.getElementById('c1_1_vwap_enabled');
                     if (draftVwapSwitch) draftVwapSwitch.checked = !!formData.c1_1_vwap_enabled;
@@ -1805,6 +1831,7 @@ function init(V) {
                 price_mode: priceMode,
                 random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
                 random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+                random_series_mode: priceMode === 'random_price' ? (document.getElementById('random_series_mode')?.value || 'per_window') : null,
                 ...vwapEnabledField(),
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
@@ -1855,6 +1882,7 @@ function init(V) {
             price_mode: raw.price_mode || 'vwap_price',
             random_price_range: raw.random_price_range || 'high_low',
             random_group_count: raw.random_group_count || 1,
+            random_series_mode: raw.random_series_mode || 'per_window',
             c1_1_vwap_enabled: raw.c1_1_vwap_enabled === undefined ? true : !!raw.c1_1_vwap_enabled,
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,

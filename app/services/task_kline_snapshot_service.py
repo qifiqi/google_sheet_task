@@ -150,7 +150,10 @@ class TaskKlineSnapshotService:
         random_price_range: str,
         seed: str,
         rows: list[dict[str, Any]],
+        values: list[float] | None = None,
     ) -> dict[str, Any]:
+        """values 非空时直接用作序列值（full_truncate 模式的全区间截断切片），
+        不再按 rows 现场重摇；行数仍必须与源快照一致。"""
         normalized_mode = str(price_mode or "").strip().lower()
         if normalized_mode != "random_price":
             raise ValueError("随机K线序列仅支持 price_mode=random_price")
@@ -186,7 +189,8 @@ class TaskKlineSnapshotService:
                 self._raise_snapshot_mismatch("随机K线序列", mismatched)
             return existing
 
-        values = self._build_random_values(rows, normalized_range, seed)
+        if values is None:
+            values = self._build_random_values(rows, normalized_range, seed)
         row_count = int(source.get("row_count") or len(values))
         if len(values) != row_count:
             raise ValueError("随机K线序列行数与源快照不一致")

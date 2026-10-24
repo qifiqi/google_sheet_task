@@ -225,6 +225,112 @@
     return key !== "metrics_payload";
   }
 
+  // ------------------------------
+  // 「更多」结果详情弹窗共享渲染（c1_1/c4/c5/c7 + C3 详情页统一格式）。
+  // 页面只负责取数、指标 label 与数值格式化；meta 卡片、收益分析卡片、
+  // 指标网格的拼装统一在这里，避免五个页面各写一份导致格式漂移。
+  // ------------------------------
+
+  // meta 信息卡片网格。items: [{label, value}] 或 [{label, html}]（html 用于徽章等富文本，调用方保证已转义）。
+  function renderResultDetailMeta(items) {
+    const chips = (Array.isArray(items) ? items : [])
+      .filter((item) => item && item.label != null)
+      .map((item) => {
+        const valueHtml =
+          item.html != null
+            ? item.html
+            : `<span>${escapeHtml(item.value == null || item.value === "" ? "-" : String(item.value))}</span>`;
+        const titleAttr =
+          item.value == null ? "" : ` title="${escapeHtml(String(item.value))}"`;
+        return `
+          <div class="col-6 col-md-4 col-xl-2">
+            <div class="border rounded p-1 px-2 h-100">
+              <div class="text-muted" style="font-size: 0.75rem;">${escapeHtml(item.label)}</div>
+              <div class="fw-semibold small text-break"${titleAttr}>${valueHtml}</div>
+            </div>
+          </div>`;
+      });
+    if (chips.length === 0) {
+      return "";
+    }
+    return `<div class="row g-2">${chips.join("")}</div>`;
+  }
+
+  // 模型/指数收益分析卡片（start_return_xpl / index_return_xpl 字典 → 7 行固定字段）。
+  // formatFloat：页面传入的数值格式化回调（如 formatMetricRawValue(v, 6)），返回 null 时显示「-」。
+  function renderReturnAnalysisCard(title, data, formatFloat) {
+    if (!isPlainObject(data)) {
+      return "";
+    }
+    const format = typeof formatFloat === "function" ? formatFloat : (v) => v;
+    const line = (label, value) => {
+      const text = value == null || value === "" ? null : String(value);
+      const display =
+        text == null
+          ? '<span class="text-muted">-</span>'
+          : escapeHtml(text);
+      const titleAttr = text == null ? "" : ` title="${escapeHtml(text)}"`;
+      return `
+        <div class="d-flex justify-content-between gap-2 border-bottom py-1">
+          <span class="text-muted flex-shrink-0">${escapeHtml(label)}</span>
+          <span class="text-end text-truncate"${titleAttr}>${display}</span>
+        </div>`;
+    };
+
+    return `
+      <div class="col-12 col-md-6">
+        <div class="card h-100">
+          <div class="card-header py-1 px-2 small fw-semibold">${escapeHtml(title)}</div>
+          <div class="card-body py-1 px-2 small">
+            ${line("起始日期", data.start_date)}
+            ${line("结束日期", data.end_date)}
+            ${line("月份数", data.month_count)}
+            ${line("平均月收益", format(data.avg_monthly_return))}
+            ${line("月度波动率", format(data.monthly_std_dev))}
+            ${line("年化波动率", format(data.annual_std_dev))}
+            ${line("夏普率", format(data.sharpe_ratio))}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // 弹窗主体：收益分析卡片行 + 指标网格。entries: [{label, html, wide?}]，
+  // label/html 由页面用各自的映射表渲染好传入；wide 用于数组/嵌套对象等长内容独占一行。
+  function renderResultDetailBody(options) {
+    const opts = isPlainObject(options) ? options : {};
+    const cards = Array.isArray(opts.cards) ? opts.cards.filter(Boolean) : [];
+    const entries = Array.isArray(opts.entries) ? opts.entries.filter(Boolean) : [];
+
+    const cardsHtml =
+      cards.length > 0 ? `<div class="row g-2 mb-3">${cards.join("")}</div>` : "";
+
+    const itemsHtml = entries
+      .map((entry) => {
+        if (entry.wide) {
+          return `
+            <div class="col-12">
+              <div class="border rounded px-2 py-1 small">
+                <div class="text-muted">${entry.label}</div>
+                <div class="mt-1">${entry.html}</div>
+              </div>
+            </div>`;
+        }
+        return `
+          <div class="col-12 col-md-6">
+            <div class="d-flex justify-content-between align-items-center gap-2 border rounded px-2 py-1 h-100 small">
+              <span class="text-muted flex-shrink-0">${entry.label}</span>
+              <span class="text-end" style="min-width: 0;">${entry.html}</span>
+            </div>
+          </div>`;
+      })
+      .join("");
+
+    if (cardsHtml === "" && itemsHtml === "") {
+      return `<div class="text-muted text-center small py-3">${escapeHtml(opts.emptyText || "无详细指标")}</div>`;
+    }
+    return cardsHtml + (itemsHtml ? `<div class="row g-2">${itemsHtml}</div>` : "");
+  }
+
   Biz.taskPolling = {
     getTaskIdFromUrl: getTaskIdFromUrl,
     getFrequencyText: getFrequencyText,
@@ -241,5 +347,8 @@
     getModelSharpeValue: getModelSharpeValue,
     getDetailMetricSource: getDetailMetricSource,
     shouldShowDetailMetric: shouldShowDetailMetric,
+    renderResultDetailMeta: renderResultDetailMeta,
+    renderReturnAnalysisCard: renderReturnAnalysisCard,
+    renderResultDetailBody: renderResultDetailBody,
   };
 })();

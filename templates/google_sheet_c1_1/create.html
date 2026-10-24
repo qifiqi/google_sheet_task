@@ -238,6 +238,13 @@
                                                         <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
                                                     </div>
                                                     <div class="col-md-3">
+                                                        <label class="form-label" for="random_series_mode">随机序列模式</label>
+                                                        <select class="form-select" id="random_series_mode">
+                                                            <option value="per_window" selected>各窗口独立随机</option>
+                                                            <option value="full_truncate">全区间生成后按窗口截断</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
                                                         <label class="form-label d-block">加权平均价 vwap</label>
                                                         <div class="form-check form-switch">
                                                             <input class="form-check-input" type="checkbox" id="c1_1_vwap_enabled" checked>

@@ -1,13 +1,14 @@
 from io import BytesIO
 from types import SimpleNamespace
 from zipfile import ZipFile
+import re
 
 import pytest
 from openpyxl import load_workbook
 
 from app.exceptions import ValidationError
 from app.services.export_workbook_service import (
-    C5_EXPORT_COLUMNS,
+    C1_1_EXPORT_COLUMNS,
     build_c7_stock_code_export_archive,
     build_task_export,
 )
@@ -41,6 +42,8 @@ C1_1_METRICS = {
     "F10": "-32.00%",  # off8 max_index_dd → D7
     "F12": "2.91%",    # off10 return_beats → D11
     "F13": "-1.78%",   # off11 dd_beats → D12
+    "F16": "1.2345",   # off14 最大杠杆率 → 单位理论杠杆率收益列（非百分数，原样）
+    "F23": "1.5",      # off21 平均波动率 → 独立列（百分数）
     "F24": "5",        # off22 ref_xm → xm 列
     "metrics_payload": {
         "metrics": {
@@ -64,19 +67,23 @@ def test_c1_1_export_maps_result_block_to_c5_columns():
     sheet = export.workbook.active
 
     header = [cell.value for cell in sheet[1]]
-    assert header[: len(C5_EXPORT_COLUMNS)] == C5_EXPORT_COLUMNS
+    assert header[: len(C1_1_EXPORT_COLUMNS)] == C1_1_EXPORT_COLUMNS
     # 普通导出列尾：股票代码 + 结果ID
-    assert header[len(C5_EXPORT_COLUMNS):] == ["股票代码", "结果ID"]
+    assert header[len(C1_1_EXPORT_COLUMNS):] == ["股票代码", "结果ID"]
 
     row = [cell.value for cell in sheet[2]]
-    assert row[:2] == [5, "g3"]
+    # xm 取 ref_xm；ml 列保留但内容留空（不再回填 random_group）
+    assert row[:2] == [5, ""]
     assert row[2:5] == pytest.approx([0.2017, -0.0178, 0.0292])
     assert row[5:7] == pytest.approx([0.0291, -0.0178])
     assert row[7:13] == pytest.approx([0.6062, 0.0995, -0.3378, 0.4045, 0.0703, -0.32])
-    # C1_1 无单位理论/实际杠杆率收益（D17/D20）→ 留空
-    assert row[13:15] == ["", ""]
-    assert row[15:19] == pytest.approx([0.1111, 0.2222, 2.5, 1.5])
-    assert row[19:] == ["600000", 7]
+    # 单位理论杠杆率收益用 F16 最大杠杆率补充；单位实际杠杆率收益留空；
+    # 单位实际杠杆率收益右侧为平均波动率（F23，百分数）
+    assert row[13] == pytest.approx(1.2345)
+    assert row[14] == ""
+    assert row[15] == pytest.approx(0.015)
+    assert row[16:20] == pytest.approx([0.1111, 0.2222, 2.5, 1.5])
+    assert row[20:] == ["600000", 7]
 
 
 def test_c1_1_export_appends_percent_to_bare_numbers():
@@ -97,7 +104,7 @@ def test_c1_1_export_honours_custom_output_range():
     results = [_c1_1_result(9, "600000", "g2", metrics, output_range="AK3:AK27")]
 
     row = [cell.value for cell in build_task_export(_c1_1_task(), results).workbook.active[2]]
-    assert row[:2] == [5, "g2"]
+    assert row[:2] == [5, ""]
     assert row[2:5] == pytest.approx([0.2017, -0.0178, 0.0292])
 
 
@@ -109,14 +116,19 @@ def test_c1_1_stock_code_export_archive_groups_by_stock():
 
     archive = build_c7_stock_code_export_archive(_c1_1_task(), results)
 
-    assert archive.filename == "C1_1 导出_按股票代码导出.zip"
+    # 统一命名规范：模型版本回落任务类型 c1_1，区间取结果 kline 包络
+    assert re.fullmatch(r"C1_1 导出_按股票代码导出-c1_1-\d{8}_\d{6}\.zip", archive.filename)
     with ZipFile(archive.buffer) as zip_file:
-        assert zip_file.namelist() == ["C1_1 导出_600001.xlsx", "C1_1 导出_600000.xlsx"]
-        workbook = load_workbook(BytesIO(zip_file.read("C1_1 导出_600000.xlsx")), data_only=True)
+        member_names = zip_file.namelist()
+        assert [re.sub(r"-\d{8}_\d{6}\.xlsx$", "", name) for name in member_names] == [
+            "C1_1 导出_600001-c1_1-20240101-20241231",
+            "C1_1 导出_600000-c1_1-20240101-20241231",
+        ]
+        workbook = load_workbook(BytesIO(zip_file.read(member_names[1])), data_only=True)
 
     header = [cell.value for cell in workbook.active[1]]
     # 按股票代码导出列尾：仅结果ID
-    assert header[len(C5_EXPORT_COLUMNS):] == ["结果ID"]
+    assert header[len(C1_1_EXPORT_COLUMNS):] == ["结果ID"]
     assert workbook.active.cell(row=2, column=len(header)).value == 1
 
 

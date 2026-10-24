@@ -405,6 +405,143 @@ def test_persisted_values_match_legacy_memory_generation(app_factory):
         ]
 
 
+def test_full_truncate_shares_series_across_windows(app_factory):
+    """full_truncate 模式：各窗口序列 = 全区间序列按日期的截断切片，seed 不含窗口键。"""
+    with app_factory.app_context():
+        service = object.__new__(C7Service)
+        service.task_id = "task-full-truncate"
+        full_rows = _rows()
+        year_rows = full_rows[:10]
+        combinations = [
+            {"stock_code": "600000", "A1": 1, "B1": 2, "kline_key": "2026-2025"},
+            {"stock_code": "600000", "A1": 1, "B1": 2, "kline_key": "2026"},
+        ]
+        kline_map = {"2026-2025": full_rows, "2026": year_rows}
+        snapshot_meta = {
+            "stock_name": "测试股票",
+            "market_type": "cn",
+            "data_source": "dfcf",
+            "adjust_type": "forward",
+        }
+
+        expanded, series_map = service._expand_random_price_groups(
+            combinations,
+            kline_map,
+            "random_price",
+            "high_low",
+            2,
+            snapshot_meta=snapshot_meta,
+            random_series_mode="full_truncate",
+            full_kline=full_rows,
+            full_kline_key="2026-2025",
+        )
+
+        assert len(expanded) == 4
+        assert TaskKlineSource.query.filter_by(task_id=service.task_id).count() == 2
+        assert TaskRandomSeries.query.filter_by(task_id=service.task_id).count() == 4
+
+        # 同组号跨窗口共享同一条逻辑序列（seed 播种基准 = 全区间窗口键）
+        seed_windows = {}
+        for item in expanded:
+            series = task_kline_snapshot_repository.get_series_by_id(
+                item["kline_series_id"]
+            )
+            seed_windows.setdefault(series["seed"], set()).add(series["kline_key"])
+        for group in (1, 2):
+            seed = f"task-full-truncate:600000:2026-2025:high_low:{group}"
+            assert seed_windows[seed] == {"2026-2025", "2026"}
+
+        # 年度窗口值 = 全区间序列在该年日期区间的切片
+        full_group1 = series_map["2026-2025:random-1"]
+        year_group1 = series_map["2026:random-1"]
+        assert year_group1 == [
+            row for row in full_group1
+            if year_rows[0]["stock_date"] <= row["stock_date"] <= year_rows[-1]["stock_date"]
+        ]
+        # 不同组号仍是不同序列
+        assert [row["stock_val"] for row in full_group1] != [
+            row["stock_val"] for row in series_map["2026-2025:random-2"]
+        ]
+
+        # 内存路径（不落库）与持久化切片逐值一致
+        _memory_expanded, memory_map = service._expand_random_price_groups(
+            combinations,
+            kline_map,
+            "random_price",
+            "high_low",
+            2,
+            random_series_mode="full_truncate",
+            full_kline=full_rows,
+            full_kline_key="2026-2025",
+        )
+        for key in ("2026-2025:random-1", "2026:random-1"):
+            assert [row["stock_val"] for row in memory_map[key]] == [
+                row["stock_val"] for row in series_map[key]
+            ]
+
+
+def test_per_window_and_full_truncate_seeds_differ(app_factory):
+    """同一窗口同组号在两种模式下是不同序列（seed 基准不同）。"""
+    with app_factory.app_context():
+        service = object.__new__(C7Service)
+        service.task_id = "task-mode-compare"
+        rows = _rows()
+        combinations = [{"stock_code": "600000", "A1": 1, "B1": 2, "kline_key": "2026-2025"}]
+        kline_map = {"2026-2025": rows}
+        snapshot_meta = {
+            "stock_name": "测试股票",
+            "market_type": "cn",
+            "data_source": "dfcf",
+            "adjust_type": "forward",
+        }
+
+        _per_window, per_window_map = service._expand_random_price_groups(
+            combinations,
+            kline_map,
+            "random_price",
+            "high_low",
+            1,
+            snapshot_meta=snapshot_meta,
+            random_series_mode="per_window",
+            full_kline=rows,
+            full_kline_key="2026-2025",
+        )
+        _full, full_map = service._expand_random_price_groups(
+            combinations,
+            kline_map,
+            "random_price",
+            "high_low",
+            1,
+            snapshot_meta=snapshot_meta,
+            random_series_mode="full_truncate",
+            full_kline=rows,
+            full_kline_key="2026-2025",
+        )
+
+        # 单窗口下播种基准相同（窗口键 = 全区间键），两种模式逐值一致
+        assert [row["stock_val"] for row in per_window_map["2026-2025:random-1"]] == (
+            [row["stock_val"] for row in full_map["2026-2025:random-1"]]
+        )
+
+
+def test_get_or_create_series_rejects_values_length_mismatch(app_factory):
+    with app_factory.app_context():
+        source = _get_or_create_source()
+        with pytest.raises(ValueError, match="行数与源快照不一致"):
+            task_kline_snapshot_service.get_or_create_series(
+                source=source,
+                task_id="task-snapshot",
+                stock_code="600000",
+                kline_key="2026-2025",
+                random_group=3,
+                price_mode="random_price",
+                random_price_range="high_low",
+                seed="task-snapshot:600000:2026-2025:high_low:3",
+                rows=_rows(),
+                values=[1.0, 2.0],
+            )
+
+
 def test_source_snapshot_preserves_vwap(app_factory):
     with app_factory.app_context():
         rows = _rows()

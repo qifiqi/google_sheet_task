@@ -147,6 +147,7 @@ class C1_1Service(BaseGoogleSheetService):
             adjust_type=batch["adjust_type"],
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
+            random_series_mode=batch["random_series_mode"],
             data_source=batch["data_source"],
             include_vwap=batch["vwap_enabled"],
         )
@@ -211,7 +212,7 @@ class C1_1Service(BaseGoogleSheetService):
     def _get_all_parameters(self, parameter, count_mode, price_mode, end_date, start_date, market_type,
                             date_range_mode, exclude_recent_years, parameters, adjust_type=None,
                             random_price_range="high_low", random_group_count=1, data_source="akshare",
-                            include_vwap=True):
+                            random_series_mode="per_window", include_vwap=True):
         """auto-K线参数展开复用基类骨架；C1.1 按开关携带 OHLC(+vwap) 写回。"""
         return self._expand_auto_year_parameters(
             parameter,
@@ -229,6 +230,7 @@ class C1_1Service(BaseGoogleSheetService):
             include_ohlc=True,
             random_price_range=random_price_range,
             random_group_count=random_group_count,
+            random_series_mode=random_series_mode,
             include_vwap=include_vwap,
         )
 

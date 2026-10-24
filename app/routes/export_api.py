@@ -131,13 +131,8 @@ def export_global_preview(task_id):
         task["id"],
         ratios_override=ratios,
         runtime_params=parse_preview_runtime_params(),
+        export_name=request.args.get("export_name"),
     )
-    export_name = request.args.get("export_name")
-    if export_name:
-        generated = replace(
-            generated,
-            filename=f"{sanitize_export_filename(export_name)}.xlsx",
-        )
     return _file_response(generated)
 
 
@@ -152,13 +147,8 @@ def export_global_preview_by_stock(task_id):
         task["id"],
         ratios_override=ratios,
         runtime_params=parse_preview_runtime_params(),
+        export_name=request.args.get("export_name"),
     )
-    export_name = request.args.get("export_name")
-    if export_name:
-        generated = replace(
-            generated,
-            filename=f"{sanitize_export_filename(export_name)}.zip",
-        )
     return _stream_response(generated)
 
 

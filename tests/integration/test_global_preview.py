@@ -3,6 +3,7 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import json
+import re
 
 import pandas as pd
 import pytest
@@ -110,8 +111,13 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
         assert response.status_code == 200
         assert response.mimetype == "application/zip"
         with ZipFile(BytesIO(response.data)) as archive:
-            assert archive.namelist() == ["自定义导出名_AAPL.xlsx", "自定义导出名_MSFT.xlsx"]
-            entry_modified_at = datetime(*archive.getinfo("自定义导出名_AAPL.xlsx").date_time)
+            # 统一命名规范：成员名带模型版本（配置根级回落 c7_0_3）+ 导出时间
+            member_names = archive.namelist()
+            assert [re.sub(r"-\d{8}_\d{6}\.xlsx$", "", name) for name in member_names] == [
+                "自定义导出名_AAPL-c7_0_3",
+                "自定义导出名_MSFT-c7_0_3",
+            ]
+            entry_modified_at = datetime(*archive.getinfo(member_names[0]).date_time)
             assert entry_modified_at.year >= datetime.now().year - 1
 
 
@@ -141,7 +147,11 @@ def test_global_preview_stock_zip_honors_export_name(app_factory, monkeypatch):
         assert response.mimetype == "application/zip"
         content_disposition = response.headers["Content-Disposition"]
         assert 'filename="download.zip"' in content_disposition
-        assert "filename*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA.zip" in content_disposition
+        # 手输名替换基名，模型版本 + 导出时间后缀照加
+        assert re.search(
+            r"filename\*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA-c7_0_3-\d{8}_\d{6}\.zip$",
+            content_disposition,
+        )
 
 
 def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, monkeypatch):

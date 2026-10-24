@@ -158,6 +158,8 @@ class C5TaskConfig(_CSeriesBase):
     exclude_recent_years: list[Any] = []
     random_price_range: str | None = None
     random_group_count: int | None = None
+    # 随机序列模式：per_window 各窗口独立随机（默认）/ full_truncate 全区间生成后按窗口截断
+    random_series_mode: str | None = None
 
 
 class C7TaskConfig(C5TaskConfig):

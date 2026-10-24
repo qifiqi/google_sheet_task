@@ -91,10 +91,17 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
 
 
 def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]:
-    """random_price 模式的随机范围/组数公共校验（C7/C1.1 共用）。"""
+    """random_price 模式的随机范围/组数/序列模式公共校验（C7/C1.1 共用）。"""
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
     if random_range not in {"high_low", "open_close"}:
         raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
+    series_mode = str(
+        normalized.get("random_series_mode") or "per_window"
+    ).strip().lower()
+    if series_mode not in {"per_window", "full_truncate"}:
+        raise ValidationError(
+            "随机序列模式仅支持各窗口独立随机（per_window）或全区间截断（full_truncate）"
+        )
     try:
         raw_group_count = normalized.get("random_group_count")
         group_count = 1 if raw_group_count in (None, "") else int(raw_group_count)
@@ -106,6 +113,7 @@ def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]
         raise ValidationError("随机组数必须是正整数")
     normalized["random_price_range"] = random_range
     normalized["random_group_count"] = group_count
+    normalized["random_series_mode"] = series_mode
     return normalized
 
 
@@ -115,6 +123,7 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
     if price_mode != "random_price":
         normalized.pop("random_price_range", None)
         normalized.pop("random_group_count", None)
+        normalized.pop("random_series_mode", None)
         return normalized
 
     versions = {

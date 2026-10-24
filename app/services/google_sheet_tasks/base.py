@@ -52,6 +52,23 @@ DEFAULT_SHEET_REFRESH_INTERVAL = 10
 DEFAULT_SHEET_REFRESH_ATTEMPTS = (5, 15, 25, 35)
 POLL_ATTEMPT_LIMIT = 60
 
+# random_price 随机序列模式：per_window 各窗口独立播种（现状默认，seed 含窗口键）；
+# full_truncate 全区间生成一次、各窗口按日期截断切片（seed 用全区间窗口键，
+# 同组号跨窗口共享同一条逻辑随机序列）。
+RANDOM_SERIES_MODE_PER_WINDOW = "per_window"
+RANDOM_SERIES_MODE_FULL_TRUNCATE = "full_truncate"
+RANDOM_SERIES_MODES = (RANDOM_SERIES_MODE_PER_WINDOW, RANDOM_SERIES_MODE_FULL_TRUNCATE)
+
+
+def normalize_random_series_mode(value) -> str:
+    """随机序列模式归一化：空值回落 per_window，非法值报错。"""
+    mode = str(value or RANDOM_SERIES_MODE_PER_WINDOW).strip().lower()
+    if mode not in RANDOM_SERIES_MODES:
+        raise ValueError(
+            "随机序列模式仅支持 per_window（各窗口独立随机）或 full_truncate（全区间生成后截断）"
+        )
+    return mode
+
 
 def should_alert_execute_task_result(result):
     return result == 'error'
@@ -561,6 +578,9 @@ class BaseGoogleSheetService:
             "custom_kline_map": custom_kline_map,
             "random_price_range": config_data.get('random_price_range', 'high_low'),
             "random_group_count": int(config_data.get('random_group_count') or 1),
+            "random_series_mode": normalize_random_series_mode(
+                config_data.get('random_series_mode')
+            ),
         }
 
     def _expand_parameters(self, outer_param, parameters, batch):
@@ -579,6 +599,7 @@ class BaseGoogleSheetService:
             data_source=batch["data_source"],
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
+            random_series_mode=batch["random_series_mode"],
         )
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool = True):
@@ -612,14 +633,25 @@ class BaseGoogleSheetService:
         random_price_range,
         random_group_count,
         snapshot_meta=None,
+        random_series_mode=RANDOM_SERIES_MODE_PER_WINDOW,
+        full_kline=None,
+        full_kline_key=None,
     ):
         """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。
 
         有 Flask app context 且传入 snapshot_meta 时落库并复用随机K线快照；
         纯生成单测无上下文时保留原内存路径，不写库。
+
+        random_series_mode=per_window（默认）：seed 含窗口键，各窗口独立摇序列（现状）。
+        random_series_mode=full_truncate：seed 用 full_kline_key（全区间窗口键）在全区间
+        K线上生成一次，再按当前窗口首末日期截取切片——同组号跨窗口共享同一条逻辑序列，
+        各窗口的 series 仍按各自 kline_key 落库（值为切片，seed 相同）。
         """
         if price_mode != "random_price":
             return combinations, kline_data_map
+        full_truncate = random_series_mode == RANDOM_SERIES_MODE_FULL_TRUNCATE
+        if full_truncate and (not full_kline or not full_kline_key):
+            raise ValueError("全区间截断模式需要全区间K线与窗口键")
         persist_snapshots = (
             snapshot_meta is not None
             and has_app_context()
@@ -629,6 +661,7 @@ class BaseGoogleSheetService:
         grouped_map = {}
         group_series_ids = {}
         sources_by_key = {}
+        full_rows_by_group = {}
         for combination in combinations:
             source_key = combination["kline_key"]
             source_kline = kline_data_map[source_key]
@@ -656,11 +689,47 @@ class BaseGoogleSheetService:
             for random_group in range(1, int(random_group_count or 1) + 1):
                 group_key = f"{source_key}:random-{random_group}"
                 if group_key not in grouped_map:
+                    # full_truncate 的播种基准是全区间窗口键，与具体窗口无关
+                    seed_key = full_kline_key if full_truncate else source_key
                     seed = (
                         f"{self.task_id}:{stock_code}:"
-                        f"{source_key}:{random_price_range}:{random_group}"
+                        f"{seed_key}:{random_price_range}:{random_group}"
                     )
-                    if persist_snapshots:
+                    if full_truncate:
+                        group_cache_key = (stock_code, random_group)
+                        if group_cache_key not in full_rows_by_group:
+                            full_rows_by_group[group_cache_key] = (
+                                KlineService.build_price_rows(
+                                    full_kline,
+                                    price_mode,
+                                    include_ohlc=True,
+                                    random_price_range=random_price_range,
+                                    random_generator=random.Random(seed),
+                                )
+                            )
+                        window_rows = self._slice_random_rows_by_window(
+                            full_rows_by_group[group_cache_key], source_kline
+                        )
+                        if persist_snapshots:
+                            series = task_kline_snapshot_service.get_or_create_series(
+                                source=source,
+                                task_id=self.task_id,
+                                stock_code=stock_code,
+                                kline_key=source_key,
+                                random_group=random_group,
+                                price_mode=price_mode,
+                                random_price_range=random_price_range,
+                                seed=seed,
+                                rows=source_kline,
+                                values=[row["stock_val"] for row in window_rows],
+                            )
+                            grouped_map[group_key] = (
+                                task_kline_snapshot_service.merge_rows(source, series)
+                            )
+                            group_series_ids[group_key] = series["id"]
+                        else:
+                            grouped_map[group_key] = window_rows
+                    elif persist_snapshots:
                         series = task_kline_snapshot_service.get_or_create_series(
                             source=source,
                             task_id=self.task_id,
@@ -693,6 +762,22 @@ class BaseGoogleSheetService:
                 grouped_data.append(item)
         return grouped_data, grouped_map
 
+    @staticmethod
+    def _slice_random_rows_by_window(full_rows, window_kline):
+        """全区间随机序列行按窗口K线首末日期截取切片；行数必须与窗口K线一致。"""
+        start_date = window_kline[0]["stock_date"]
+        end_date = window_kline[-1]["stock_date"]
+        rows = [
+            row for row in full_rows
+            if start_date <= row["stock_date"] <= end_date
+        ]
+        if len(rows) != len(window_kline):
+            raise ValueError(
+                f"全区间随机序列切片行数 {len(rows)} 与窗口K线行数 {len(window_kline)} 不一致，"
+                f"窗口 {start_date}~{end_date}"
+            )
+        return rows
+
     def _expand_auto_year_parameters(
         self,
         parameter,
@@ -710,6 +795,7 @@ class BaseGoogleSheetService:
         include_ohlc=False,
         random_price_range="high_low",
         random_group_count=1,
+        random_series_mode=RANDOM_SERIES_MODE_PER_WINDOW,
         include_vwap=True,
     ):
         """C5/C7 共享的 auto-K线年度参数展开骨架（ponytail 审计 B1 合并）。
@@ -717,6 +803,8 @@ class BaseGoogleSheetService:
         此前 c5.py / c7.py 各持有一份 ~155 行拷贝；差异经参数表达：
         - include_ohlc：C7 写回需要 OHLC 列；random_price 展开强制开启；
         - random_price_range / random_group_count：随机价格分组（C5 已同步该能力）；
+        - random_series_mode：per_window 各窗口独立随机（默认）/ full_truncate
+          全区间生成一次后各窗口截断切片（播种基准 = 全区间窗口键）；
         - recent 模式统一包含近半年（0.5）区间；
         - count_mode=N+1 时同样生成全区间组合（"+1"），与窗口重合时由组合去重合并。
         custom K线分支仍留在各自 service（_get_custom_parameters），不进本骨架。
@@ -814,6 +902,9 @@ class BaseGoogleSheetService:
             "data_source": data_source,
             "adjust_type": adjust_type,
         }
+        # 全区间窗口键：full_truncate 随机序列的播种基准（与全区间组合 kline_key
+        # 同源；_start_date 已按数据首日截断修正）
+        full_kline_key = f'{_end_year_1}-{_start_date}'
         data = []
 
         kline_data_map = {}
@@ -839,6 +930,9 @@ class BaseGoogleSheetService:
                 random_price_range,
                 random_group_count,
                 snapshot_meta=snapshot_meta,
+                random_series_mode=random_series_mode,
+                full_kline=all_kline,
+                full_kline_key=full_kline_key,
             )
             data = self._deduplicate_parameter_combinations(data, kline_data_map)
             return data, len(all_kline) + 20,kline_data_map
@@ -918,6 +1012,9 @@ class BaseGoogleSheetService:
             random_price_range,
             random_group_count,
             snapshot_meta=snapshot_meta,
+            random_series_mode=random_series_mode,
+            full_kline=all_kline,
+            full_kline_key=full_kline_key,
         )
 
         if not data:

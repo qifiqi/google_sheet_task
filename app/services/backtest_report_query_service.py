@@ -58,10 +58,16 @@ def _load_backtest_task(task_id: str):
     return task
 
 
-def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
+def _build_zip_member_name(
+    task_name: str | None,
+    fallback_id: str,
+    used_names: set[str],
+    member_stem: str | None = None,
+) -> str:
     base_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     base_name = base_name.rstrip(" .") or fallback_id
-    filename = f"{base_name}_global_preview.xlsx"
+    # member_stem 已按统一命名规范组装（含模型版本/区间/导出时间），直接作为去重词干。
+    filename = f"{member_stem or base_name + '_global_preview'}.xlsx"
     if filename not in used_names:
         used_names.add(filename)
         return filename

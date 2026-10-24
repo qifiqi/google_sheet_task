@@ -277,12 +277,16 @@ class C5Service(BaseGoogleSheetService):
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=True)
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1, random_series_mode="per_window"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。
 
         C5 由此同步获得 C7 的近半年（0.5）区间与随机价格（random_price 模式）
         能力：配置提供相应键即启用，缺省时 price_mode != random_price，
         随机分组为空操作。
+
+        random_series_mode 透传基类骨架（per_window 默认 / full_truncate 全区间
+        生成后窗口截断）；random_price_range / random_group_count 未透传为既有
+        行为（C5 随机价固定 high_low 单组），此处不顺手改。
         """
         return self._expand_auto_year_parameters(
             parameter,
@@ -297,4 +301,5 @@ class C5Service(BaseGoogleSheetService):
             adjust_type=adjust_type,
             data_source=data_source,
             source_label="google_sheet_c5",
+            random_series_mode=random_series_mode,
         )

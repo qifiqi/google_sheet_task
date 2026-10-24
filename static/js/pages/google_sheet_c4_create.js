@@ -502,6 +502,23 @@ if (versionParam && versionParam !== 'c4') {
     }
 
     // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
+    // 市场联动 K 线数据源：akshare/dfcf/qq/tdx 仅覆盖 A股行情，
+    // 用户把市场切换为非 A股（en/hk/...）时，数据源自动切到 Yahoo；切回 A股不自动还原。
+    function linkKlineSourceToMarket(marketType) {
+        const sourceSelect = document.getElementById('kline_data_source');
+        if (!sourceSelect) {
+            return;
+        }
+        const market = String(marketType || '').trim().toLowerCase();
+        if (!market || market === 'cn') {
+            return;
+        }
+        if (sourceSelect.value !== 'yahoo') {
+            sourceSelect.value = 'yahoo';
+            showNotification('非A股市场：K线数据源已联动切换为 Yahoo', 'info');
+        }
+    }
+
     function getSelectedDateRangeModes() {
         const modes = [];
         const fullEl = document.getElementById('date_range_full');
@@ -644,7 +661,7 @@ if (versionParam && versionParam !== 'c4') {
             'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
             'start_date', 'end_date'
         ];
-        
+
         inputFields.forEach(function(fieldId) {
             const field = document.getElementById(fieldId);
             if (field) {
@@ -652,6 +669,15 @@ if (versionParam && versionParam !== 'c4') {
                 field.addEventListener('change', debouncedSaveFormData);
             }
         });
+
+        // 市场类型变化：联动 K 线数据源（非A股切 Yahoo）+ 自动保存
+        const marketTypeSelect = document.getElementById('market_type');
+        if (marketTypeSelect) {
+            marketTypeSelect.addEventListener('change', function() {
+                linkKlineSourceToMarket(this.value);
+                debouncedSaveFormData();
+            });
+        }
 
         // 监听spreadsheet输入变化
         const spreadsheetInput = document.getElementById('spreadsheet');
