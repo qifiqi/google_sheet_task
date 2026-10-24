@@ -290,7 +290,14 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
             return task_id
 
         monkeypatch.setattr(manager, "create_task", fake_create_task)
-        monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
+
+        class _StartOk:
+            started = True
+            queued = False
+            status = "started"
+            message = ""
+
+        monkeypatch.setattr(manager, "start_task", lambda _task_id: _StartOk())
         monkeypatch.setattr("app.services.task.creation.time.sleep", lambda _seconds: None)
 
         response = manager.batch_create_and_start_task({

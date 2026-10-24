@@ -11,7 +11,7 @@ from typing import Any
 from flask import has_app_context
 
 from app.constants.c_template_layout import C3_METRIC_CELLS, C4_C5_METRIC_CELLS
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskStatus, TaskType
 from app.services.performance_analysis.historical_metrics import (
     avg_monthly_excess_return_diff,
     collect_summary_all_entries,
@@ -22,14 +22,24 @@ from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import normalize_scientific_text, parse_lenient_json
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
-from app.utils.task_types import normalize_task_type
+from app.utils.task_types import TYPE_BACKTEST_TRAINING, TYPE_GOOGLE_SHEET, TYPE_GOOGLE_SHEET_C4, TYPE_GOOGLE_SHEET_C5, normalize_task_type
 from app.utils.value_parser import parse_int, parse_percent_like
 
 
-SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
-MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
-FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
-ACTIVE_REBUILD_TASK_STATUSES = ("pending", "running")
+# 词汇自 TaskType/TaskStatus 枚举派生（常量收敛 P3），值与历史字面量逐项等价。
+SUPPORTED_TASK_TYPES = (
+    TaskType.GOOGLE_SHEET.value,
+    TaskType.GOOGLE_SHEET_C4.value,
+    TaskType.GOOGLE_SHEET_C5.value,
+    TaskType.BACKTEST_TRAINING.value,
+)
+MODEL_SUMMARY_REBUILD_TASK_TYPE = TaskType.MODEL_SUMMARY_REBUILD.value
+FINISHED_TASK_STATUSES = (
+    TaskStatus.COMPLETED.value,
+    TaskStatus.CANCELLED.value,
+    TaskStatus.ERROR.value,
+)
+ACTIVE_REBUILD_TASK_STATUSES = (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
 
 SUMMARY_COLUMNS = [
     {"key": "return_rate", "label": "Return%", "format": "percent"},
@@ -109,10 +119,10 @@ BACKTEST_SUMMARY_KEY_BY_LABEL = {
 }
 
 TASK_TYPE_LABELS = {
-    "google_sheet": "C3",
-    "google_sheet_C4": "C4",
-    "google_sheet_C5": "C5",
-    "backtest_training": "回测",
+    TaskType.GOOGLE_SHEET.value: "C3",
+    TaskType.GOOGLE_SHEET_C4.value: "C4",
+    TaskType.GOOGLE_SHEET_C5.value: "C5",
+    TaskType.BACKTEST_TRAINING.value: "回测",
 }
 
 
@@ -232,7 +242,7 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
         return period_key
 
     normalized = normalize_task_type(task.task_type)
-    if normalized == "google_sheet":
+    if normalized == TYPE_GOOGLE_SHEET:
         config = parse_lenient_json(task.config, {})
         if isinstance(config, dict):
             period_key = _period_key_from_year_n(config.get("year_n"))
@@ -324,9 +334,9 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
     text = str(raw_name or "").strip()
     lower_text = text.lower()
     normalized = normalize_task_type(task_type)
-    if "c5" in lower_text or normalized == "google_sheet_c5":
+    if "c5" in lower_text or normalized == TYPE_GOOGLE_SHEET_C5:
         return "C5"
-    if "c4" in lower_text or normalized == "google_sheet_c4":
+    if "c4" in lower_text or normalized == TYPE_GOOGLE_SHEET_C4:
         return "C4"
     return text
 
@@ -851,12 +861,12 @@ def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecor
     if not result.success:
         return []
     normalized = normalize_task_type(task.task_type) or str(task.task_type or "")
-    if normalized == "google_sheet":
+    if normalized == TYPE_GOOGLE_SHEET:
         return _extract_c3(task, result)
-    if normalized == "google_sheet_c4":
+    if normalized == TYPE_GOOGLE_SHEET_C4:
         return _extract_c4_c5(task, result)
-    if normalized == "google_sheet_c5":
+    if normalized == TYPE_GOOGLE_SHEET_C5:
         return _extract_c5(task, result)
-    if normalized == "backtest_training":
+    if normalized == TYPE_BACKTEST_TRAINING:
         return _extract_backtest(task, result)
     return []

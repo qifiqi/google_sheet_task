@@ -111,7 +111,7 @@
 
     async function downloadCsv() {
         const button = document.getElementById('downloadButton');
-        button.disabled = true;
+        setButtonBusy(button, true, '下载中…');
         try {
             const response = await Api.endpoints.export.backtestResult(encodeURIComponent(RESULT_ID));
             if (!response.ok) {
@@ -131,6 +131,7 @@
         } catch (error) {
             setStatus(`下载失败：${error.message || '未知错误'}`);
         } finally {
+            setButtonBusy(button, false);
             button.disabled = !exportRows.length;
         }
     }

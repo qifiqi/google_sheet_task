@@ -14,7 +14,7 @@ from typing import Any, Optional
 from pydantic import ValidationError as PydanticValidationError
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
-from app.models import GoogleSheetTokenTaskType, TaskStatus
+from app.models import GoogleSheetTokenTaskType, TaskStatus, TaskType
 from app.schemas.task_configs import validate_task_config_shape
 from app.utils.model_version import normalize_sheets_model_versions
 from app.services.google_sheet_token_service import (
@@ -29,8 +29,7 @@ from app.utils.value_parser import coerce_bool
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
-from app.utils.task_types import is_c_series_task_type
-from app.services.task.occupancy import C_SERIES_TABLE_TYPES
+from app.utils.task_types import TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C7, is_c_series_task_type
 
 logger = get_logger(__name__)
 
@@ -225,9 +224,9 @@ class TaskCreationMixin:
             )
             if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c1_1"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
-            if task_type.lower() == "google_sheet_c7":
+            if task_type.lower() == TYPE_GOOGLE_SHEET_C7:
                 normalized = _normalize_c7_random_price_config(normalized)
-            if task_type.lower() == "google_sheet_c1_1":
+            if task_type.lower() == TYPE_GOOGLE_SHEET_C1_1:
                 normalized = _normalize_c1_1_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
@@ -236,7 +235,7 @@ class TaskCreationMixin:
             normalized.pop("token_file", None)
             # 顶层 price_mode/kline_data_source 仅单品回测是生效值；多品生效值在
             # products[]（执行器产品级优先），顶层不合成默认值，避免详情页读到假配置。
-            if task_type == "backtest_training":
+            if task_type == TaskType.BACKTEST_TRAINING.value:
                 normalized["price_mode"] = (
                     normalized.get("price_mode")
                     if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
@@ -252,7 +251,7 @@ class TaskCreationMixin:
             )
 
             normalized = normalize_multi_product_config(normalized)
-        elif task_type == "backtest_training":
+        elif task_type == TaskType.BACKTEST_TRAINING.value:
             normalized = normalize_backtest_training_config(normalized)
 
         # 结构收口唯一出口：按 task_type 配置模型校验并输出规范形态
@@ -289,16 +288,13 @@ class TaskCreationMixin:
         if isinstance(config, dict):
             config = _hydrate_stock_name_from_metadata(config)
             config = get_google_sheet_token_service().prepare_task_config(config)
-            if task_type == "backtest_training":
+            if task_type == TaskType.BACKTEST_TRAINING.value:
                 self.validate_backtest_training_sheet(config)
             if is_c_series_task_type(task_type):
-                self.validate_c_series_sheet_models(config, task_id)
+                # 仅合法性校验；Sheet 占用不再拦截创建，任务排队等执行锁。
+                self.validate_c_series_sheet_models(config)
             else:
-                self.validate_google_sheet_available_for_task(
-                    config,
-                    task_id,
-                    allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
-                )
+                self.validate_google_sheet_available_for_task(config)
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
@@ -310,20 +306,11 @@ class TaskCreationMixin:
                 "description": description,
                 "task_type": task_type,
                 "config": config_str,
-                "status": "pending",
+                "status": TaskStatus.PENDING.value,
                 "created_by_user_id": created_by_user_id,
             },
             commit=False,
         )
-
-        if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
-            self.ensure_google_sheet_occupancy(
-                task_id,
-                config,
-                allowed_table_types=(
-                    C_SERIES_TABLE_TYPES if is_c_series_task_type(task_type) else None
-                ),
-            )
 
         task_logger = get_task_logger(task_id, f"{__name__}.create")
         task_logger.info(
@@ -343,7 +330,7 @@ class TaskCreationMixin:
         config: dict[str, Any],
         created_by_user_id: Optional[int] = None,
     ):
-        """创建并启动任务；成功返回 {task_id, queued?}，启动被拒抛 BadRequestError。"""
+        """创建并启动任务；Sheet 被占返回 queued（排队），启动被拒抛 BadRequestError。"""
         task_id = self.create_task(
             name,
             description,
@@ -351,13 +338,12 @@ class TaskCreationMixin:
             config,
             created_by_user_id=created_by_user_id,
         )
-        if self.start_task(task_id):
+        result = self.start_task(task_id)
+        if result.started:
             return {"task_id": task_id}
-        start_error = self.get_start_error(task_id)
-        if task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
-            return {"task_id": task_id, "queued": True, "message": start_error}
-        self.release_google_sheet_occupancy(task_id)
-        raise BadRequestError(start_error)
+        if result.queued:
+            return {"task_id": task_id, "queued": True, "message": result.message}
+        raise BadRequestError(result.message)
 
     def batch_create_and_start_task(
         self,
@@ -379,7 +365,7 @@ class TaskCreationMixin:
         description = str(
             data.get("description") or config.get("task_description") or ""
         ).strip()
-        child_task_type = "google_sheet"
+        child_task_type = TaskType.GOOGLE_SHEET.value
 
         sheets = config.get("sheets") or []
         stock_codes = config.get("stock_codes") or []
@@ -441,11 +427,13 @@ class TaskCreationMixin:
                     f"{year_n} 所含有的表格数，无法对齐参数数量，{combination_count},检查是否是参数设置过多还是表格创建过少"
                 )
 
-        # 预检全部 Sheet，避免部分子任务创建成功后才发现模型不可用/被占用
-        self.validate_c_series_sheet_models({"sheets": sheets}, None)
+        # 预检全部 Sheet 模型合法性，避免部分子任务创建成功后才发现模型不可用；
+        # 占用不再拦截（子任务创建后排队等执行锁）。
+        self.validate_c_series_sheet_models({"sheets": sheets})
 
         created_task_ids = []
         started_task_ids = []
+        queued_task_ids = []
         failed_to_start = []
         child_summaries = []
 
@@ -551,15 +539,18 @@ class TaskCreationMixin:
                     )
                     created_task_ids.append(task_id)
 
-                    started = self.start_task(task_id)
-                    if started:
+                    result = self.start_task(task_id)
+                    started = result.started
+                    if result.started:
                         started_task_ids.append(task_id)
+                    elif result.queued:
+                        queued_task_ids.append(task_id)
                     else:
                         failed_to_start.append(
                             {
                                 "task_id": task_id,
                                 "task_name": task_name,
-                                "error": self.get_start_error(task_id),
+                                "error": result.message,
                             }
                         )
 
@@ -572,6 +563,7 @@ class TaskCreationMixin:
                             "stock_code": stock_code,
                             "parameters": child_parameters,
                             "started": started,
+                            "queued": result.queued,
                         }
                     )
                     time.sleep(0.5)
@@ -579,22 +571,25 @@ class TaskCreationMixin:
         if not created_task_ids:
             raise ValidationError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
 
-        if not started_task_ids:
+        if not started_task_ids and not queued_task_ids:
             raise BadRequestError(
                 f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，但全部启动失败"
             )
         message = (
             f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，"
-            f"成功启动 {len(started_task_ids)} 个，未启动 {len(failed_to_start)} 个"
+            f"成功启动 {len(started_task_ids)} 个，排队等待 {len(queued_task_ids)} 个，"
+            f"未启动 {len(failed_to_start)} 个"
         )
         return {
             "message": message,
-            "task_id": started_task_ids[0],
+            "task_id": (started_task_ids or queued_task_ids or created_task_ids)[0],
             "task_ids": created_task_ids,
             "started_task_ids": started_task_ids,
+            "queued_task_ids": queued_task_ids,
             "failed_to_start": failed_to_start,
             "total_created": len(created_task_ids),
             "total_started": len(started_task_ids),
+            "total_queued": len(queued_task_ids),
             "children": child_summaries,
         }
 
@@ -681,33 +676,8 @@ class TaskCreationMixin:
             )
             if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(effective_config)
-            c_series_task = is_c_series_task_type(task["task_type"])
-            if c_series_task:
-                self.validate_c_series_sheet_models(effective_config, task_id)
-            sheet_table_types = C_SERIES_TABLE_TYPES if c_series_task else None
-            old_config = task["config"] or {}
-            # sheets[] 形态下顶层无 google_sheet_id，占用迁移对比走配置收集
-            # （sheets[].google_sheet_id，缺登记时回退 spreadsheet_id 反查）。
-            old_sheet_ids = sorted(
-                self._collect_google_sheet_ids(
-                    old_config, allowed_table_types=sheet_table_types
-                )
-            )
-            new_sheet_ids = sorted(
-                self._collect_google_sheet_ids(
-                    effective_config, allowed_table_types=sheet_table_types
-                )
-            )
-
-            if old_sheet_ids != new_sheet_ids:
-                if old_sheet_ids:
-                    self.release_google_sheet_occupancy(task_id)
-                if new_sheet_ids:
-                    self.ensure_google_sheet_occupancy(
-                        task_id,
-                        effective_config,
-                        allowed_table_types=sheet_table_types,
-                    )
+            if is_c_series_task_type(task["task_type"]):
+                self.validate_c_series_sheet_models(effective_config)
 
             fields = {"config": dumps(effective_config)}
             if update_name:
@@ -757,9 +727,8 @@ class TaskCreationMixin:
                 original_task["task_type"],
                 original_config,
             )
-            c_series_task = is_c_series_task_type(original_task["task_type"])
-            if c_series_task:
-                self.validate_c_series_sheet_models(original_config, new_task_id)
+            if is_c_series_task_type(original_task["task_type"]):
+                self.validate_c_series_sheet_models(original_config)
 
             task_repository.create({
                 "id": new_task_id,
@@ -767,19 +736,9 @@ class TaskCreationMixin:
                 "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
                 "task_type": original_task["task_type"],
                 "config": dumps(original_config),
-                "status": "pending",
+                "status": TaskStatus.PENDING.value,
                 "created_by_user_id": original_task["created_by_user_id"],
             })
-
-            # original_task 来自 task_repository.get()（dict），取值必须用下标而非属性访问。
-            if isinstance(original_config, dict) and original_task["task_type"] not in ("backtest_training", "backtest_multi_product"):
-                self.ensure_google_sheet_occupancy(
-                    new_task_id,
-                    original_config,
-                    allowed_table_types=(
-                        C_SERIES_TABLE_TYPES if c_series_task else None
-                    ),
-                )
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)
             return new_task_id

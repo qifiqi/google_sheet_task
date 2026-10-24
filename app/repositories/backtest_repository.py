@@ -1,19 +1,16 @@
-"""回测相关仓储：TaskResultSummaryIndex / BacktestProductResultCache / BacktestSheetRunLock
+"""回测相关仓储：TaskResultSummaryIndex / BacktestProductResultCache
 （契约见 docs/design/data-layer-refactor/02 §2.12）。
 
-锁红线（对齐 runtime.py 现有语义）：
-- acquire_lock：同任务重复获取幂等成功；已被其他任务持有则失败并返回持锁任务；
-  无锁行则插入并提交，撞唯一约束（并发竞态）时回滚复查后判失败；
-- release_lock：持锁任务不匹配时拒绝释放（返回 False），不得删除他人锁。
+Sheet 执行锁（原 BacktestSheetRunLock）已泛化为全任务类型统一锁，
+ORM 操作迁至 sheet_lock_repository，本文件不再承担锁职责。
 """
 from sqlalchemy import MetaData, Table, func, inspect, or_
-from sqlalchemy.orm import Load
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Load
 
 from app.extensions import db
 from app.models import (
     BacktestProductResultCache,
-    BacktestSheetRunLock,
     Task,
     TaskResult,
     TaskResultSummaryIndex,
@@ -356,67 +353,3 @@ class BacktestRepository(BaseRepository):
         except IntegrityError:
             db.session.rollback()
             return False
-
-    # ---- BacktestSheetRunLock（acquire/release 原子性红线） ----
-
-    def get_lock(self, spreadsheet_id):
-        row = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-        return row.to_dict() if row else None
-
-    def acquire_lock(self, spreadsheet_id, task_id, task_type, commit=True):
-        """原子获取 per-sheet 运行锁。
-
-        返回 (acquired, locked_task_id)：
-        - 同任务已持锁 → (True, None)（幂等）；
-        - 他任务持锁 → (False, 该任务 id)；
-        - 无锁 → 插入行并提交；唯一约束冲突（并发竞态）→ 回滚复查后判失败。
-        """
-        if not spreadsheet_id:
-            return True, None
-
-        existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-        if existing and existing.task_id == task_id:
-            return True, None
-        if existing:
-            return False, existing.task_id
-
-        lock = BacktestSheetRunLock(
-            spreadsheet_id=spreadsheet_id,
-            task_id=task_id,
-            task_type=task_type,
-        )
-        db.session.add(lock)
-        try:
-            if commit:
-                self._commit()
-            return True, None
-        except IntegrityError:
-            db.session.rollback()
-            existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-            return False, existing.task_id if existing else None
-
-    def release_lock(self, spreadsheet_id, task_id, commit=True):
-        """仅持锁任务可释放；返回是否实际删除。"""
-        if not spreadsheet_id:
-            return False
-
-        lock = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-        if not lock:
-            return False
-        if lock.task_id != task_id:
-            return False
-
-        db.session.delete(lock)
-        if commit:
-            self._commit()
-        return True
-
-    def release_locks_by_task(self, task_id, commit=True):
-        """按任务清其持有的全部锁（watchdog 公共入口）；返回删除行数。"""
-        deleted = (
-            BacktestSheetRunLock.query.filter_by(task_id=task_id)
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted

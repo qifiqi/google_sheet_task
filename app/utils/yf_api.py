@@ -39,6 +39,15 @@ class YFApi:
         data = self.parse_multiple_tickers(data, adjust_type=adjust_type, ticker_hint=stock_code)
         return data
 
+    def get_stock_name(self, ticker):
+        """Yahoo 证券名称（longName 优先，shortName 回退）；失败返回空串，不阻断调用方。"""
+        try:
+            info = yf.Ticker(ticker).info or {}
+            return str(info.get('longName') or info.get('shortName') or '').strip()
+        except Exception as exc:
+            self.logger.warning(f"Yahoo 名称获取失败 {ticker}: {str(exc)}")
+            return ""
+
     def get_total_assets(self, ticker):
         """Yahoo totalAssets（ETF 资产总数，基金计价货币原值）；未披露时回退 marketCap（总市值）。
 

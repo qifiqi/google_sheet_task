@@ -207,25 +207,25 @@ def restart_task(task_id):
 @login_required
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
-    task_obj = task_manager.get_required_task_entity(task_id)
+    task_manager.get_required_task_entity(task_id)
 
     new_task_id = task_manager.create_restart_task(task_id)
 
-    if task_manager.start_task(new_task_id):
+    result = task_manager.start_task(new_task_id)
+    if result.started:
         return success(
             data={"new_task_id": new_task_id},
             message="重启任务创建并启动成功",
         )
-    start_error = task_manager.get_start_error(new_task_id)
-    if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
+    if result.queued:
         return success(
             data={"new_task_id": new_task_id, "queued": True},
-            message=start_error,
+            message=result.message,
         )
     return error(
-        f"重启任务创建成功，但启动失败: {start_error}",
+        f"重启任务创建成功，但启动失败: {result.message}",
         http_status=400,
-        data={"new_task_id": new_task_id, "start_error": start_error},
+        data={"new_task_id": new_task_id, "start_error": result.message},
     )
 
 

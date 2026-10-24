@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.utils.task_types import (
+    TYPE_GOOGLE_SHEET,
+    TYPE_GOOGLE_SHEET_C1_1,
+    TYPE_GOOGLE_SHEET_C4,
+    TYPE_GOOGLE_SHEET_C5,
+    TYPE_GOOGLE_SHEET_C7,
+)
+
 
 MODEL_VERSION_LABELS = {
     "c3": "C3",
@@ -23,13 +31,14 @@ MODEL_VERSION_FAMILIES = {
     "c1_1": "C1.1",
 }
 
+# 任务类型（内部规范词汇，枚举派生）→ 模型版本 slug；c3/c31 为历史输入别名键。
 TASK_TYPE_MODEL_VERSIONS = {
-    "google_sheet": "c3",
+    TYPE_GOOGLE_SHEET: "c3",
     "google_sheet_c3": "c3",
     "google_sheet_c31": "c3",
-    "google_sheet_c4": "c4",
-    "google_sheet_c5": "c5",
-    "google_sheet_c1_1": "c1_1",
+    TYPE_GOOGLE_SHEET_C4: "c4",
+    TYPE_GOOGLE_SHEET_C5: "c5",
+    TYPE_GOOGLE_SHEET_C1_1: "c1_1",
 }
 
 _ALIASES = {
@@ -56,7 +65,7 @@ def resolve_model_version(task_type: str | None, sheet: Any = None) -> str:
     version = normalize_model_version(sheet_config.get("model_version"))
     if version:
         return version
-    if normalized_type == "google_sheet_c7":
+    if normalized_type == TYPE_GOOGLE_SHEET_C7:
         return "c7_0_2"
     return TASK_TYPE_MODEL_VERSIONS.get(normalized_type, "")
 

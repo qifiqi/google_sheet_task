@@ -19,6 +19,6 @@ if __name__ == '__main__':
         # Gunicorn 路径由 dockers/gunicorn.conf.py::post_worker_init 调用同一函数。
         bootstrap_app(app)
         debug_mode = os.getenv('FLASK_DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
-        app.run(debug=False, host='0.0.0.0', port=os.getenv('PORT', 5000))
+        app.run(debug=debug_mode, host='0.0.0.0', port=os.getenv('PORT', 5000))
     except Exception as exc:
         logger.error(f'启动失败: {exc}', exc_info=True)

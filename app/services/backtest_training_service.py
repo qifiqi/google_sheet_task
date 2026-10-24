@@ -6,6 +6,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
+from app.models import TaskStatus
 from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import (
     BaseGoogleSheetService,
@@ -157,7 +158,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     return 'error'
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -194,7 +195,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self.task_name = name
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -228,7 +229,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             try:
                 task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
+                if task and task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

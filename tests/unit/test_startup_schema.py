@@ -1,9 +1,9 @@
 from sqlalchemy import inspect, text
 
 from app.extensions import db
-from app.models import BacktestSheetRunLock, GoogleSheet, ScheduledTask, Task
+from app.models import SheetExecutionLock, GoogleSheet, ScheduledTask, Task
 from app.startup import (
-    cleanup_stale_backtest_sheet_run_locks,
+    cleanup_stale_sheet_execution_locks,
     ensure_google_sheet_registry_schema,
     ensure_scheduled_task_schema,
     ensure_task_result_summary_index_schema,
@@ -70,22 +70,22 @@ def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_facto
     assert ScheduledTask.query.first().is_running is False
 
 
-def test_cleanup_stale_backtest_sheet_run_locks_keeps_running_task_locks(app_factory):
+def test_cleanup_stale_sheet_execution_locks_keeps_running_task_locks(app_factory):
     running_task = Task(id="running-lock-task", name="running", task_type="backtest_training", status="running")
     completed_task = Task(id="completed-lock-task", name="completed", task_type="backtest_training", status="completed")
     db.session.add_all([running_task, completed_task])
     db.session.add_all([
-        BacktestSheetRunLock(
+        SheetExecutionLock(
             spreadsheet_id="running-sheet",
             task_id="running-lock-task",
             task_type="backtest_training",
         ),
-        BacktestSheetRunLock(
+        SheetExecutionLock(
             spreadsheet_id="completed-sheet",
             task_id="completed-lock-task",
             task_type="backtest_training",
         ),
-        BacktestSheetRunLock(
+        SheetExecutionLock(
             spreadsheet_id="missing-sheet",
             task_id="missing-task",
             task_type="backtest_training",
@@ -93,11 +93,11 @@ def test_cleanup_stale_backtest_sheet_run_locks_keeps_running_task_locks(app_fac
     ])
     db.session.commit()
 
-    cleanup_stale_backtest_sheet_run_locks()
+    cleanup_stale_sheet_execution_locks()
 
     locks = {
         lock.spreadsheet_id
-        for lock in BacktestSheetRunLock.query.order_by(BacktestSheetRunLock.spreadsheet_id.asc()).all()
+        for lock in SheetExecutionLock.query.order_by(SheetExecutionLock.spreadsheet_id.asc()).all()
     }
     assert locks == {"running-sheet"}
 

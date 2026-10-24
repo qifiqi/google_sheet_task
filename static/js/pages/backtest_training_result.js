@@ -31,7 +31,8 @@
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
         document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
-        document.getElementById('btn-confirm-word-export')?.addEventListener('click', confirmWordExport);
+        document.getElementById('btn-confirm-word-export')?.addEventListener('click', () => confirmWordExport('word'));
+        document.getElementById('btn-confirm-pdf-export')?.addEventListener('click', () => confirmWordExport('pdf'));
         document.getElementById('btn-preview-export')?.addEventListener('click', openExportPreview);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
@@ -235,7 +236,7 @@
         }
 
         const btn = document.getElementById('btn-export-v1');
-        if (btn) btn.disabled = true;
+        setButtonBusy(btn, true, '导出中…');
 
         try {
             const exportBaseName = state.exportBaseName || 'backtest_result';
@@ -299,7 +300,7 @@
                 Biz.showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
             }
         } finally {
-            if (btn) btn.disabled = false;
+            setButtonBusy(btn, false);
         }
     }
 
@@ -329,7 +330,7 @@
         return percent;
     }
 
-    function confirmWordExport() {
+    function confirmWordExport(format) {
         let riskFreePercent;
         try {
             riskFreePercent = readWordExportRiskFreeRate();
@@ -352,21 +353,28 @@
             risk_free_rate: riskFreePercent / 100
         };
         bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
-        downloadWordReport(payload);
+        downloadWordReport(payload, format);
     }
 
-    async function downloadWordReport(payload) {
+    async function downloadWordReport(payload, format = 'word') {
         const button = document.getElementById('btn-export-word');
-        button.disabled = true;
+        setButtonBusy(button, true, format === 'pdf' ? '转换中…' : '生成中…');
+        // 报告生成可能长达数十秒：弹窗已关闭，点击即受理提示，避免"无反馈"观感。
+        Biz.showAlert(
+            format === 'pdf' ? '报告生成中，PDF 转换约需 10~20 秒，完成后自动下载' : '报告生成中，完成后自动下载',
+            'info',
+        );
         try {
-            const response = await Api.endpoints.export.wordReport(payload);
+            const response = await (format === 'pdf'
+                ? Api.endpoints.export.pdfReport(payload)
+                : Api.endpoints.export.wordReport(payload));
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
                 throw new Error(data.message || `HTTP error! status: ${response.status}`);
             }
             const filename = response.headers.get('Content-Disposition')
                 ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
-                || 'RPT-S.docx';
+                || `RPT-S.${format === 'pdf' ? 'pdf' : 'docx'}`;
             const link = document.createElement('a');
             const objectUrl = URL.createObjectURL(await response.blob());
             link.href = objectUrl;
@@ -375,10 +383,11 @@
             link.click();
             link.remove();
             URL.revokeObjectURL(objectUrl);
-            Biz.showAlert('Word 报告已下载', 'success');
+            Biz.showAlert(format === 'pdf' ? 'PDF 报告已下载' : 'Word 报告已下载', 'success');
         } catch (error) {
-            Biz.showAlert('Word 导出失败：' + (error.message || '未知错误'), 'danger');
+            Biz.showAlert((format === 'pdf' ? 'PDF' : 'Word') + ' 导出失败：' + (error.message || '未知错误'), 'danger');
         } finally {
+            setButtonBusy(button, false);
             button.disabled = !state.wordReportPayload;
         }
     }

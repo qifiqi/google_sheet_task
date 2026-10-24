@@ -839,9 +839,7 @@ function renderSelectedBenchmarks() {
 // ---- 确认导出 ----
 document.getElementById('confirmExportWordBtn')?.addEventListener('click', async function () {
     const btn = this;
-    btn.disabled = true;
-    const original = btn.innerHTML;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
+    setButtonBusy(btn, true, '导出中…');
 
     try {
         await exportWordDirectly(benchmarkEntries.map(entry => ({
@@ -852,8 +850,7 @@ document.getElementById('confirmExportWordBtn')?.addEventListener('click', async
         })));
         bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = original;
+        setButtonBusy(btn, false);
     }
 });
 

@@ -79,7 +79,8 @@
         document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
         document.getElementById('word-export-stock')?.addEventListener('input', scheduleWordExportStockSearch);
         document.getElementById('word-export-stock-results')?.addEventListener('click', selectWordExportStock);
-        document.getElementById('btn-confirm-word-export')?.addEventListener('click', confirmWordExport);
+        document.getElementById('btn-confirm-word-export')?.addEventListener('click', () => confirmWordExport('word'));
+        document.getElementById('btn-confirm-pdf-export')?.addEventListener('click', () => confirmWordExport('pdf'));
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         document.getElementById('gs-url').addEventListener('input', debounce(() => {
             const changed = updateMeta();
@@ -368,7 +369,7 @@
         }
 
         const btn = document.getElementById('btn-export-v1');
-        if (btn) btn.disabled = true;
+        setButtonBusy(btn, true, '导出中…');
 
         try {
             const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
@@ -404,7 +405,7 @@
                 showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
             }
         } finally {
-            if (btn) btn.disabled = false;
+            setButtonBusy(btn, false);
         }
     }
 
@@ -497,7 +498,7 @@
         return { percent, decimal: percent / 100 };
     }
 
-    async function confirmWordExport() {
+    async function confirmWordExport(format) {
         if (!state.wordExportStock) {
             showAlert('请从搜索结果中选择股票', 'warning');
             return;
@@ -533,16 +534,23 @@
             risk_free_rate: riskFree.decimal
         };
         bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
-        await downloadWordReport(payload);
+        await downloadWordReport(payload, format);
     }
 
-    async function downloadWordReport(payload) {
+    async function downloadWordReport(payload, format = 'word') {
 
         const button = document.getElementById('btn-export-word');
-        if (button) button.disabled = true;
+        setButtonBusy(button, true, format === 'pdf' ? '转换中…' : '生成中…');
+        // 报告生成可能长达数十秒：弹窗已关闭，点击即受理提示，避免"无反馈"观感。
+        showAlert(
+            format === 'pdf' ? '报告生成中，PDF 转换约需 10~20 秒，完成后自动下载' : '报告生成中，完成后自动下载',
+            'info',
+        );
         try {
             // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）
-            const response = await Api.endpoints.export.wordReport(payload);
+            const response = await (format === 'pdf'
+                ? Api.endpoints.export.pdfReport(payload)
+                : Api.endpoints.export.wordReport(payload));
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
                 throw new Error(data.message || `HTTP error! status: ${response.status}`);
@@ -550,7 +558,7 @@
             const blob = await response.blob();
             const filename = response.headers.get('Content-Disposition')
                 ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
-                || '策略回测绩效分析报告.docx';
+                || `策略回测绩效分析报告.${format === 'pdf' ? 'pdf' : 'docx'}`;
             const link = document.createElement('a');
             const objectUrl = URL.createObjectURL(blob);
             link.href = objectUrl;
@@ -559,11 +567,11 @@
             link.click();
             link.remove();
             URL.revokeObjectURL(objectUrl);
-            showAlert('Word 报告已下载', 'success');
+            showAlert(format === 'pdf' ? 'PDF 报告已下载' : 'Word 报告已下载', 'success');
         } catch (error) {
-            showAlert('Word 导出失败：' + (error.message || '未知错误'), 'danger');
+            showAlert((format === 'pdf' ? 'PDF' : 'Word') + ' 导出失败：' + (error.message || '未知错误'), 'danger');
         } finally {
-            if (button) button.disabled = false;
+            setButtonBusy(button, false);
         }
     }
 

@@ -1,4 +1,10 @@
-"""任务资源占用管理。"""
+"""任务资源占用管理。
+
+职责边界（统一 Sheet 执行锁语义）：
+- 执行互斥唯一权威是 Sheet 执行锁（sheet_lock_repository，键 spreadsheet_id）；
+- 本模块的 registry 占用（is_in_use/current_task_id）只是展示镜像，不拦截启动；
+- validate_* 系列只做合法性校验（存在/启用/C 系模型注册），不再判占用。
+"""
 
 from __future__ import annotations
 
@@ -6,10 +12,7 @@ from typing import Any
 
 from app.models import GoogleSheetTableType
 from app.exceptions import ValidationError
-from app.repositories import google_sheet_repository, task_repository
-from app.services.google_sheet_registry_service import (
-    get_google_sheet_registry_service,
-)
+from app.repositories import google_sheet_repository
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.utils.logger import get_logger
 
@@ -116,9 +119,11 @@ class TaskOccupancyMixin:
     def validate_c_series_sheet_models(
         self,
         config: dict[str, Any] | None,
-        task_id: str | None = None,
     ) -> None:
-        """C 系任务必须使用 C 系模型，且同一 spreadsheet 的任一条记录不得被其他任务占用。"""
+        """C 系任务合法性校验：必须使用已启用的 C 系注册模型。
+
+        占用互斥不在这里判——统一由 Sheet 执行锁在 start_task 裁决。
+        """
         seen_refs: set[tuple[str, str]] = set()
 
         for sheet_config in self._iter_sheet_references(config):
@@ -140,12 +145,6 @@ class TaskOccupancyMixin:
                 )
             if not any(row["is_active"] for row in c_series_rows):
                 raise ValidationError("所选 Google Sheet 未启用")
-            if any(
-                row["is_in_use"]
-                and (task_id is None or row.get("current_task_id") != task_id)
-                for row in rows
-            ):
-                raise ValidationError("所选 Google Sheet 正在被其他任务使用，无法启动")
 
     def release_task_token_occupancy(self, task_id: str) -> None:
         """释放任务对应的 token 运行占用。"""
@@ -169,33 +168,33 @@ class TaskOccupancyMixin:
         config: dict[str, Any] | None,
         allowed_table_types: frozenset[str] | None = None,
     ) -> None:
-        """根据任务配置建立 Google Sheet 占用。"""
+        """登记 Google Sheet 占用镜像（展示用，非阻塞）。
+
+        执行互斥以 Sheet 执行锁为权威，镜像登记失败仅告警不拦截启动。
+        """
         for sheet_id in self._collect_google_sheet_ids(
             config, allowed_table_types=allowed_table_types
         ):
-            get_google_sheet_registry_service().acquire_for_task(sheet_id, task_id)
+            occupied = google_sheet_repository.occupy(sheet_id, task_id)
+            if occupied is None:
+                logger.warning(
+                    "Google Sheet 占用镜像登记失败（记录缺失或被并发变更）: "
+                    "sheet_id=%s, task_id=%s",
+                    sheet_id,
+                    task_id,
+                )
 
     def validate_google_sheet_available_for_task(
         self,
         config: dict[str, Any] | None,
-        task_id: str | None = None,
-        allow_in_use: bool = False,
     ) -> None:
-        """在创建或启动任务前校验 Google Sheet 是否可占用。"""
+        """创建前校验 Sheet 引用存在且启用；占用不再拦截（统一排队语义）。"""
         for sheet_id in self._collect_google_sheet_ids(config):
             sheet = google_sheet_repository.get(sheet_id)
             if not sheet:
                 raise ValidationError("所选 Google Sheet 不存在")
             if not sheet["is_active"]:
                 raise ValidationError("所选 Google Sheet 未启用")
-            if (
-                not allow_in_use
-                and
-                sheet["is_in_use"]
-                and sheet["current_task_id"]
-                and sheet["current_task_id"] != task_id
-            ):
-                raise ValidationError("该 Google Sheet 已被其他任务使用")
 
     def validate_backtest_training_sheet(self, config: dict[str, Any] | None) -> None:
         """Verify that a single-product backtest uses its dedicated sheet type."""
@@ -226,22 +225,8 @@ class TaskOccupancyMixin:
             raise ValidationError("所选单品回测 Sheet 信息不一致")
 
     def release_google_sheet_occupancy(self, task_id: str) -> None:
-        """释放任务关联的 Google Sheet 占用。"""
+        """释放任务关联的 Google Sheet 占用镜像（展示层，非互斥权威）。"""
         try:
-            released = get_google_sheet_registry_service().release_for_task(task_id)
-            if released:
-                return
-
-            task = task_repository.get(task_id)
-            if not task:
-                return
-
-            config_data = task.get("config") or {}
-            if isinstance(config_data, dict) and config_data.get("google_sheet_id"):
-                logger.warning(
-                    "Google Sheet 占用释放跳过: task_id=%s, google_sheet_id=%s",
-                    task_id,
-                    config_data.get("google_sheet_id"),
-                )
+            google_sheet_repository.release_by_task(task_id)
         except Exception as exc:
-            logger.warning("释放 Google Sheet 占用失败: task_id=%s, err=%s", task_id, exc)
+            logger.warning("释放 Google Sheet 占用镜像失败: task_id=%s, err=%s", task_id, exc)

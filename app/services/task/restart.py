@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import current_app
 
 from app.exceptions import ConflictError, NotFoundError
+from app.models import TaskStatus
 
 from app.services.task.data_cleanup import clear_task_execution_data
 from app.repositories import task_repository
@@ -32,7 +33,7 @@ class TaskRestartMixin:
         if task.status in ["completed", "cancelled", "error"]:
             return False
 
-        was_pending = task.status == "pending"
+        was_pending = task.status == TaskStatus.PENDING.value
         stop_event = self.task_stop_events.get(task_id)
         if stop_event:
             stop_event.set()
@@ -40,7 +41,7 @@ class TaskRestartMixin:
         task_repository.update_fields(
             task_id,
             commit=False,
-            status="cancelled",
+            status=TaskStatus.CANCELLED.value,
             end_time=datetime.now(),
         )
 
@@ -118,46 +119,27 @@ class TaskRestartMixin:
             task = task_repository.get_entity(task_id)
             if not task:
                 raise NotFoundError("任务不存在")
-            if task.task_type in ("backtest_training", "backtest_multi_product"):
-                config_data = self._get_task_config_dict(task)
-                spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
-                running_backtest = self._find_running_backtest_task_for_spreadsheets(
-                    spreadsheet_ids,
-                    exclude_task_id=task_id,
-                )
-                if running_backtest:
-                    message = (
-                        "同一个 Google Sheet 已有回测任务正在运行，"
-                        f"当前任务保持待执行: {running_backtest.id}"
-                    )
-                    self.start_errors[task_id] = message
-                    task_repository.update_fields(
-                        task_id,
-                        status="pending",
-                        error_message=None,
-                        start_time=start_time,
-                        end_time=None,
-                    )
-                    self.add_task_log(task_id, "info", message)
-                    return {
-                        "message": message,
-                        "start_error": message,
-                        "task_id": task_id,
-                        "queued": True,
-                        "restart_from_step": restart_step,
-                    }
             task_repository.update_fields(
                 task_id,
-                status="pending",
+                status=TaskStatus.PENDING.value,
                 error_message=None,
                 start_time=start_time,
                 end_time=None,
             )
 
-            success = self.start_task(task_id)
-            if not success:
-                start_error = self.get_start_error(task_id)
-                raise ConflictError(f"任务重启失败: {start_error}")
+            # 统一入口：Sheet 执行锁被占 → queued（保持 pending 排队等接力）；
+            # 其他启动失败 → ConflictError 由上层标记。
+            result = self.start_task(task_id)
+            if result.queued:
+                return {
+                    "message": result.message,
+                    "start_error": result.message,
+                    "task_id": task_id,
+                    "queued": True,
+                    "restart_from_step": restart_step,
+                }
+            if not result.started:
+                raise ConflictError(f"任务重启失败: {result.message}")
 
             restart_reason = status_check.get("restart_reason")
             if not restart_reason:
@@ -189,11 +171,11 @@ class TaskRestartMixin:
                     logger.warning("任务不存在: %s", task_id)
                     return False
 
-                if task.status == "running":
+                if task.status == TaskStatus.RUNNING.value:
                     task_repository.update_fields(
                         task_id,
                         commit=False,
-                        status="cancelled",
+                        status=TaskStatus.CANCELLED.value,
                         end_time=datetime.now(),
                     )
                     self.release_task_token_occupancy(task_id)

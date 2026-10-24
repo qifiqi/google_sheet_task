@@ -193,6 +193,24 @@ def export_backtest_word_report():
     return _file_response(generated)
 
 
+@export_api_bp.route("/backtest-reports/pdf", methods=["POST"])
+@login_required
+@_word_report_limit
+def export_backtest_pdf_report():
+    """接收单产品或多产品回测收益序列并导出 PDF 报告。
+
+    与 Word 端点共用载荷与缓存，DOCX 生成后经 LibreOffice 转换为 PDF；
+    转换耗时显著高于纯 DOCX 下发，同样适用放宽的 word 报告限流。
+    """
+    report_request = parse_body(StrategyBacktestReportSchema)
+    generated = export_service.export_backtest_pdf(report_request)
+    generated = replace(
+        generated,
+        filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.pdf"),
+    )
+    return _file_response(generated)
+
+
 @export_api_bp.route("/model-summary", methods=["GET"])
 @login_required
 @_export_limit

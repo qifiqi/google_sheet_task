@@ -16,7 +16,7 @@ from flask import current_app
 
 from app.exceptions import ValidationError
 from app.repositories import backtest_repository, task_repository, task_result_repository
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskStatus
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.google_sheet_tasks.base import (
     DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS,
@@ -789,7 +789,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                 if not task:
                     self._log_error(f"任务 {self.task_id} 不存在")
                     return "error"
-                if task.status == "cancelled" or self._is_cancel_requested():
+                if task.status == TaskStatus.CANCELLED.value or self._is_cancel_requested():
                     self._log_info(f"任务 {self.task_id} 已被取消，停止执行")
                     return "cancelled"
 

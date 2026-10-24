@@ -42,7 +42,8 @@ class TaskManager(
         # dict。约定：复合操作（check-then-act、遍历+判断、注册+提交）必须持锁；
         # 单次 get/set/setdefault 因 GIL 原子，可不持锁。
         self._runtime_state_lock = threading.RLock()
-        self.backtest_sheet_start_lock = threading.RLock()
+        # Sheet 执行锁启动串行化锁（start_task 占用判定 + 收尾接力共用）。
+        self.sheet_start_lock = threading.RLock()
         self._pool: ThreadPoolExecutor | None = None
         self._pool_lock = threading.RLock()
         self._active_worker_ids: dict[str, int] = {}

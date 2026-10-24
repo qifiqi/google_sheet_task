@@ -19,7 +19,8 @@
         }
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
-        document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
+        document.getElementById('btn-export-word')?.addEventListener('click', () => exportWordReport('word'));
+        document.getElementById('btn-export-pdf')?.addEventListener('click', () => exportWordReport('pdf'));
         document.getElementById('btn-copy-daily-returns')?.addEventListener('click', copyDailyReturns);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
@@ -99,9 +100,11 @@
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
         const wordExportBtn = document.getElementById('btn-export-word');
+        const pdfExportBtn = document.getElementById('btn-export-pdf');
         if (reloadBtn) reloadBtn.disabled = true;
         if (exportBtn) exportBtn.disabled = true;
         if (wordExportBtn) wordExportBtn.disabled = true;
+        if (pdfExportBtn) pdfExportBtn.disabled = true;
     }
 
     function hideLoading() {
@@ -110,9 +113,11 @@
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
         const wordExportBtn = document.getElementById('btn-export-word');
+        const pdfExportBtn = document.getElementById('btn-export-pdf');
         if (reloadBtn) reloadBtn.disabled = false;
         if (exportBtn) exportBtn.disabled = !state.lastResults;
         if (wordExportBtn) wordExportBtn.disabled = !state.wordReportPayload;
+        if (pdfExportBtn) pdfExportBtn.disabled = !state.wordReportPayload;
    }
 
     
@@ -187,6 +192,8 @@
             if (exportBtn) exportBtn.disabled = false;
             const wordExportBtn = document.getElementById('btn-export-word');
             if (wordExportBtn) wordExportBtn.disabled = !state.wordReportPayload;
+            const pdfExportBtn = document.getElementById('btn-export-pdf');
+            if (pdfExportBtn) pdfExportBtn.disabled = !state.wordReportPayload;
             Biz.renderSummary(resultData);
             renderTables(resultData);
             renderCharts(resultData);
@@ -281,23 +288,33 @@
         }
     }
 
-    async function exportWordReport() {
+    async function exportWordReport(format = 'word') {
         if (!state.wordReportPayload) {
             Biz.showAlert('当前参数方案缺少完整的多品收益序列', 'warning');
             return;
         }
 
-        const button = document.getElementById('btn-export-word');
-        button.disabled = true;
+        const button = document.getElementById(format === 'pdf' ? 'btn-export-pdf' : 'btn-export-word');
+        // 两个导出按钮同工具栏：转换期间一并禁用，防止并发触发第二次服务端转换。
+        const siblingButton = document.getElementById(format === 'pdf' ? 'btn-export-word' : 'btn-export-pdf');
+        if (siblingButton) siblingButton.disabled = true;
+        setButtonBusy(button, true, format === 'pdf' ? '转换中…' : '生成中…');
+        // 报告生成可能长达数十秒：点击即受理提示，避免"无反馈"观感。
+        Biz.showAlert(
+            format === 'pdf' ? '报告生成中，PDF 转换约需 10~20 秒，完成后自动下载' : '报告生成中，完成后自动下载',
+            'info',
+        );
         try {
-            const response = await Api.endpoints.export.wordReport(state.wordReportPayload);
+            const response = await (format === 'pdf'
+                ? Api.endpoints.export.pdfReport(state.wordReportPayload)
+                : Api.endpoints.export.wordReport(state.wordReportPayload));
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
                 throw new Error(data.message || `HTTP error! status: ${response.status}`);
             }
             const filename = response.headers.get('Content-Disposition')
                 ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
-                || 'RPT-M.docx';
+                || `RPT-M.${format === 'pdf' ? 'pdf' : 'docx'}`;
             const link = document.createElement('a');
             const objectUrl = URL.createObjectURL(await response.blob());
             link.href = objectUrl;
@@ -306,11 +323,13 @@
             link.click();
             link.remove();
             URL.revokeObjectURL(objectUrl);
-            Biz.showAlert('Word 报告已下载', 'success');
+            Biz.showAlert(format === 'pdf' ? 'PDF 报告已下载' : 'Word 报告已下载', 'success');
         } catch (error) {
-            Biz.showAlert('Word 导出失败：' + (error.message || '未知错误'), 'danger');
+            Biz.showAlert((format === 'pdf' ? 'PDF' : 'Word') + ' 导出失败：' + (error.message || '未知错误'), 'danger');
         } finally {
+            setButtonBusy(button, false);
             button.disabled = !state.wordReportPayload;
+            if (siblingButton) siblingButton.disabled = !state.wordReportPayload;
         }
     }
 

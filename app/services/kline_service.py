@@ -111,6 +111,9 @@ class KlineService:
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self._akshare_api = None
+        # 证券名称软解析缓存：命中西"代码+市场"直接复用；空串为负缓存，
+        # 避免东财/yahoo 均无名称的代码每次取数都重复发起搜索。
+        self._resolved_name_cache: dict[tuple[str, str], str] = {}
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
             DATA_SOURCE_DFCF: self._fetch_dfcf,
             DATA_SOURCE_QQ: self._fetch_qq,
@@ -436,22 +439,28 @@ class KlineService:
                 code,
             )
         elif source == DATA_SOURCE_YAHOO:
-            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索。
-            exchange, resolved_name, resolved_code = (
+            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索；
+            # 证券名称单独走东财搜索（软失败，Yahoo longName 兜底）。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         elif source in {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}:
             exchange, resolved_name, resolved_code = self._resolve_exchange_and_name(
                 code, market_type, exchange_market, stock_name
             )
         else:
-            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码。
-            exchange, resolved_name, resolved_code = (
+            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码；
+            # 名称与 Yahoo 分支同策略：东财搜索软失败解析，取不到留空。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         handler = self.sources.get(source)
         if handler is None:
@@ -569,6 +578,39 @@ class KlineService:
         if first in {"4", "8"}:
             return market_enum.BJ
         raise ValueError(f"TDX 数据源仅支持 A股场内证券代码: {code}")
+
+    def _resolve_stock_name_soft(
+        self,
+        code: str,
+        market_type: str,
+        exchange_market: str | None = None,
+    ) -> str:
+        """仅解析证券名称的软失败路径（Yahoo/注册源用，不影响代码与交易市场判定）。
+
+        优先东财搜索（含 stock_meta 前置缓存与成功回写），失败回退 Yahoo
+        longName，再取不到返回空串由调用方留空。任何异常都吞掉记日志，
+        取名失败绝不阻断 K 线任务。
+        """
+        market_key = str(market_type or "").strip().lower()
+        cache_key = (str(code or "").strip().upper(), market_key)
+        if cache_key in self._resolved_name_cache:
+            return self._resolved_name_cache[cache_key]
+        name = ""
+        try:
+            name = str(
+                self.stock_search_service.resolve_stock(code, market_type)["name"] or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("东财搜索解析证券名称失败 code=%s market=%s: %s", code, market_type, exc)
+        if not name:
+            try:
+                name = self._get_yahoo_api().get_stock_name(
+                    to_yahoo_ticker(code, market_type, exchange_market)
+                )
+            except Exception as exc:
+                logger.warning("Yahoo 兜底解析证券名称失败 code=%s: %s", code, exc)
+        self._resolved_name_cache[cache_key] = name
+        return name
 
     def _resolve_exchange_and_name(
         self,
@@ -758,6 +800,8 @@ class KlineService:
                     )
                 except (TypeError, ValueError):
                     vwap = values["close"]
+                # 与 dfcf/yf 源及周月聚合口径一致，加权平均价统一保留 3 位小数
+                vwap = round(vwap, 3)
             row.update(
                 {
                     **values,

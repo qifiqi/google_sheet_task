@@ -99,12 +99,12 @@ function extractKlineRangeFromMetrics(metrics) {
 
 // —— 全局日期输入约束 ——
 // 原生 <input type="date"> 的年份段允许连续输入 5~6 位数字（HTML 规范年份上限 275760），
-// 会产生 "12026-01-01" 这类离谱日期并流入任务参数。这里统一给日期输入补 min/max，
-// 并在 change 时拦截越界值（清空 + 标红提示）。utils.js 被全部页面引入，此处即全局生效。
-// 注意越界判断不能用字符串比较：'202664-06-04' 按字典序小于 '2099-12-31'，必须按年份数值判。
-const DATE_GUARD_MIN_YEAR = 1990;
-const DATE_GUARD_MAX_YEAR = 2099;
-const DATE_GUARD_VALID_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+// 会产生 "12026-01-01" 这类离谱日期并流入任务参数。这里只在 input 时把超过 4 位的年份
+// 截断回前 4 位（Chrome 年份段是逐位左移累加，第 5 位起才是多敲的），其余一律放行：
+// 不做年份区间校验，不清空、不提示，输入过程中的中间态（如改年份时先变成 "0020"）不受干扰。
+// 注意截断不能等 change：Chrome 在改出完整日期的瞬间就触发 change（不等失焦），
+// 在 change 里校验会把打字打到一半的中间态当成越界值误清空。
+const DATE_GUARD_LONG_YEAR_RE = /^(\d{4,})-(\d{2})-(\d{2})$/;
 
 function initDateInputGuards(root) {
   const scope = root || document;
@@ -113,29 +113,14 @@ function initDateInputGuards(root) {
       return;
     }
     input.dataset.dateGuardInit = "1";
-    if (!input.getAttribute("min")) {
-      input.setAttribute("min", `${DATE_GUARD_MIN_YEAR}-01-01`);
-    }
-    if (!input.getAttribute("max")) {
-      input.setAttribute("max", `${DATE_GUARD_MAX_YEAR}-12-31`);
-    }
-    input.addEventListener("change", function () {
+    input.addEventListener("input", function () {
       const value = input.value;
       if (!value) {
         return;
       }
-      const match = value.match(DATE_GUARD_VALID_RE);
-      const year = match ? Number(match[1]) : NaN;
-      if (!match || Number.isNaN(year) || year < DATE_GUARD_MIN_YEAR || year > DATE_GUARD_MAX_YEAR) {
-        input.value = "";
-        input.classList.add("is-invalid");
-        setTimeout(() => input.classList.remove("is-invalid"), 2500);
-        const message = `日期 ${value} 超出有效范围（${DATE_GUARD_MIN_YEAR}-01-01 ~ ${DATE_GUARD_MAX_YEAR}-12-31），已清空，请重新选择`;
-        if (typeof showNotification === "function") {
-          showNotification(message, "warning");
-        } else {
-          console.warn(message);
-        }
+      const match = value.match(DATE_GUARD_LONG_YEAR_RE);
+      if (match && match[1].length > 4) {
+        input.value = `${match[1].slice(0, 4)}-${match[2]}-${match[3]}`;
       }
     });
   });
@@ -151,3 +136,32 @@ function initDateInputGuards(root) {
     initDateInputGuards();
   }
 })();
+
+// 按钮加载态：spinner + 文案 + 禁用三合一。导出/生成类操作等待普遍在数秒到
+// 数十秒，统一的可见 loading 反馈用于抑制"按了没反应"引发的重复点击。
+// busy=true 进入加载态（保存原 innerHTML 与 disabled，重复调用防重入）；
+// busy=false 恢复进入前状态；调用方需要自定义终态禁用时在恢复后另行赋值。
+function setButtonBusy(button, busy, busyText) {
+  if (!button) {
+    return;
+  }
+  if (busy) {
+    if (button.dataset.busyHtml !== undefined) {
+      return;
+    }
+    button.dataset.busyHtml = button.innerHTML;
+    button.dataset.busyDisabled = button.disabled ? "1" : "0";
+    button.disabled = true;
+    button.innerHTML =
+      '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' +
+      (busyText || "导出中…");
+  } else {
+    if (button.dataset.busyHtml === undefined) {
+      return;
+    }
+    button.innerHTML = button.dataset.busyHtml;
+    button.disabled = button.dataset.busyDisabled === "1";
+    delete button.dataset.busyHtml;
+    delete button.dataset.busyDisabled;
+  }
+}

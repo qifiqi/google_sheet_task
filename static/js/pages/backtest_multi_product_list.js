@@ -301,14 +301,12 @@ function clearBatchExportSelection() {
 
 async function exportSelectedBatchTasks() {
     const button = document.getElementById('confirmBatchExportBtn');
-    const originalHtml = button.innerHTML;
     const taskIds = [...selectedBatchExportTaskIds];
     if (!taskIds.length) {
         return;
     }
 
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+    setButtonBusy(button, true, '导出中…');
     try {
         const response = await Api.endpoints.export.globalPreviewsBatch(taskIds);
         if (!response.ok) {
@@ -340,7 +338,7 @@ async function exportSelectedBatchTasks() {
     } catch (error) {
         alert(error.message || '导出失败');
     } finally {
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
         updateBatchExportSummary();
     }
 }

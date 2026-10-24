@@ -13,16 +13,14 @@ from app.models import (
     Role,
     SystemConfig,
     Task,
-    TaskLog,
-    TaskResult,
     User,
 )
 from app.repositories import (
-    backtest_repository,
     google_sheet_repository,
     navigation_repository,
     auth_repository,
     scheduled_task_repository,
+    sheet_lock_repository,
     stock_metadata_repository,
     system_config_repository,
     task_log_repository,
@@ -383,26 +381,41 @@ class TestStockMetadataRepository:
         assert stock_metadata_repository.get("600000.SH", "us") is None
 
 
-# ==================== backtest_repository ====================
+# ==================== sheet_lock_repository（统一 Sheet 执行锁） ====================
 
 
-class TestBacktestRepository:
+class TestSheetLockRepository:
     def test_lock_acquire_idempotent_and_conflict(self, app_factory):
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
         assert (ok, holder) == (True, None)
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
         assert (ok, holder) == (True, None)  # 同任务幂等
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-2", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-2", "backtest_training")
         assert (ok, holder) == (False, "t-1")  # 他任务冲突
 
-    def test_lock_release_guards_owner(self, app_factory):
-        backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
-        assert backtest_repository.release_lock("ss1", "t-2") is False
-        assert backtest_repository.release_lock("ss1", "t-1") is True
-        assert backtest_repository.get_lock("ss1") is None
-        assert backtest_repository.release_lock("ss1", "t-1") is False
+    def test_lock_acquire_all_rolls_back_on_conflict(self, app_factory):
+        sheet_lock_repository.acquire("ss0", "t-0", "backtest_training")
+        ok, holder, acquired = sheet_lock_repository.acquire_all(
+            ["ss1", "ss0"], "t-1", "backtest_training"
+        )
+        assert (ok, holder) == (False, "t-0")
+        assert acquired == ["ss1"]  # 全拿全放：冲突时先拿的也要回滚
+        assert sheet_lock_repository.get("ss1") is None
 
-    def test_release_locks_by_task(self, app_factory):
-        backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
-        backtest_repository.acquire_lock("ss2", "t-1", "backtest_training")
-        assert backtest_repository.release_locks_by_task("t-1") == 2
+    def test_lock_release_guards_owner(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        assert sheet_lock_repository.release("ss1", "t-2") is False
+        assert sheet_lock_repository.release("ss1", "t-1") is True
+        assert sheet_lock_repository.get("ss1") is None
+        assert sheet_lock_repository.release("ss1", "t-1") is False
+
+    def test_find_conflict_excludes_self(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-1") is None
+        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-2") == "t-1"
+        assert sheet_lock_repository.find_conflict(["ss-none"]) is None
+
+    def test_release_all_by_task(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        sheet_lock_repository.acquire("ss2", "t-1", "backtest_training")
+        assert sheet_lock_repository.release_all_by_task("t-1") == 2

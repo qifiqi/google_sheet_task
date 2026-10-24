@@ -12,6 +12,7 @@ from datetime import datetime
 from flask import current_app, has_app_context
 
 from app.repositories import task_log_repository, task_repository
+from app.models import TaskStatus
 from app.utils.task_error_utils import (
     NETWORK_ERROR_PREFIX,
     is_retryable_network_error,
@@ -136,7 +137,7 @@ def record_task_exception(
         with task_log_repository.transaction():
             task = task_repository.get_entity(task_id)
             if task and mark_error:
-                task.status = "error"
+                task.status = TaskStatus.ERROR.value
                 task.error_message = error_message
                 task.end_time = datetime.now()
             if should_write_log:

@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.models import TaskType
 from app.utils.model_version import normalize_model_version
 
 TASK_SHEET_NAME_DEFAULT = "data"
@@ -223,15 +224,17 @@ class MultiProductConfig(_BaseTaskConfig):
 
 
 # task_type → 配置模型（google_sheet_C31 是拆分器标记，不落 Task 行，无独立模型）
+# task_type → 配置模型（键 = TaskType 枚举值派生；google_sheet_C3 是 C3 同义别名键，
+# google_sheet_C31 是拆分器标记，两者均无独立配置模型）
 TASK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
-    "google_sheet": C3TaskConfig,
+    TaskType.GOOGLE_SHEET.value: C3TaskConfig,
     "google_sheet_C3": C3TaskConfig,
-    "google_sheet_C4": C4TaskConfig,
-    "google_sheet_C5": C5TaskConfig,
-    "google_sheet_C7": C7TaskConfig,
-    "google_sheet_C1_1": C1_1TaskConfig,
-    "backtest_training": BacktestTrainingConfig,
-    "backtest_multi_product": MultiProductConfig,
+    TaskType.GOOGLE_SHEET_C4.value: C4TaskConfig,
+    TaskType.GOOGLE_SHEET_C5.value: C5TaskConfig,
+    TaskType.GOOGLE_SHEET_C7.value: C7TaskConfig,
+    TaskType.GOOGLE_SHEET_C1_1.value: C1_1TaskConfig,
+    TaskType.BACKTEST_TRAINING.value: BacktestTrainingConfig,
+    TaskType.BACKTEST_MULTI_PRODUCT.value: MultiProductConfig,
 }
 
 

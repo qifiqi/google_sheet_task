@@ -12,13 +12,16 @@ from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.repositories import task_log_repository, task_repository, task_result_repository
-from app.models import TaskLog
+from app.models import TaskLog, TaskStatus
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
-from app.services.task_kline_snapshot_service import task_kline_snapshot_service
+from app.services.task_kline_snapshot_service import (
+    SnapshotLazyKlineMap,
+    task_kline_snapshot_service,
+)
 from app.utils.db_retry import safe_db_operation
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_stock_api import StockAPIClient
@@ -212,7 +215,7 @@ class BaseGoogleSheetService:
             return True
         try:
             task = task_repository.get_entity(self.task_id)
-            return bool(task and task.status == 'cancelled')
+            return bool(task and task.status == TaskStatus.CANCELLED.value)
         except Exception:
             return False
 
@@ -494,21 +497,33 @@ class BaseGoogleSheetService:
         """去重签名的任务特定附加字段；默认无附加。"""
         return ()
 
+    @staticmethod
+    def _resolve_kline_signature(kline_data_map, kline_key):
+        """窗口签名 (首日, 末日, 行数)；惰性映射读登记元数据，普通映射物化行。"""
+        signature_getter = getattr(kline_data_map, "kline_signature", None)
+        if signature_getter is not None:
+            return signature_getter(kline_key)
+        kline = kline_data_map.get(kline_key)
+        if not kline:
+            return None
+        return (
+            kline[0].get('stock_date'),
+            kline[-1].get('stock_date'),
+            len(kline),
+        )
+
     def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
         """按股票、参数和实际K线区间去除重复回测组合。"""
         deduplicated = []
         seen = set()
         for combination in combinations:
-            kline = kline_data_map.get(combination.get('kline_key'))
-            if not kline:
+            kline_signature = self._resolve_kline_signature(
+                kline_data_map, combination.get('kline_key')
+            )
+            if kline_signature is None:
                 deduplicated.append(combination)
                 continue
 
-            kline_signature = (
-                kline[0].get('stock_date'),
-                kline[-1].get('stock_date'),
-                len(kline),
-            )
             signature = (
                 str(combination.get('stock_code', '')),
                 str(combination.get('A1', '')),
@@ -640,6 +655,8 @@ class BaseGoogleSheetService:
         """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。
 
         有 Flask app context 且传入 snapshot_meta 时落库并复用随机K线快照；
+        返回的 kline 映射为 SnapshotLazyKlineMap（只登记 series id 与窗口签名，
+        行列表执行期按需物化），避免全任务驻留全部合并行；
         纯生成单测无上下文时保留原内存路径，不写库。
 
         random_series_mode=per_window（默认）：seed 含窗口键，各窗口独立摇序列（现状）。
@@ -658,7 +675,13 @@ class BaseGoogleSheetService:
             and self._persist_random_snapshots
         )
         grouped_data = []
-        grouped_map = {}
+        if persist_snapshots:
+            # 持久路径不物化合并行：只登记 series id，行列表执行期从快照表按需拼回
+            grouped_map: Any = SnapshotLazyKlineMap(
+                task_kline_snapshot_service.materialize_series_rows
+            )
+        else:
+            grouped_map = {}
         group_series_ids = {}
         sources_by_key = {}
         full_rows_by_group = {}
@@ -723,8 +746,12 @@ class BaseGoogleSheetService:
                                 rows=source_kline,
                                 values=[row["stock_val"] for row in window_rows],
                             )
-                            grouped_map[group_key] = (
-                                task_kline_snapshot_service.merge_rows(source, series)
+                            grouped_map.register(
+                                group_key,
+                                series["id"],
+                                start_date=source["start_date"],
+                                end_date=source["end_date"],
+                                row_count=int(source.get("row_count") or 0),
                             )
                             group_series_ids[group_key] = series["id"]
                         else:
@@ -741,8 +768,12 @@ class BaseGoogleSheetService:
                             seed=seed,
                             rows=source_kline,
                         )
-                        grouped_map[group_key] = (
-                            task_kline_snapshot_service.merge_rows(source, series)
+                        grouped_map.register(
+                            group_key,
+                            series["id"],
+                            start_date=source["start_date"],
+                            end_date=source["end_date"],
+                            row_count=int(source.get("row_count") or 0),
                         )
                         group_series_ids[group_key] = series["id"]
                     else:
@@ -1231,7 +1262,7 @@ class BaseGoogleSheetService:
                     return 'error'
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -1266,7 +1297,7 @@ class BaseGoogleSheetService:
                 name = task.name
                 self.task_name = name
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -1303,7 +1334,7 @@ class BaseGoogleSheetService:
             # 检查是否是任务被取消导致的异常
             try:
                 task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
+                if task and task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程

@@ -10,6 +10,7 @@ import csv
 import io
 import random
 import re
+from collections import OrderedDict
 from typing import Any
 
 from app.exceptions import NotFoundError
@@ -266,6 +267,16 @@ class TaskKlineSnapshotService:
             merged.append(row)
         return merged
 
+    def materialize_series_rows(self, series_id: int) -> list[dict[str, Any]]:
+        """按 series id 拼回完整 K 线行（惰性映射执行期物化入口）。"""
+        series = task_kline_snapshot_repository.get_series_by_id(series_id)
+        if not series:
+            raise NotFoundError("随机K线快照不存在")
+        source = task_kline_snapshot_repository.get_source_by_id(series["source_id"])
+        if not source:
+            raise NotFoundError("随机K线快照源数据不存在")
+        return self.merge_rows(source, series)
+
     def list_task_snapshots(
         self,
         task_id: str,
@@ -416,6 +427,71 @@ class TaskKlineSnapshotService:
             "vwap_json",
         }
         return {key: value for key, value in source.items() if key not in excluded}
+
+
+class SnapshotLazyKlineMap:
+    """随机价分组K线的惰性行映射。
+
+    展开期只登记每组的 series id 与窗口签名（首日/末日/行数），不物化行；
+    行列表推迟到执行期按需从快照表拼回，并以小容量 LRU 复用相邻组合。
+    避免 get_bdl 全量预计算把 股票数×窗口×组数×行数 的合并行驻留到任务结束。
+    """
+
+    _CACHE_MAX = 8
+
+    def __init__(self, loader: Any) -> None:
+        self._loader = loader
+        self._entries: dict[str, dict[str, Any]] = {}
+        self._cache: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+
+    def register(
+        self,
+        key: str,
+        series_id: int,
+        *,
+        start_date: str,
+        end_date: str,
+        row_count: int,
+    ) -> None:
+        self._entries[str(key)] = {
+            "series_id": int(series_id),
+            "signature": (start_date, end_date, int(row_count)),
+        }
+        self._cache.pop(key, None)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        entry = self._entries.get(key)
+        if entry is None:
+            return default
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            return cached
+        rows = self._loader(entry["series_id"])
+        self._cache[key] = rows
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._CACHE_MAX:
+            self._cache.popitem(last=False)
+        return rows
+
+    def __getitem__(self, key: str) -> Any:
+        rows = self.get(key)
+        if rows is None:
+            raise KeyError(key)
+        return rows
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._entries
+
+    def kline_signature(self, key: str) -> tuple | None:
+        """窗口签名 (首日, 末日, 行数)，供组合去重使用；不物化行。"""
+        entry = self._entries.get(key)
+        return entry["signature"] if entry else None
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, SnapshotLazyKlineMap):
+            return NotImplemented
+        return self._entries == other._entries
 
 
 task_kline_snapshot_service = TaskKlineSnapshotService()

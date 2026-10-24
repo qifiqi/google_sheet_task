@@ -37,7 +37,7 @@
     if (Number.isNaN(date.getTime())) {
       return escapeHtml(value);
     }
-    return date.toLocaleString();
+    return date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   }
 
   function formatValue(value) {
@@ -82,7 +82,9 @@
     URL.revokeObjectURL(url);
   }
 
-  async function runDownload(request, fallback) {
+  // button 可选：传入触发按钮时挂 loading 态（setButtonBusy 见 common/utils.js）。
+  async function runDownload(request, fallback, button) {
+    setButtonBusy(button, true, "导出中…");
     try {
       await download(await request(), fallback);
       showNotification("随机K线已开始下载", "success");
@@ -91,6 +93,8 @@
         `下载随机K线失败: ${error && error.message ? error.message : error}`,
         "error",
       );
+    } finally {
+      setButtonBusy(button, false);
     }
   }
 
@@ -484,12 +488,13 @@
     loadDetail(seriesId);
   }
 
-  function downloadTask(taskId) {
+  function downloadTask(taskId, button) {
     return runDownload(
       function () {
         return Api.endpoints.export.taskKlineSnapshots(taskId);
       },
       `task-${taskId}-kline-snapshots.csv`,
+      button,
     );
   }
 

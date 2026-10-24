@@ -466,6 +466,18 @@
           body: JSON.stringify(payload),
         });
       },
+      // 回测 PDF 报告导出（RPT-S/RPT-M），复用 Word 载荷，服务端转换耗时较长。
+      pdfReport: function (payload) {
+        return fetch("/api/exports/backtest-reports/pdf", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken":
+              document.querySelector('meta[name="csrf-token"]')?.content || "",
+          },
+          body: JSON.stringify(payload),
+        });
+      },
       // 模型汇总 CSV 导出（admin 模型汇总页），文件流下载，返回原始 Response；
       // 页面沿用 JWT Authorization 头，经 options 透传。
       modelSummaryCsv: function (query, options) {

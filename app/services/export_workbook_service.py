@@ -23,6 +23,7 @@ from app.exceptions import ValidationError
 from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.utils.model_version import normalize_model_version, resolve_model_version
+from app.utils.task_types import TYPE_GOOGLE_SHEET, TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C5, TYPE_GOOGLE_SHEET_C7
 
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -440,18 +441,18 @@ def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool =
     - by_stock=True（按股票代码分组导出）时列尾只追加结果ID，不重复输出股票代码。
     """
     task_type = _task_type(task)
-    if task_type in ("google_sheet_c7", "google_sheet_c1_1"):
+    if task_type in (TYPE_GOOGLE_SHEET_C7, TYPE_GOOGLE_SHEET_C1_1):
         normalized = (
             normalize_c1_1_export_results(results)
-            if task_type == "google_sheet_c1_1"
+            if task_type == TYPE_GOOGLE_SHEET_C1_1
             else normalize_c7_export_results(results)
         )
-        if task_type == "google_sheet_c1_1":
+        if task_type == TYPE_GOOGLE_SHEET_C1_1:
             return _excel_export(task, build_c1_1_worksheets(normalized, by_stock), results)
         return _excel_export(task, build_c5_worksheets(normalized, by_stock), results)
-    if task_type == "google_sheet_c5":
+    if task_type == TYPE_GOOGLE_SHEET_C5:
         return _excel_export(task, build_c5_worksheets(results, by_stock), results)
-    if task_type in ("google_sheet", "google_sheet_c3"):
+    if task_type in (TYPE_GOOGLE_SHEET, "google_sheet_c3"):
         return _excel_export(task, build_c3_worksheets(results, by_stock), results)
     return _generic_export(task, results)
 

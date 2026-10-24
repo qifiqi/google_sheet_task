@@ -6,6 +6,16 @@
 (function () {
   window.Biz = window.Biz || {};
 
+  // 任务 config 值属用户可控输入，插入 innerHTML/属性前必须转义（存储型 XSS 防线）。
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // 打开弹窗时暂存的 parameters[1..]（保存时原样回写）
   var originalExtraParameters = [];
 
@@ -226,7 +236,7 @@
       chip.style.cursor = "default";
       chip.dataset.value = code;
       chip.innerHTML = `
-                <span class="me-1">${code}</span>
+                <span class="me-1">${escapeHtml(code)}</span>
                 <button type="button" class="btn btn-sm btn-light btn-close p-0 ms-1" aria-label="删除" style="font-size: 0.5rem;"></button>
             `;
       const closeBtn = chip.querySelector("button");
@@ -252,15 +262,15 @@
       row.innerHTML = `
                 <div class="col-md-4">
                     <label class="form-label small mb-1">spreadsheet_id</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="${s.spreadsheet_id || ""}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="${escapeHtml(s.spreadsheet_id || "")}">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small mb-1">title</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-title" value="${s.title || ""}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-title" value="${escapeHtml(s.title || "")}">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small mb-1">sheet_name</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-name" value="${s.sheet_name || ""}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-name" value="${escapeHtml(s.sheet_name || "")}">
                 </div>
             `;
       // 逐表附加键（model_version/google_sheet_id 等）不在弹窗编辑，
@@ -345,7 +355,7 @@
             <i class="${item.icon} text-muted me-3 mt-1"></i>
             <div class="flex-grow-1 min-w-0">
                 <div class="detail-config-label">${item.label}</div>
-                <div class="detail-config-value">${item.value}</div>
+                <div class="detail-config-value">${escapeHtml(item.value)}</div>
             </div>
         `;
     return col;

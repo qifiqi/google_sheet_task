@@ -21,6 +21,8 @@ services:
       FLASK_DEBUG: "false"
       MPLCONFIGDIR: /tmp/matplotlib
       HOME: /tmp
+      # 容器间时间统一上海（镜像内 Dockerfile 也设了 TZ，此处兜底）
+      TZ: Asia/Shanghai
     env_file:
       - .env.production
       - .env
@@ -88,14 +90,18 @@ services:
     ports:
       - "127.0.0.1:3306:3306"
     environment:
-      # 密码不入库：dockers/.env（样例见 .env.example）注入；缺失时 compose 直接报错，不落明文
+      # 密码不入库：dockers/.env（样例见 .env.example）注入；缺失时 compose 直接报错，不落明文。
+      # 应用侧 DATABASE_URL（.env.production，同样不入库）的密码须与其一致
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?请在 dockers/.env 设置 MYSQL_ROOT_PASSWORD}"
       # Navicat/SQL 文件恢复时数据进入该库
       MYSQL_DATABASE: googlesheet_validator
+      TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
       - --max-allowed-packet=64M
+      # 数据库时间统一上海（UTC+8）；已有 datetime 数据是字面值不受影响
+      - --default-time-zone=+08:00
     volumes:
       - /opt/google_task/mysqldata:/var/lib/mysql
     healthcheck:

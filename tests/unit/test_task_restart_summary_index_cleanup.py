@@ -65,7 +65,13 @@ def test_restart_from_scratch_explicitly_clears_summary_index_rows(app_factory, 
         assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 1
 
         manager = TaskManager()
-        monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
+        from app.services.task.runtime import TaskStartResult
+
+        monkeypatch.setattr(
+            manager,
+            "start_task",
+            lambda _task_id: TaskStartResult(status="started"),
+        )
 
         result = manager.restart_task(task_id, resume_from_checkpoint=False)
 

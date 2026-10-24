@@ -14,16 +14,16 @@ from app.services.performance_analysis.portfolio_combiner import (
 )
 
 from app.extensions import db
+from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
 from app.models import (
     BacktestProductResultCache,
-    BacktestSheetRunLock,
-    Permission,
+    SheetExecutionLock,
     Task,
     TaskResult,
     TaskResultReturn,
 )
 from app.services.backtest_report_query_service import _build_zip_member_name
-from app.services.export_service import GeneratedFile, export_service
+from app.services.export_service import GeneratedFile
 from app.routes.backtest_api import _build_excel_download_name
 from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
@@ -403,6 +403,10 @@ def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory)
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.commit()
 
@@ -424,6 +428,10 @@ def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.add(TaskResultReturn(task_id=target.id, stock_date="2024-01-01", index_return=1, start_return=1))
         db.session.commit()
@@ -669,33 +677,34 @@ def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
     app = app_factory
     with app.app_context():
         manager = TaskManager()
+        lock_service = get_sheet_execution_lock_service()
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-1",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is True
         assert locked_task_id is None
         assert acquired_ids == ["shared-sheet"]
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-2",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is False
         assert locked_task_id == "task-1"
         assert acquired_ids == []
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-2")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        lock_service.release_sheets(["shared-sheet"], "task-2")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-1")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
+        lock_service.release_sheets(["shared-sheet"], "task-1")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
 
 
 def test_fixed_product_cache_key_ignores_ratio_and_changes_for_inputs(app_factory):
@@ -913,7 +922,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 
         manager = TaskManager()
 
-        assert manager._extract_backtest_spreadsheet_ids_to_lock(
+        assert manager._extract_sheets_to_lock(
             BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             config,
         ) == ["sheet-2"]

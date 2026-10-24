@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Callable
 
 from app.exceptions import ValidationError
+from app.utils.task_types import TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C5, TYPE_GOOGLE_SHEET_C7
 from app.services.google_sheet_tasks.c5 import C5Service
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.services.google_sheet_tasks.c1_1 import C1_1Service
@@ -22,9 +23,9 @@ KLINE_SOURCE_CUSTOM = "custom"
 PRICE_MODE_RANDOM = "random_price"
 
 SERVICE_CLASSES = {
-    "google_sheet_c5": C5Service,
-    "google_sheet_c7": C7Service,
-    "google_sheet_c1_1": C1_1Service,
+    TYPE_GOOGLE_SHEET_C5: C5Service,
+    TYPE_GOOGLE_SHEET_C7: C7Service,
+    TYPE_GOOGLE_SHEET_C1_1: C1_1Service,
 }
 
 

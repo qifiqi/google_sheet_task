@@ -12,7 +12,8 @@ from threading import Thread
 from typing import Any, BinaryIO, Callable, Iterable
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
-from app.models import Task
+from app.models import Task, TaskStatus
+from app.utils.task_types import TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C7
 from app.exceptions import NotFoundError, ValidationError
 from app.repositories import task_repository, task_result_repository
 from app.schemas.backtest import StrategyBacktestReportSchema
@@ -40,6 +41,7 @@ from app.services.export_workbook_service import (
     ZIP_MIMETYPE,
 )
 from app.services.config_manager import get_config_manager
+from app.services.docx_pdf_converter import convert_docx_to_pdf
 from app.services.model_summary_service import model_summary_service
 from app.services.task import task_manager
 from app.services.performance_analysis.analyzer import performance_analyzer
@@ -52,6 +54,7 @@ from app.utils.value_parser import parse_int
 logger = get_logger(__name__)
 
 DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PDF_MIMETYPE = "application/pdf"
 CSV_MIMETYPE = "text/csv; charset=utf-8"
 MAX_BATCH_TASKS = 10
 
@@ -138,7 +141,7 @@ class ExportService:
         """处理export_task_results_by_stock相关逻辑。"""
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
-        if str(task.task_type or "").strip().lower() not in ("google_sheet_c7", "google_sheet_c1_1"):
+        if str(task.task_type or "").strip().lower() not in (TYPE_GOOGLE_SHEET_C7, TYPE_GOOGLE_SHEET_C1_1):
             raise ValidationError("按股票代码导出仅支持 C7/C1.1 任务")
         if not results:
             raise ValidationError("任务暂无可导出结果")
@@ -269,7 +272,7 @@ class ExportService:
         with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as archive:
             for task_id in task_ids:
                 task = self._get_task(task_id)
-                if task.status != "completed":
+                if task.status != TaskStatus.COMPLETED.value:
                     raise ValidationError(f"任务 {task.name or task_id} 尚未完成，不能导出")
                 payload = self._global_preview_payload(task)
                 if payload is None:
@@ -401,6 +404,20 @@ class ExportService:
             meta=cache_meta,
         )
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, file_size)
+
+    def export_backtest_pdf(self, report_request: StrategyBacktestReportSchema) -> GeneratedFile:
+        """生成策略回测 PDF 报告：DOCX 为内容唯一事实源，缓存后经 LibreOffice 转换。
+
+        复用 export_backtest_word 的载荷构建与磁盘缓存：缓存命中时直接取
+        DOCX 转换，未命中先按 Word 链路生成并入缓存。转换细节见
+        docx_pdf_converter（独立 profile、并发上限、超时终止）。
+        下载文件名与 Word 报告同基名，仅后缀换 .pdf。
+        """
+        word_generated = self.export_backtest_word(report_request)
+        filename = str(word_generated.filename)
+        stem = filename[:-5] if filename.lower().endswith(".docx") else filename
+        pdf_buffer, file_size = convert_docx_to_pdf(word_generated.buffer.read())
+        return GeneratedFile(f"{stem}.pdf", PDF_MIMETYPE, pdf_buffer, file_size)
 
     def _get_task(self, task_id: str) -> Task:
         """按 ID 获取任务（实体供导出构造器消费）。"""

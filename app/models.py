@@ -101,6 +101,7 @@ class Role(db.Model):
     code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
     description = db.Column(db.String(200), comment='角色描述')
     is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
+    created_at = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     permissions = db.relationship(
         'Permission',
         secondary=role_permissions,
@@ -116,6 +117,7 @@ class Role(db.Model):
             'code': self.code,
             'description': self.description,
             'is_system': self.is_system,
+            'created_at': to_beijing_iso(self.created_at),
         }
         if include_permissions:
             d['permissions'] = [p.to_dict() for p in self.permissions]
@@ -134,6 +136,7 @@ class Permission(db.Model):
     group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
     description = db.Column(db.String(200), comment='权限描述')
     route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
+    created_at = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
 
     def to_dict(self):
         return {
@@ -143,6 +146,7 @@ class Permission(db.Model):
             'group': self.group,
             'description': self.description,
             'route_path': self.route_path,
+            'created_at': to_beijing_iso(self.created_at),
         }
 
 
@@ -490,6 +494,7 @@ class TaskResultReturn(db.Model):
     stock_date = db.Column(db.Text, comment="日期")
     index_return = db.Column(db.Text, comment="指数收益")
     start_return = db.Column(db.Text, comment="策略起始收益")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
 
     def to_dict(self):
         return {
@@ -503,6 +508,7 @@ class TaskResultReturn(db.Model):
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
@@ -537,13 +543,17 @@ class BacktestProductResultCache(db.Model):
         }
 
 
-class BacktestSheetRunLock(db.Model):
-    """Database-backed per-spreadsheet run lock for backtest tasks."""
+class SheetExecutionLock(db.Model):
+    """Database-backed per-spreadsheet execution lock (all task types).
+
+    统一 Sheet 执行锁：键为 spreadsheet_id，与任务类型无关；表名与唯一约束名
+    沿用历史 backtest 命名（零迁移），task_type 仅作持锁方展示信息。
+    """
 
     __tablename__ = "t_param_backtest_sheet_run_locks"
     __table_args__ = (
         db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
-        {"comment": "回测任务 Google Sheet 运行锁表"},
+        {"comment": "Google Sheet 执行锁表（全任务类型统一，键为 spreadsheet_id）"},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")

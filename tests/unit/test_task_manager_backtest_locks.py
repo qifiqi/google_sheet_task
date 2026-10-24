@@ -2,7 +2,8 @@ import json
 from datetime import datetime
 
 from app.extensions import db
-from app.models import BacktestProductResultCache, BacktestSheetRunLock, Task
+from app.models import BacktestProductResultCache, SheetExecutionLock, Task
+from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
 from app.services.task.facade import TaskManager
 
 
@@ -23,32 +24,32 @@ def _backtest_task(task_id, *, status="pending", task_type="backtest_training", 
     )
 
 
-def test_backtest_lock_acquire_conflict_and_release(app_factory):
+def test_sheet_lock_acquire_conflict_and_release(app_factory):
     app = app_factory
     with app.app_context():
         manager = TaskManager()
+        service = get_sheet_execution_lock_service()
 
-        acquired, locked_task_id = manager._acquire_backtest_sheet_run_lock(
-            "sheet-1",
-            "task-1",
-            task_type="backtest_training",
+        acquired, holder, acquired_ids = service.acquire_for_task(
+            "task-1", "backtest_training", ["sheet-1"]
         )
-        conflict, conflict_task_id = manager._acquire_backtest_sheet_run_lock(
-            "sheet-1",
-            "task-2",
-            task_type="backtest_training",
+        conflict, conflict_task_id, _ = service.acquire_for_task(
+            "task-2", "backtest_training", ["sheet-1"]
         )
 
         assert acquired is True
-        assert locked_task_id is None
+        assert acquired_ids == ["sheet-1"]
         assert conflict is False
         assert conflict_task_id == "task-1"
 
-        manager._release_backtest_sheet_run_reservation("sheet-1", "task-2")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="sheet-1").count() == 1
+        # 仅持锁者可释放：task-2 释放不动 task-1 的锁。
+        service.release_sheets(["sheet-1"], "task-2")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="sheet-1").count() == 1
 
-        manager._release_backtest_sheet_run_reservation("sheet-1", "task-1")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="sheet-1").count() == 0
+        service.release_sheets(["sheet-1"], "task-1")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="sheet-1").count() == 0
+
+        assert manager  # facade 仍可实例化（统一入口承载）
 
 
 def test_extract_backtest_multi_product_locks_skips_cached_fixed_product(app_factory):
@@ -87,7 +88,7 @@ def test_extract_backtest_multi_product_locks_skips_cached_fixed_product(app_fac
         db.session.commit()
 
         manager = TaskManager()
-        ids = manager._extract_backtest_spreadsheet_ids_to_lock(
+        ids = manager._extract_sheets_to_lock(
             "backtest_multi_product",
             config,
         )
@@ -95,16 +96,43 @@ def test_extract_backtest_multi_product_locks_skips_cached_fixed_product(app_fac
         assert ids == ["live-sheet"]
 
 
-def test_start_backtest_queues_when_same_sheet_running(app_factory):
+def test_start_task_queues_when_same_sheet_lock_held(app_factory):
+    """统一执行锁语义：同 sheet 被其他任务持锁时，启动转为排队而非失败。
+
+    与任务状态无关——即使持锁任务行不是 running（异常残留），执行锁仍是唯一权威。
+    """
     app = app_factory
     with app.app_context():
-        running = _backtest_task("running", status="running", sheet_id="sheet-1")
+        holder = _backtest_task("holder", status="running", sheet_id="sheet-1")
         pending = _backtest_task("pending", status="pending", sheet_id="sheet-1")
-        db.session.add_all([running, pending])
+        db.session.add_all([holder, pending])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="sheet-1", task_id="holder", task_type="backtest_training",
+        ))
         db.session.commit()
 
         manager = TaskManager()
 
-        assert manager.start_task(pending.id) is False
-        assert "同一个 Google Sheet 已有回测任务正在运行" in manager.get_start_error(pending.id)
-        assert db.session.get(Task, pending.id).status == "pending"
+        result = manager.start_task(pending.id)
+        assert result.queued
+        assert "同一 Google Sheet 正在被其他任务执行" in result.message
+        refreshed = db.session.get(Task, pending.id)
+        assert refreshed.status == "pending"
+        assert refreshed.error_message.startswith("[SHEET_QUEUED]")
+
+
+def test_start_task_acquires_lock_cross_task_type(app_factory):
+    """锁键只认 spreadsheet_id：C 系任务与回测任务互斥同一 sheet。"""
+    app = app_factory
+    with app.app_context():
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="sheet-1", task_id="c3-holder", task_type="google_sheet",
+        ))
+        pending = _backtest_task("bt-pending", status="pending", sheet_id="sheet-1")
+        db.session.add(pending)
+        db.session.commit()
+
+        manager = TaskManager()
+
+        result = manager.start_task(pending.id)
+        assert result.queued

@@ -153,7 +153,9 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
         "start_date": "2024-01-01",
         "end_date": "2024-02-15",
     }
-    assert "dfcf_search" not in calls
+    # 2026-10 起美股允许经东财搜索解析证券名称（软失败）；K 线取数仍不走东财。
+    # FakeDFCFApi 返回缺 code 的残缺结果 + FakeYFApi 无 get_stock_name，
+    # 正好覆盖两级取名全部失败仍正常返回的场景。
     assert "dfcf_kline" not in calls
     # 窗口加宽以满足最少 30 根守卫；投影按收盘价（us 固定），首尾抽样断言
     projected = data[0]["kline"]

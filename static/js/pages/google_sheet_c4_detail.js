@@ -674,7 +674,8 @@ if (versionParam && versionParam !== 'c4') {
     }
 
     // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
-    function exportResultsToCSV() {
+    function exportResultsToCSV(btn) {
+        setButtonBusy(btn, true, '导出中…');
         // 为了导出完整结果，这里单独请求一次不分页的结果集
         Api.endpoints.task.results(currentTaskId).then(function(data) {
             const rdata = data || {};
@@ -855,6 +856,8 @@ if (versionParam && versionParam !== 'c4') {
             showNotification('CSV 导出已开始下载', 'success');
         }).catch(function() {
             showNotification('暂无可导出的结果', 'warning');
+        }).finally(function() {
+            setButtonBusy(btn, false);
         });
     }
 

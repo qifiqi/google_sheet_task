@@ -11,6 +11,7 @@ from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepos
 from app.repositories.navigation_repository import NavigationRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
+from app.repositories.sheet_lock_repository import SheetLockRepository
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.task_kline_snapshot_repository import TaskKlineSnapshotRepository
@@ -27,6 +28,7 @@ __all__ = [
     "navigation_repository",
     "auth_repository",
     "scheduled_task_repository",
+    "sheet_lock_repository",
     "stock_metadata_repository",
     "system_config_repository",
     "task_kline_snapshot_repository",
@@ -42,6 +44,7 @@ google_sheet_token_repository = GoogleSheetTokenRepository()
 navigation_repository = NavigationRepository()
 auth_repository = AuthRepository()
 scheduled_task_repository = ScheduledTaskRepository()
+sheet_lock_repository = SheetLockRepository()
 stock_metadata_repository = StockMetadataRepository()
 system_config_repository = SystemConfigRepository()
 task_kline_snapshot_repository = TaskKlineSnapshotRepository()

@@ -765,21 +765,22 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         }
 
         // 导出任务全部随机K线快照（合并 CSV）。
-        function exportTaskKlineSnapshots() {
+        function exportTaskKlineSnapshots(btn) {
             if (!currentTaskId) {
                 showNotification('任务ID为空，无法导出', 'error');
                 return;
             }
-            Biz.klineSnapshot.downloadTask(currentTaskId);
+            Biz.klineSnapshot.downloadTask(currentTaskId, btn);
         }
 
         // 导出所有结果为 Excel：通过 fetch 走统一认证封装，确保携带 Authorization。
-        async function exportResultsToCSV() {
+        async function exportResultsToCSV(btn) {
             if (!currentTaskId) {
                 showNotification('任务ID为空，无法导出', 'error');
                 return;
             }
 
+            setButtonBusy(btn, true, '导出中…');
             try {
                 const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
                 const saveTarget = await prepareExcelSaveTarget(defaultFilename);
@@ -805,6 +806,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     return;
                 }
                 showNotification(`导出失败: ${error.message || error}`, 'error');
+            } finally {
+                setButtonBusy(btn, false);
             }
         }
 

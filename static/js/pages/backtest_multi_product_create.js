@@ -755,19 +755,8 @@ async function writeClipboardText(text) {
     }
 }
 
-function setButtonBusy(button, text) {
-    if (!button) return () => {};
-    const originalHtml = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = text;
-    return () => {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
-    };
-}
-
 async function pasteParametersFromClipboard(card, button) {
-    const restore = setButtonBusy(button, '<span class="spinner-border spinner-border-sm me-1"></span>读取中');
+    setButtonBusy(button, true, '读取中…');
     try {
         const raw = await readClipboardText();
         const rows = parseParameterClipboard(raw);
@@ -791,12 +780,12 @@ async function pasteParametersFromClipboard(card, button) {
     } catch (error) {
         alert(error.message || '读取剪切板失败');
     } finally {
-        restore();
+        setButtonBusy(button, false);
     }
 }
 
 async function copyParametersToClipboard(card, button) {
-    const restore = setButtonBusy(button, '<span class="spinner-border spinner-border-sm me-1"></span>复制中');
+    setButtonBusy(button, true, '复制中…');
     try {
         const text = parameterRowsToClipboard(card);
         if (!text) {
@@ -807,7 +796,7 @@ async function copyParametersToClipboard(card, button) {
     } catch (error) {
         alert(error.message || '复制失败');
     } finally {
-        restore();
+        setButtonBusy(button, false);
     }
 }
 

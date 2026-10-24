@@ -50,13 +50,6 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
         db.session.commit()
 
         manager = TaskManager()
-        occupancy_calls = []
-        monkeypatch.setattr(
-            manager,
-            "ensure_google_sheet_occupancy",
-            lambda task_id, config, **kwargs: occupancy_calls.append((task_id, config)),
-        )
-
         new_task_id = manager.create_restart_task("origin-1")
 
         created = task_repository.get(new_task_id)
@@ -64,7 +57,6 @@ def test_create_restart_task_survives_dict_task_row(app_factory, monkeypatch):
         assert created["status"] == "pending"
         assert "重启" in created["name"]
         assert created["task_type"] == "google_sheet"
-        assert occupancy_calls and occupancy_calls[0][0] == new_task_id
 
 
 def test_create_restart_task_skips_occupancy_for_backtest(app_factory, monkeypatch):
@@ -207,7 +199,7 @@ def test_start_task_unregistered_type_rolls_back_occupancy(app_factory, monkeypa
             lambda task_id: released.append(task_id),
         )
 
-        assert manager.start_task(task.id) is False
+        assert not manager.start_task(task.id).started
         assert released == [task.id]
         assert "不支持的任务类型" in manager.get_start_error(task.id)
 
@@ -235,21 +227,10 @@ def test_start_task_backtest_concurrency_full_reverts_running_and_locks(
 
         manager = TaskManager()
         monkeypatch.setattr(manager, "_get_config", lambda _key, default=None: 5)
-        monkeypatch.setattr(manager, "_is_backtest_task_type", lambda _tt: True)
         monkeypatch.setattr(
             manager,
-            "_extract_backtest_spreadsheet_ids_to_lock",
+            "_extract_sheets_to_lock",
             lambda *_a, **_k: ["sheet-1"],
-        )
-        monkeypatch.setattr(
-            manager,
-            "_find_running_backtest_task_for_spreadsheets",
-            lambda *_a, **_k: None,
-        )
-        monkeypatch.setattr(
-            manager,
-            "_acquire_backtest_sheet_run_locks",
-            lambda *_a, **_k: (True, None, ["sheet-1"]),
         )
         monkeypatch.setattr(
             manager, "_config_for_spreadsheet_locks", lambda config, _ids: config
@@ -264,7 +245,8 @@ def test_start_task_backtest_concurrency_full_reverts_running_and_locks(
             manager, "count_running_executions", lambda: 999
         )
 
-        assert manager.start_task(task.id) is False
+        result = manager.start_task(task.id)
+        assert not result.started and result.status == "rejected"
         assert "并发已满" in manager.get_start_error(task.id)
 
         # 修复前：任务卡在 running、占用不释放。
@@ -290,21 +272,10 @@ def test_start_task_build_runner_failure_rolls_back_backtest_state(app_factory, 
 
         manager = TaskManager()
         monkeypatch.setattr(manager, "_get_config", lambda _key, default=None: 5)
-        monkeypatch.setattr(manager, "_is_backtest_task_type", lambda _tt: True)
         monkeypatch.setattr(
             manager,
-            "_extract_backtest_spreadsheet_ids_to_lock",
+            "_extract_sheets_to_lock",
             lambda *_a, **_k: ["sheet-1"],
-        )
-        monkeypatch.setattr(
-            manager,
-            "_find_running_backtest_task_for_spreadsheets",
-            lambda *_a, **_k: None,
-        )
-        monkeypatch.setattr(
-            manager,
-            "_acquire_backtest_sheet_run_locks",
-            lambda *_a, **_k: (True, None, ["sheet-1"]),
         )
         monkeypatch.setattr(
             manager, "_config_for_spreadsheet_locks", lambda config, _ids: config
@@ -317,7 +288,8 @@ def test_start_task_build_runner_failure_rolls_back_backtest_state(app_factory, 
             lambda *_a, **_k: (_ for _ in ()).throw(LookupError("no runner")),
         )
 
-        assert manager.start_task(task.id) is False
+        result = manager.start_task(task.id)
+        assert not result.started and result.status == "rejected"
         assert "no runner" in manager.get_start_error(task.id)
 
         refreshed = db.session.get(Task, task.id)

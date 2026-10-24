@@ -5,7 +5,7 @@ from sqlalchemy import and_, case, func, or_
 
 from app.extensions import db
 from app.exceptions import NotFoundError
-from app.models import Task
+from app.models import Task, TaskStatus
 from app.repositories.base import BaseRepository
 
 
@@ -59,7 +59,7 @@ class TaskRepository(BaseRepository):
 
         if status and status != "all":
             if status == "pending":
-                query = query.filter(Task.status == "pending", Task.current_step > 0)
+                query = query.filter(Task.status == TaskStatus.PENDING.value, Task.current_step > 0)
             else:
                 query = query.filter(Task.status == status)
 
@@ -94,11 +94,11 @@ class TaskRepository(BaseRepository):
 
         stats_row = query.with_entities(
             func.count(Task.id).label('total'),
-            func.count(case((Task.status == 'completed', 1))).label('completed'),
-            func.count(case((Task.status == 'running', 1))).label('running'),
-            func.count(case((Task.status == 'error', 1))).label('error'),
+            func.count(case((Task.status == TaskStatus.COMPLETED.value, 1))).label('completed'),
+            func.count(case((Task.status == TaskStatus.RUNNING.value, 1))).label('running'),
+            func.count(case((Task.status == TaskStatus.ERROR.value, 1))).label('error'),
             func.count(case(
-                (and_(Task.status == 'pending', Task.current_step > 0), 1)
+                (and_(Task.status == TaskStatus.PENDING.value, Task.current_step > 0), 1)
             )).label('pending'),
             func.count(case(
                 (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
@@ -106,7 +106,7 @@ class TaskRepository(BaseRepository):
         ).first()
 
         completed_durations = query.filter(
-            Task.status == 'completed',
+            Task.status == TaskStatus.COMPLETED.value,
             Task.start_time.isnot(None),
             Task.end_time.isnot(None),
         ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
@@ -157,28 +157,34 @@ class TaskRepository(BaseRepository):
             pass
         return Task.query.populate_existing().filter(Task.id == task_id).first()
 
-    def list_running_backtest_entities(self):
-        """运行中的回测任务实体（populate_existing 保证新鲜）。"""
-        return Task.query.populate_existing().filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "running",
-        ).all()
+    def list_pending_entities(self, exclude_task_id=None):
+        """待执行任务实体，按创建时间先后（Sheet 排队接力/启动补跑用）。
 
-    def list_pending_backtest_entities(self, exclude_task_id):
-        """待执行回测任务实体（按创建时间先后，接力启动用）。"""
+        pending 即排队队列本体；占用判定不在本查询内做，由执行锁裁决。
+        """
+        query = Task.query.filter(Task.status == TaskStatus.PENDING.value)
+        if exclude_task_id:
+            query = query.filter(Task.id != exclude_task_id)
+        return query.order_by(Task.created_at.asc(), Task.id.asc()).all()
+
+    def list_pending_queued_entities(self, queued_prefix: str):
+        """带排队标记的 pending 任务（启动期补跑扫描用，FIFO）。"""
+        # LIKE 前缀中的 _/% 是通配符（[SHEET_QUEUED] 含 _），需转义防误配。
+        escaped_prefix = (
+            queued_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         return Task.query.filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "pending",
-            Task.id != exclude_task_id,
+            Task.status == TaskStatus.PENDING.value,
+            Task.error_message.like(f"{escaped_prefix}%", escape="\\"),
         ).order_by(Task.created_at.asc(), Task.id.asc()).all()
 
     def mark_running_if_not_running(self, task_id, start_time, commit=True):
         """原子置 running（非 running 状态才生效）；返回受影响行数。"""
         rows = Task.query.filter(
             Task.id == task_id,
-            Task.status != "running",
+            Task.status != TaskStatus.RUNNING.value,
         ).update(
-            {"status": "running", "start_time": start_time},
+            {"status": TaskStatus.RUNNING.value, "start_time": start_time},
             synchronize_session=False,
         )
         if commit:
@@ -189,9 +195,9 @@ class TaskRepository(BaseRepository):
         """启动失败回退：running → pending 并清 start_time。"""
         rows = Task.query.filter(
             Task.id == task_id,
-            Task.status == "running",
+            Task.status == TaskStatus.RUNNING.value,
         ).update(
-            {"status": "pending", "start_time": None},
+            {"status": TaskStatus.PENDING.value, "start_time": None},
             synchronize_session=False,
         )
         if commit:
@@ -200,13 +206,13 @@ class TaskRepository(BaseRepository):
 
     def mark_running_if_pending(self, task_id, start_time=None, commit=True):
         """仅当任务处于 pending 时置为 running（watchdog 重启发布语义）。"""
-        fields = {"status": "running"}
+        fields = {"status": TaskStatus.RUNNING.value}
         if start_time is not None:
             fields["start_time"] = start_time
         rows_updated = (
             Task.query.filter(
                 Task.id == task_id,
-                Task.status == "pending",
+                Task.status == TaskStatus.PENDING.value,
             ).update(fields, synchronize_session=False)
         )
         if commit:
@@ -224,16 +230,16 @@ class TaskRepository(BaseRepository):
         return Task.query.filter(
             Task.created_at >= created_cutoff,
             or_(
-                Task.status == "running",
+                Task.status == TaskStatus.RUNNING.value,
                 and_(
-                    Task.status == "error",
+                    Task.status == TaskStatus.ERROR.value,
                     or_(
                         Task.error_message.is_(None),
                         not_(Task.error_message.startswith(abandon_prefix)),
                     ),
                 ),
                 and_(
-                    Task.status == "cancelled",
+                    Task.status == TaskStatus.CANCELLED.value,
                     Task.error_message.isnot(None),
                     Task.error_message.startswith(restart_prefix),
                 ),
@@ -350,7 +356,7 @@ class TaskRepository(BaseRepository):
             )
             .filter(
                 Task.task_type.in_(list(task_types)),
-                Task.status == "completed",
+                Task.status == TaskStatus.COMPLETED.value,
                 Task.end_time.isnot(None),
                 Task.end_time >= start_time,
             )
