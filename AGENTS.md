@@ -58,7 +58,7 @@ Get-Content .\run.py -Encoding UTF8
 - 写方法默认方法内 commit（签名带 `commit: bool = True`），异常 rollback 后裸 `raise`；跨 repository 原子流程用 `base.transaction()` 包裹、各步骤传 `commit=False`。
 - `config_manager → repository` 方向固定，禁止反向 import。
 - `app/startup.py`、`run.py`、`migrations/`、`tests/`、`scripts/` 不在分层收编范围。
-- **业务事实常量**（被多个模块依赖的静态表，如 C 系模板单元格语义、参数行序、导出键序列）统一放 `app/constants/`（现仅 `c_template_layout.py`）：纯数据、零 IO、零 Flask 依赖，任何层可 import，禁止反向依赖业务模块；派生视图必须逐值等价于消费方语义，禁止顺手改名。单模块私有常量留在各自文件，不进包。审计与遗留登记见 `docs/design/constants-audit-2026-09/`。
+- **业务事实常量**（被多个模块依赖的静态表，如 C 系模板单元格语义、参数行序、导出键序列）统一放 `app/constants/`（现仅 `c_template_layout.py`）：纯数据、零 IO、零 Flask 依赖，任何层可 import，禁止反向依赖业务模块；派生视图必须逐值等价于消费方语义，禁止顺手改名。单模块私有常量留在各自文件，不进包。审计与遗留登记见 `docs/archive/design/constants-audit-2026-09/`（design/ 原位留跳转存根）。
 
 ## 真实入口与启动流程
 
@@ -94,7 +94,7 @@ Get-Content .\run.py -Encoding UTF8
 
 ## 双前端
 
-1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/archive/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由统一在 `app/routes/pages/` 包（JSON API 留在 `app/routes/` 平级 `*_api.py`，结构约定见 `docs/archive/design/routes-restructure-2026-09/`），经包内 `send_page`/`register_page_routes` 表驱动返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。**前后端契约镜像**：后端有对应事实、前端需同值的常量（如 C3 默认佣金、TaskStatus 文案/配色）统一放 `static/js/common/contract-constants.js`（`window.BizConstants`），页面禁再私拷一份；改契约两侧同批修改（后端源头见该文件各条注释，规约见 `docs/design/constants-audit-2026-09/` §5.6/P5）。
+1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/archive/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由统一在 `app/routes/pages/` 包（JSON API 留在 `app/routes/` 平级 `*_api.py`，结构约定见 `docs/archive/design/routes-restructure-2026-09/`），经包内 `send_page`/`register_page_routes` 表驱动返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。**前后端契约镜像**：后端有对应事实、前端需同值的常量（如 C3 默认佣金、TaskStatus 文案/配色）统一放 `static/js/common/contract-constants.js`（`window.BizConstants`），页面禁再私拷一份；改契约两侧同批修改（后端源头见该文件各条注释，规约见 `docs/archive/design/constants-audit-2026-09/` §5.6/P5）。
 2. ~~Vue 3 SPA~~（已移除）：`frontend/` 已于 2026-10 删除（源码存根目录 `frontend.7z`）；`docs/前端Vue工程.md` 归档至 `docs/archive/前端Vue工程.md` 仅作历史参考。
 
 ## 测试

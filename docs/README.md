@@ -55,14 +55,13 @@ docs/
 | [backtest-unify-2026-09](design/backtest-unify-2026-09/README.md) | partial | 无风险利率与 K 线指纹跳写已落地；全局预览统一 / Word 透出端点 / Token 去文件化 / Drive 登记未实施 |
 | [ponytail-audit-2026-09](design/ponytail-audit-2026-09/01-审计报告.md) | partial | P01~P07/P10/P17 完成；P11 剩余、P12、P14 E4、P15 未完（跟踪表见 02 §4） |
 | [deadcode-audit-2026-10](design/deadcode-audit-2026-10/README.md) | partial | 高置信删除与重复合并已执行；C4 get_bdl 合并、SDK 裁剪、分页双轨等未完 |
-| [constants-audit-2026-09](design/constants-audit-2026-09/01-常量审计报告.md) | partial | 常量包已落地；P2~P5 待办 |
 | [metrics-unify-2026-09](design/metrics-unify-2026-09/指标计算与单品多品统一方案.md) | partial | V1 引擎 / summary_contract 已统一；行号锚点漂移，验收章节为历史产物 |
 
-存根（implemented，正文在 archive/）：api-model-query-audit、code-audit-2026-09、data-layer-refactor、frontend-refactor、routes-restructure-2026-09、sso-integration-2026-09、mobile-adaptation-audit-2026-09、multi-index-word-report、performance-analysis-v3、vue-frontend-fix-2026-09。
+存根（implemented，正文在 archive/）：api-model-query-audit、code-audit-2026-09、constants-audit-2026-09（2026-10-24 收官，10-25 归档）、data-layer-refactor、frontend-refactor、routes-restructure-2026-09、sso-integration-2026-09、mobile-adaptation-audit-2026-09、multi-index-word-report、performance-analysis-v3、vue-frontend-fix-2026-09。
 
 ## archive/（implemented，只读）
 
-- `design/` 下 10 个已收官主题：api-model-query-audit、code-audit-2026-09、data-layer-refactor、frontend-refactor、routes-restructure-2026-09、sso-integration-2026-09、mobile-adaptation-audit-2026-09、multi-index-word-report、performance-analysis-v3、vue-frontend-fix-2026-09
+- `design/` 下 11 个已收官主题：api-model-query-audit、code-audit-2026-09、constants-audit-2026-09、data-layer-refactor、frontend-refactor、routes-restructure-2026-09、sso-integration-2026-09、mobile-adaptation-audit-2026-09、multi-index-word-report、performance-analysis-v3、vue-frontend-fix-2026-09
 - 退役文档：[前端Vue工程.md](archive/前端Vue工程.md)（frontend/ 已移除，仅历史参考）、[目录索引.md](archive/目录索引.md)（被本 README 取代）
 
 ## model_update/ 与 release-notes/
