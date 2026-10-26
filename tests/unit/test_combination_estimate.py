@@ -67,14 +67,13 @@ def test_estimate_service_disables_snapshot_persistence():
 
 
 def test_custom_mode_uses_configured_formula_without_sheet_read():
-    # C1_1 custom：产品数 × 随机组数（单窗口）
+    # C1_1 custom：产品数 × 随机组数（占位内层，参数列表不参与；custom 固定随机展开，不看 price_mode）
     assert estimate_combination_count(
         "google_sheet_C1_1",
         {
             "kline_source": "custom",
-            "price_mode": "random_price",
             "random_group_count": 4,
-            "parameters": [["A", "B", "C"]],
+            "parameters": [["A", "B", "C"], [1, 2], [3]],
         },
         service_factory=lambda *args: pytest.fail("custom 不应实例化服务"),
     ) == {"estimated_count": 12, "source": "formula"}
@@ -84,6 +83,18 @@ def test_custom_mode_uses_configured_formula_without_sheet_read():
         "google_sheet_C5",
         {
             "kline_source": "custom",
+            "parameters": [["A", "B"], [1, 2, 3], [4, 5]],
+        },
+        service_factory=lambda *args: pytest.fail("custom 不应实例化服务"),
+    ) == {"estimated_count": 12, "source": "formula"}
+
+    # C7 custom 携带 random_price 配置：执行路径不展开随机组，公式同样不计组数
+    assert estimate_combination_count(
+        "google_sheet_C7",
+        {
+            "kline_source": "custom",
+            "price_mode": "random_price",
+            "random_group_count": 4,
             "parameters": [["A", "B"], [1, 2, 3], [4, 5]],
         },
         service_factory=lambda *args: pytest.fail("custom 不应实例化服务"),

@@ -158,10 +158,11 @@ def cancel_task(task_id):
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
 @login_required
 def get_task_logs(task_id):
-    """获取任务日志"""
+    """获取任务日志（可选 after_id：详情页轮询增量拉取该 id 之后的新增日志）"""
     task_manager.get_required_task(task_id)
 
-    logs = task_manager.get_task_logs(task_id)
+    after_id = request.args.get('after_id', type=int)
+    logs = task_manager.get_task_logs(task_id, after_id=after_id)
     return success(data={"logs": logs})
 
 

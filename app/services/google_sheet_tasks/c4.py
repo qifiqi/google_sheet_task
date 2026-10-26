@@ -46,6 +46,8 @@ class C4Service(BaseGoogleSheetService):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.performance_analyzer = performance_analyzer
+        # 预计算循环每股复用同一实例：避免每股重建 HTTP 连接池（TLS 握手）与股票名缓存失效
+        self.kline_service = KlineService(dfcf_api=DFCJStockApi(), yahoo_api=YFApi())
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -118,7 +120,8 @@ class C4Service(BaseGoogleSheetService):
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
                     outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type,
-                    config_data.get("kline_data_source")
+                    config_data.get("kline_data_source"),
+                    kline_service=self.kline_service,
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -412,18 +415,20 @@ class C4Service(BaseGoogleSheetService):
             raise
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None, kline_service=None):
         # C4 固定按市场取价：A股用开盘价、美股用收盘价；投影与过滤统一走 KlineService.build_price_rows
+        # kline_service 缺省时内联构造（测试/无实例场景）；生产路径传 self.kline_service 复用连接池与名称缓存
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
         selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "akshare")
-        klines = KlineService(
+        service = kline_service or KlineService(
             dfcf_api=DFCJStockApi(),
             yahoo_api=YFApi(),
-        ).get_kline_data(
+        )
+        klines = service.get_kline_data(
             parameter,
             market_type,
             limit,

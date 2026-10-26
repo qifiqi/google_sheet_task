@@ -165,3 +165,27 @@ function setButtonBusy(button, busy, busyText) {
     delete button.dataset.busyDisabled;
   }
 }
+
+// 仅在页面可见时运行的 setInterval：后台标签页挂起轮询，回到前台立即补拉一次。
+// 本平台任务常跑数小时，后台标签若照常轮询，服务端 QPS 与打开标签数成正比。
+// 返回停止函数（清定时器并解绑 visibilitychange）。
+function setIntervalVisible(fn, delay) {
+  let paused = document.hidden;
+  const timer = setInterval(function () {
+    if (!paused) {
+      fn();
+    }
+  }, delay);
+  function handleVisibilityChange() {
+    const wasPaused = paused;
+    paused = document.hidden;
+    if (wasPaused && !paused) {
+      fn();
+    }
+  }
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return function stopIntervalVisible() {
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}

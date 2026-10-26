@@ -92,6 +92,23 @@ class TaskRepository(BaseRepository):
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
 
+        # 时长统计与状态计数合并进同一条聚合（原来把全部已完成任务的起止时间拉到 Python 求和）
+        completed_duration_cond = and_(
+            Task.status == TaskStatus.COMPLETED.value,
+            Task.start_time.isnot(None),
+            Task.end_time.isnot(None),
+        )
+        if db.engine.dialect.name == "mysql":
+            duration_seconds = (
+                func.unix_timestamp(Task.end_time)
+                - func.unix_timestamp(Task.start_time)
+            )
+        else:
+            # PostgreSQL：epoch 即秒
+            duration_seconds = (
+                func.extract("epoch", Task.end_time)
+                - func.extract("epoch", Task.start_time)
+            )
         stats_row = query.with_entities(
             func.count(Task.id).label('total'),
             func.count(case((Task.status == TaskStatus.COMPLETED.value, 1))).label('completed'),
@@ -103,18 +120,11 @@ class TaskRepository(BaseRepository):
             func.count(case(
                 (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
             )).label('today_new'),
+            func.count(case((completed_duration_cond, 1))).label('duration_count'),
+            func.sum(case((completed_duration_cond, duration_seconds))).label('total_duration'),
         ).first()
-
-        completed_durations = query.filter(
-            Task.status == TaskStatus.COMPLETED.value,
-            Task.start_time.isnot(None),
-            Task.end_time.isnot(None),
-        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
-        total_duration_seconds = 0
-        duration_count = 0
-        for start_time, end_time in completed_durations:
-            total_duration_seconds += (end_time - start_time).total_seconds()
-            duration_count += 1
+        total_duration_seconds = float(stats_row.total_duration or 0)
+        duration_count = stats_row.duration_count or 0
 
         return {
             "items": items,

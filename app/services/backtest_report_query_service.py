@@ -3,7 +3,6 @@ from app.utils.json_utils import dumps, loads, JSONDecodeError
 import math
 import re
 from collections import OrderedDict
-from copy import deepcopy
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -176,7 +175,11 @@ def _extract_task_result_payload(task_result, return_rows=None):
     if not isinstance(value, dict):
         return {}, {}
 
-    calculate_metrics = resolve_preview_metrics(value, return_rows=return_rows)
+    calculate_metrics = resolve_preview_metrics(
+        value,
+        return_rows=return_rows,
+        cache_key=task_result.return_series_id,
+    )
     sheet_result = {
         key: item
         for key, item in value.items()
@@ -751,7 +754,10 @@ def _extract_summary_rows(calculate_metrics):
 
 
 def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics):
-    normalized = deepcopy(calculate_metrics)
+    # 只复制将被改写的三个小列表（excess_returns 与两个回撤年度明细），
+    # 其余子树原地引用——deepcopy 整份 V1 指标（数千嵌套对象）是导出热路径的
+    # 主要开销之一。传入 metrics 为本次请求新解析、无共享别名的 dict。
+    normalized = dict(calculate_metrics)
 
     def normalize_year(value):
         text = str(value if value is not None else "").strip()
@@ -763,16 +769,21 @@ def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate
             return value
         return int(number) if number.is_integer() else value
 
-    for item in normalized.get("excess_returns") or []:
-        if isinstance(item, dict):
-            item["year"] = normalize_year(item.get("year"))
+    def normalize_year_items(items):
+        return [
+            {**item, "year": normalize_year(item.get("year"))} if isinstance(item, dict) else item
+            for item in items or []
+        ]
+
+    normalized["excess_returns"] = normalize_year_items(normalized.get("excess_returns"))
     for drawdown_key in ("index_maximum_drawdown", "start_maximum_drawdown"):
         drawdown = normalized.get(drawdown_key)
         if not isinstance(drawdown, dict):
             continue
-        for item in drawdown.get("year_maximum_drawdown") or []:
-            if isinstance(item, dict):
-                item["year"] = normalize_year(item.get("year"))
+        normalized[drawdown_key] = {
+            **drawdown,
+            "year_maximum_drawdown": normalize_year_items(drawdown.get("year_maximum_drawdown")),
+        }
     return normalized
 
 
@@ -886,6 +897,7 @@ def _build_global_preview_payload_from_results(task, task_results):
         calculate_metrics = resolve_preview_metrics(
             result_core,
             return_rows=_get_task_result_return_rows(task_result, return_series_by_id),
+            cache_key=task_result.return_series_id,
         )
         period_text, summary_rows = _extract_summary_rows(calculate_metrics)
         summary_rows = _with_excess_return_preview_row(

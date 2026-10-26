@@ -20,11 +20,19 @@ class GoogleSheetTokenService:
     def _normalize_token_task_type(task_type: Optional[str], default: Optional[str] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value) -> Optional[str]:
         return GoogleSheetTokenTaskType.normalize(task_type, default=default)
 
-    def _build_live_usage_snapshot(self):
+    def _build_live_usage_snapshot(self, exclude_task_id=None):
+        """按 config.token_id 活扫描 running 任务的占用快照。
+
+        exclude_task_id：排除指定任务（increment_usage 场景下调用方任务此刻
+        已被 mark_running，不排除会把自己计入，再 +1 落库即双计——释放只减 1，
+        每次启动净残留 +1）。reconcile 对账语义要含全部 running 任务，不传排除。
+        """
         token_usage: Dict[int, int] = {}
         current_total = 0
 
         for row in task_repository.list_id_config_by_status("running"):
+            if exclude_task_id and str(row["id"]) == str(exclude_task_id):
+                continue
             try:
                 config = loads(row["config"]) if isinstance(row["config"], str) else (row["config"] or {})
             except Exception:
@@ -231,11 +239,16 @@ class GoogleSheetTokenService:
         current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
         self._assert_token_usage_available(token, current_in_use)
 
-    def increment_usage(self, token_id: Optional[int]):
+    def increment_usage(self, token_id: Optional[int], exclude_task_id=None):
+        """占用 +1 并按活扫描重写 current_in_use_count。
+
+        exclude_task_id 必须传调用方任务 id：本方法在 start_task 里于
+        mark_running 之后调用，不排除自身会把任务计入快照再 +1（双计）。
+        """
         if not token_id:
             return None
 
-        snapshot = self._build_live_usage_snapshot()
+        snapshot = self._build_live_usage_snapshot(exclude_task_id=exclude_task_id)
         self._assert_global_usage_available(current_total=snapshot["current_total"])
 
         token = google_sheet_token_repository.get_entity(int(token_id))

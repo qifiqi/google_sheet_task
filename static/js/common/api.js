@@ -111,8 +111,10 @@
       cancel: function (taskId) {
         return post("/api/tasks/" + taskId + "/cancel");
       },
-      logs: function (taskId) {
-        return get("/api/tasks/" + taskId + "/logs");
+      logs: function (taskId, query) {
+        return get(
+          "/api/tasks/" + taskId + "/logs" + (query ? "?" + query : ""),
+        );
       },
       results: function (taskId, query) {
         return get(

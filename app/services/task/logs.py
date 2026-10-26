@@ -43,9 +43,11 @@ class TaskLogMixin:
         except Exception as exc:
             logger.error("添加任务日志失败: %s", exc)
 
-    def get_task_logs(self, task_id: str, limit: int = 500) -> list[dict]:
-        """按时间正序返回最新任务日志。"""
+    def get_task_logs(self, task_id: str, limit: int = 500, after_id: int | None = None) -> list[dict]:
+        """按时间正序返回最新任务日志；after_id 提供时只返回其后的新增日志（id asc）。"""
         try:
+            if after_id is not None:
+                return task_log_repository.list_by_task_after(task_id, after_id, limit=limit)
             return task_log_repository.list_by_task(task_id, limit=limit)
         except Exception as exc:
             logger.error("获取任务日志失败: %s", exc)

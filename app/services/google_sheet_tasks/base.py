@@ -3,8 +3,10 @@ import calendar
 # null，无法等价表达，见 app/utils/json_utils.py）；其余统一走 json_utils。
 import json
 from app.utils.json_utils import dumps, loads, JSONDecodeError
+from concurrent.futures import ThreadPoolExecutor
 import random
 import re
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -145,6 +147,11 @@ def build_execute_task_alert(target, func_name, phase, exc, result):
 
 class BaseGoogleSheetService:
     _model_version = ""
+    # 日志缓冲刷新边界：条数/时间双阈值 + error 级立即刷。
+    # 最长 10 秒延迟远低于看门狗 last_write_time 判卡死阈值（默认 watchdog_log_timeout_minutes=30 分钟）。
+    _LOG_FLUSH_BATCH_SIZE = 20
+    _LOG_FLUSH_INTERVAL_SECONDS = 10
+
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         self.config = config
         self.task_id = task_id
@@ -154,6 +161,10 @@ class BaseGoogleSheetService:
         self.task = None
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
         self.api_client = StockAPIClient()
+        # 日志批量落库缓冲（见 _save_to_database；任务线程独享，锁只防收尾 flush 并发）
+        self._log_buffer = []
+        self._log_buffer_lock = threading.Lock()
+        self._log_last_flush_monotonic = time.monotonic()
 
     def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
         """Ensure persisted result parameters always contain stock_code."""
@@ -407,24 +418,53 @@ class BaseGoogleSheetService:
         return message
 
     def _save_to_database(self, level: str, message: str):
-        def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=TaskLog.normalize_message(message),
+        # 组合热路径每组合产生多条日志，逐条 INSERT+COMMIT 是任务时长的主要 DB 开销；
+        # 缓冲定量/定时合并为一次事务提交（error 级立即落库）。
+        with self._log_buffer_lock:
+            self._log_buffer.append((level, message))
+            should_flush = (
+                level == 'error'
+                or len(self._log_buffer) >= self._LOG_FLUSH_BATCH_SIZE
+                or (time.monotonic() - self._log_last_flush_monotonic)
+                >= self._LOG_FLUSH_INTERVAL_SECONDS
             )
-            task_log_repository.add_entity(log)
+            if not should_flush:
+                return
+            pending = self._log_buffer[:]
+            self._log_buffer.clear()
+            self._log_last_flush_monotonic = time.monotonic()
+        self._flush_log_buffer(pending)
+
+    def _flush_log_buffer(self, pending=None):
+        """把缓冲日志（缺省取全部未刷日志）合并为一次事务提交；吞掉异常不向调用方传播。"""
+        if pending is None:
+            with self._log_buffer_lock:
+                pending = self._log_buffer[:]
+                self._log_buffer.clear()
+                self._log_last_flush_monotonic = time.monotonic()
+        if not pending:
+            return
+
+        def save_logs_operation():
+            for level, message in pending:
+                task_log_repository.add_entity(
+                    TaskLog(
+                        task_id=self.task_id,
+                        level=level,
+                        message=TaskLog.normalize_message(message),
+                    )
+                )
             task_result_repository.commit()
 
         try:
             if has_app_context():
-                safe_db_operation(save_log_operation)
+                safe_db_operation(save_logs_operation)
             elif self.app:
                 with self.app.app_context():
-                    safe_db_operation(save_log_operation)
+                    safe_db_operation(save_logs_operation)
             else:
                 with current_app.app_context():
-                    safe_db_operation(save_log_operation)
+                    safe_db_operation(save_logs_operation)
         except Exception:
             # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
             # 否则后续任务结果写入会触发 PendingRollbackError。
@@ -432,7 +472,6 @@ class BaseGoogleSheetService:
                 task_result_repository.rollback()
             except Exception:
                 pass
-            pass
 
     def _summarize_result_for_log(self, result: Any) -> str:
         """返回不包含收益序列的短结果摘要，避免将大对象写入任务日志。"""
@@ -616,6 +655,78 @@ class BaseGoogleSheetService:
             random_group_count=batch["random_group_count"],
             random_series_mode=batch["random_series_mode"],
         )
+
+    def _get_precompute_concurrency(self) -> int:
+        """K线预计算并行度（SystemConfig kline_precompute_concurrency，0/1=串行）。
+
+        默认 4、上限 16；外部行情源（东财/Yahoo）存在限流风险，调高前确认配额。
+        """
+        try:
+            config_manager = get_config_manager()
+            value = int(config_manager.get_config('kline_precompute_concurrency', 4))
+        except (TypeError, ValueError):
+            return 4
+        return max(0, min(value, 16))
+
+    def _expand_all_outer_parameters(self, batch, parameters):
+        """外层参数（多股票）预计算展开，返回 [(combinations, column_A_length, kline_data_map)]。
+
+        并行度 >1 且多股票时用有界线程池：每股在独立服务实例上展开——
+        KlineService 持有 requests.Session 与内部K线库客户端，非线程安全不能跨线程共享；
+        并各自推独立 app context（随机价快照落库、股票元数据 upsert 依赖 per-thread
+        session，Flask-SQLAlchemy 3.x 随 context 弹出回收）。任一股票失败按原顺序
+        抛出第一个异常，与串行语义一致。
+        """
+        outer_params = list(parameters[0])
+
+        def expand(index):
+            outer_param = outer_params[index]
+            if batch["kline_source"] == 'custom':
+                return self._get_custom_parameters(outer_param, parameters, batch["custom_kline_map"])
+            return self._expand_parameters(outer_param, parameters, batch)
+
+        concurrency = self._get_precompute_concurrency()
+        if batch["kline_source"] == 'custom' or concurrency <= 1 or len(outer_params) <= 1:
+            return [expand(index) for index in range(len(outer_params))]
+
+        context_app = self.app or current_app
+        workers: Dict[int, "BaseGoogleSheetService"] = {}
+        workers_lock = threading.Lock()
+
+        def run_at(index):
+            ident = threading.get_ident()
+            with workers_lock:
+                worker = workers.get(ident)
+                if worker is None:
+                    # 构造必须在 app context 内：KlineService/StockAPIClient 在
+                    # __init__ 读 current_app.config（STOCK_BASE_URL 等），
+                    # 线程无上下文时会静默落到 SDK 默认地址
+                    with context_app.app_context():
+                        worker = type(self)(self.config, self.task_id, app=self.app, stop_event=self.stop_event)
+                    workers[ident] = worker
+            with context_app.app_context():
+                return worker._expand_parameters(outer_params[index], parameters, batch)
+
+        results = [None] * len(outer_params)
+        first_error = None
+        executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="kline-precompute")
+        try:
+            futures = {index: executor.submit(run_at, index) for index in range(len(outer_params))}
+            for index in sorted(futures):
+                try:
+                    results[index] = futures[index].result()
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+        finally:
+            executor.shutdown(wait=True)
+            # 回收各 worker 独立缓冲的任务日志（worker 自身不再被使用）
+            for worker in workers.values():
+                worker._flush_log_buffer()
+
+        if first_error is not None:
+            raise first_error
+        return results
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool = True):
         """custom K线模式的固定双参数组合（原 C5/C7 各持一份，仅去重差异经参数表达）。
@@ -1083,13 +1194,7 @@ class BaseGoogleSheetService:
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
 
-            for outer_param in parameters[0]:
-                if batch["kline_source"] == 'custom':
-                    combinations, column_A_length, kline_data_map = self._get_custom_parameters(
-                        outer_param, parameters, batch["custom_kline_map"]
-                    )
-                else:
-                    combinations, column_A_length, kline_data_map = self._expand_parameters(outer_param, parameters, batch)
+            for combinations, column_A_length, kline_data_map in self._expand_all_outer_parameters(batch, parameters):
                 precomputed_params.append((combinations, column_A_length, kline_data_map))
                 total_combinations += len(combinations)
 
@@ -1349,6 +1454,9 @@ class BaseGoogleSheetService:
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
+        finally:
+            # 兜底：任何返回路径都把剩余缓冲日志落库（含取消/异常路径）
+            self._flush_log_buffer()
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool, return_date=None):
         """保存任务结果到数据库，包含重试逻辑。

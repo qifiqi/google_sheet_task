@@ -163,13 +163,10 @@ class TaskKlineSnapshotRepository(BaseRepository):
             return [], {}
         source_ids = list({row.source_id for row in series_rows})
         sources = {}
-        # 分块绕开 SQLite 的 IN 参数上限（本地开发库；PG/MySQL 同样正确）。
-        for start in range(0, len(source_ids), 500):
-            chunk = source_ids[start:start + 500]
-            for row in TaskKlineSource.query.filter(
-                TaskKlineSource.id.in_(chunk)
-            ).all():
-                sources[row.id] = row.to_dict()
+        for row in TaskKlineSource.query.filter(
+            TaskKlineSource.id.in_(source_ids)
+        ).all():
+            sources[row.id] = row.to_dict()
         return [row.to_dict() for row in series_rows], sources
 
     @staticmethod

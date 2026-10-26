@@ -448,7 +448,8 @@ class TaskRuntimeMixin:
             if token_id:
                 token_service = get_google_sheet_token_service()
                 token_service.validate_task_start(config_data)
-                token_service.increment_usage(token_id)
+                # 排除自身：mark_running 已提交，活扫描不排除会把本任务计入再 +1（双计）
+                token_service.increment_usage(token_id, exclude_task_id=task_id)
                 acquired_token_id = int(token_id)
                 self.task_token_occupancy[task_id] = acquired_token_id
         except Exception as exc:

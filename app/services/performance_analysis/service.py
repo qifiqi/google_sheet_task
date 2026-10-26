@@ -13,7 +13,11 @@ from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import normalize_ratio_display
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.services.performance_analysis.portfolio_combiner import combine_product_returns
+from app.services.performance_analysis.portfolio_combiner import (
+    build_combination_context,
+    combine_product_returns,
+    combine_with_context,
+)
 from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import extract_return_rows, parse_return_series_fields
 from app.utils.value_parser import coerce_bool
@@ -530,6 +534,8 @@ class PerformanceAnalysisService:
         # 流式迭代，不物化，避免 OOM。
         # 由 gen_all 的范围保证：sum(weights) 天然落在 [min_weight, max_weight]，
         # 且 sum(units) >= min_units，所以只有 min_weight=0 时才可能出现全零组合。
+        # 同一产品子集的日期轴/日收益是不变量，按子集缓存（见 build_combination_context）。
+        combination_contexts: Dict[tuple, Any] = {}
         for units in gen_all(min_units, total_units):
             weights = [u * step for u in units]
 
@@ -538,21 +544,26 @@ class PerformanceAnalysisService:
             if not any(weights):
                 continue
 
-            # 收集非零权重对应的产品与权重。
-            # 用一次遍历同时收集，保证 products/weights 顺序天然一致，
-            # 避免分成两次列表推导导致顺序错位的隐患。
+            # 收集非零权重对应的产品下标与权重，顺序与 products 天然一致。
+            active_indices = []
             active_products = []
             active_weights = []
-            for p, w in zip(products, weights):
+            for index, (p, w) in enumerate(zip(products, weights)):
                 if w:
+                    active_indices.append(index)
                     active_products.append(p)
                     active_weights.append(w)
 
-            # 加权合成收益序列。
-            # 注：这里传的是完整 product dict，因为 combine_product_returns 可能
-            # 依赖 returns 之外的字段（如日期对齐、result_id）。若确认只用 returns，
-            # 可改为 [{"returns": p["returns"]} for p in active_products] 省内存。
-            returns = combine_product_returns(active_products, weights=active_weights)
+            # 加权合成收益序列：优先走缓存的 float 快路径（枚举热循环），
+            # 子集无共同日期时与原路径同语义返回空，由下方长度守卫跳过。
+            context_key = tuple(active_indices)
+            if context_key not in combination_contexts:
+                combination_contexts[context_key] = build_combination_context(active_products)
+            context = combination_contexts[context_key]
+            if context is not None:
+                returns = combine_with_context(context, active_weights)
+            else:
+                returns = combine_product_returns(active_products, weights=active_weights)
 
             # 兜底：组合后序列长度不足 2 无法计算年化/回撤，跳过。
             # 产品过滤阶段只保证单只非空，此处防止对齐后变短。

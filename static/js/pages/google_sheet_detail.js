@@ -939,11 +939,11 @@
     // 启动自动刷新
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
         
         console.log(`启动自动刷新，每${getFrequencyText(currentRefreshFrequency)}刷新一次`);
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             console.log('自动刷新任务详情和日志...');
             loadTaskDetail(); // 这会重新加载所有信息，包括日志
         }, currentRefreshFrequency);
@@ -953,7 +953,7 @@
     function stopAutoRefresh() {
         if (refreshInterval) {
             console.log('停止自动刷新');
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }

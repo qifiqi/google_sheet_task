@@ -611,6 +611,39 @@ class TaskResultRepository(BaseRepository):
             .all()
         )
 
+    def list_recent_entities_by_task(self, task_id, limit=30):
+        """任务最近 N 条结果实体（step desc/id desc 取尾；避免大结果表全量加载，调用方自行反转为升序）。"""
+        return (
+            TaskResult.query.filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_latest_return_series_id(self, task_id):
+        """任务最新一条非空 return_series_id（id desc 点查）；无则 None。"""
+        row = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .filter(TaskResult.return_series_id.isnot(None))
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
+        return row.return_series_id if row else None
+
+    def list_recent_return_columns_by_task(self, task_id, limit=120):
+        """任务最近 N 条收益序列的 (stock_date, index_return, start_return) 投影（stock_date desc 取尾，调用方自行反转为升序）。"""
+        return (
+            TaskResultReturn.query.filter_by(task_id=task_id)
+            .with_entities(
+                TaskResultReturn.stock_date,
+                TaskResultReturn.index_return,
+                TaskResultReturn.start_return,
+            )
+            .order_by(TaskResultReturn.stock_date.desc())
+            .limit(limit)
+            .all()
+        )
+
     def list_return_entities_by_task(self, task_id):
         """任务收益序列实体（stock_date asc）。"""
         return (

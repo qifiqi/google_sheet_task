@@ -6,6 +6,7 @@
 
 from app.utils.json_utils import dumps
 import math
+from datetime import date as _date, datetime as _datetime
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,15 @@ from app.utils.logger import get_logger
 from app.utils.value_parser import _convert_pandas_to_native
 
 logger = get_logger(__name__)
+
+
+def _weight_combination_date(value):
+    """组合行日期归一为 ``datetime.date``（combine_product_returns 产出 ISO 字符串）。"""
+    if isinstance(value, _datetime):
+        return value.date()
+    if isinstance(value, _date):
+        return value
+    return _date.fromisoformat(str(value)[:10])
 
 
 class PerformanceMetricsMixin:
@@ -1623,44 +1633,63 @@ class PerformanceMetricsMixin:
             return {}
 
     def _weight_combination_v1(self,data):
-        df = pd.DataFrame(data)
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.sort_values('date')
+        """组合枚举热路径的轻量版 V1（无 pandas）。
 
-        # 提取年份信息
-        # Extract year and month information
-        df['year'] = df['date'].dt.year
-        df['month'] = df['date'].dt.month
-        df['year_month'] = df['date'].dt.strftime('%Y-%m')
-
-        # 先复制一份基础数据
-        base_df = df.copy()
-
-        # 批量计算所有净值
-        base_df['index_net'] = 1 * (1 + base_df['index_return'])
-        base_df['start_net'] = 1 * (1 + base_df['start_return'])
-
-        # 如果需要分别提取（但建议直接用 base_df）
-        index_df = base_df[
-            ['date', 'year', 'month', 'year_month', 'index_return', 'index_net']
-        ].rename(columns={'index_net': 'net_value'})
-        start_df = base_df[
-            ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
-        ].rename(columns={'start_net': 'net_value'})
-
-        # 年化收益率
-        index_annualized_rates = self.annualized_rate_return(index_df,False)
-        start_annualized_rates = self.annualized_rate_return(start_df,False)
-        index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df,False)
-        start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df,False)
-
-
-        return {
-            "index_annualized_rates": index_annualized_rates,
-            "start_annualized_rates": start_annualized_rates,
-            "index_maximum_drawdown": index_maximum_drawdown,
-            "start_maximum_drawdown": start_maximum_drawdown,
+        唯一消费方（weight_combination 枚举循环）只取 4 个标量：index/start
+        两列年化（原 is_year=False 路径的 "all" 项）与两列总最大回撤（原
+        is_year=False 路径的 total 项）。输入为 combine_product_returns 的
+        累计收益行（日期升序、唯一），口径与 DataFrame 版一致：
+        年化 = (期末净值/期初净值) ** (365/持有天数) - 1；
+        总回撤 = max((历史峰值-净值)/历史峰值)，峰值 ≤ 0 的时点回撤记 0。
+        """
+        rows = list(data)
+        dates = [_weight_combination_date(row.get("date")) for row in rows]
+        result = {
+            "index_annualized_rates": [],
+            "start_annualized_rates": [],
+            "index_maximum_drawdown": {"year_maximum_drawdown": [], "total_maximum_drawdown": {}},
+            "start_maximum_drawdown": {"year_maximum_drawdown": [], "total_maximum_drawdown": {}},
         }
+        if len(rows) < 2:
+            return result
+
+        for return_key, annualized_key, drawdown_key in (
+            ("index_return", "index_annualized_rates", "index_maximum_drawdown"),
+            ("start_return", "start_annualized_rates", "start_maximum_drawdown"),
+        ):
+            navs = [1.0 + float(row[return_key]) for row in rows]
+            holding_days = (dates[-1] - dates[0]).days
+            if holding_days > 0:
+                try:
+                    annualized = (navs[-1] / navs[0]) ** (365.0 / holding_days) - 1.0
+                    if isinstance(annualized, complex):
+                        # 负净值取分数次幂：numpy 路径得 NaN，这里保持同语义
+                        annualized = float("nan")
+                except (ValueError, OverflowError, ZeroDivisionError):
+                    annualized = float("nan")
+                result[annualized_key].append({
+                    "year": "all",
+                    "annualized_return": annualized,
+                    "date": f"{dates[0]}/{dates[-1]}",
+                })
+
+            peak = float("-inf")
+            max_drawdown = 0.0
+            max_drawdown_date = dates[0]
+            for date_value, nav in zip(dates, navs):
+                if nav > peak:
+                    peak = nav
+                if peak > 0:
+                    drawdown = (peak - nav) / peak
+                    if drawdown > max_drawdown:
+                        max_drawdown = drawdown
+                        max_drawdown_date = date_value
+            result[drawdown_key]["total_maximum_drawdown"] = {
+                "date": max_drawdown_date.strftime("%Y-%m-%d"),
+                "drawdown": max_drawdown,
+            }
+
+        return result
 
     @staticmethod
     def rolling_pair_summary(index_frame, start_frame, column):

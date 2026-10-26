@@ -5,8 +5,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
+import threading
+from collections import OrderedDict
 from typing import Any
+
+from app.utils.json_utils import dumps
 
 
 def find_all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
@@ -148,17 +153,60 @@ def _has_preview_metrics(metrics: dict[str, Any]) -> bool:
     return all(metrics.get(key) is not None for key in _PREVIEW_REQUIRED_KEYS)
 
 
+# 历史结果预览指标的重算缓存：重算对同一收益序列是确定性的（收益序列与存量
+# 指标落库后不再变），但"不写入历史 TaskResult"意味着每次预览/导出都会重付
+# 一次完整 V1 计算。进程级 LRU 以 (序列 id, 存量指标指纹) 为键，命中返回共享
+# 对象，调用方不得改写。
+_PREVIEW_METRICS_CACHE_MAX = 512
+_preview_metrics_cache: "OrderedDict[Any, dict[str, Any]]" = OrderedDict()
+_preview_metrics_cache_lock = threading.Lock()
+
+
+def _preview_metrics_cache_key(return_series_id: Any, metrics: dict[str, Any]):
+    """缓存键带存量指标指纹：历史上同一收益序列可能挂多条结果，重算合并
+    依赖各结果自己的存量指标，指纹不同即为不同条目。"""
+    digest = hashlib.sha256(dumps(metrics or {}).encode("utf-8")).hexdigest()
+    return (return_series_id, digest)
+
+
 def resolve_preview_metrics(
     core: Any,
     *,
     return_rows: list[dict[str, Any]] | None = None,
+    cache_key: Any = None,
 ) -> dict[str, Any]:
     """返回预览可用指标，不写入历史 TaskResult。
 
     优先返回已持久化的指标（含历史别名升级）。仅当预览必需指标缺失且能
     从 ``TaskResultReturn`` 或旧 result 内嵌数据取得至少两条收益记录时，
     才按当前 V1 口径临时重算。无收益序列时绝不覆盖已存历史指标。
+
+    cache_key（通常为 return_series_id）提供时启用进程级 LRU 缓存。
     """
+    if cache_key is None:
+        return _resolve_preview_metrics_uncached(core, return_rows=return_rows)
+
+    key = _preview_metrics_cache_key(cache_key, extract_core_metrics(core))
+    with _preview_metrics_cache_lock:
+        cached = _preview_metrics_cache.get(key)
+        if cached is not None:
+            _preview_metrics_cache.move_to_end(key)
+            return cached
+
+    resolved = _resolve_preview_metrics_uncached(core, return_rows=return_rows)
+    with _preview_metrics_cache_lock:
+        _preview_metrics_cache[key] = resolved
+        _preview_metrics_cache.move_to_end(key)
+        while len(_preview_metrics_cache) > _PREVIEW_METRICS_CACHE_MAX:
+            _preview_metrics_cache.popitem(last=False)
+    return resolved
+
+
+def _resolve_preview_metrics_uncached(
+    core: Any,
+    *,
+    return_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     metrics = extract_core_metrics(core)
     if _has_preview_metrics(metrics):
         return metrics

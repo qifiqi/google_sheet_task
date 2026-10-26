@@ -359,12 +359,6 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
 
         container.appendChild(sheetsBlock);
 
-        // 随机价任务的关键配置单独成卡，避免只藏在“更多参数”里
-        Biz.configEdit.appendRandomPriceConfigBlock(
-            config,
-            moreContainer || container
-        );
-
         // 汇总信息折叠显示（只在需要时展开查看）
         const details = document.createElement('details');
         details.className = 'mt-2 small';
@@ -401,6 +395,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         });
 
         details.appendChild(list);
+        // 随机价配置并入折叠区末尾（非随机价任务由 helper 自行跳过）
+        Biz.configEdit.appendRandomPriceConfigBlock(config, details);
         if (moreContainer) {
             moreContainer.appendChild(details);
         } else {
@@ -1133,11 +1129,11 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         // 启动自动刷新
         function startAutoRefresh() {
             if (refreshInterval) {
-                clearInterval(refreshInterval);
+                refreshInterval();
             }
 
             console.log(`启动自动刷新，每${Biz.taskPolling.getFrequencyText(currentRefreshFrequency)}刷新一次`);
-            refreshInterval = setInterval(function () {
+            refreshInterval = setIntervalVisible(function () {
                 console.log('自动刷新任务详情和日志...');
                 loadTaskDetail(); // 这会重新加载所有信息，包括日志
             }, currentRefreshFrequency);
@@ -1147,7 +1143,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         function stopAutoRefresh() {
             if (refreshInterval) {
                 console.log('停止自动刷新');
-                clearInterval(refreshInterval);
+                refreshInterval();
                 refreshInterval = null;
             }
         }

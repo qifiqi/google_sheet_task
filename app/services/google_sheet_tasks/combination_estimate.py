@@ -20,7 +20,6 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 KLINE_SOURCE_CUSTOM = "custom"
-PRICE_MODE_RANDOM = "random_price"
 
 SERVICE_CLASSES = {
     TYPE_GOOGLE_SHEET_C5: C5Service,
@@ -29,16 +28,21 @@ SERVICE_CLASSES = {
 }
 
 
-def _custom_combination_count(products: list, parameters: list, config: dict) -> int:
-    """custom K线：单窗口，组合 = 产品 × 内层参数 × 随机组（仅 random_price 生效）。"""
-    groups = 1
-    if str(config.get("price_mode") or "").strip().lower() == PRICE_MODE_RANDOM:
-        groups = max(1, int(config.get("random_group_count") or 1))
+def _custom_combination_count(
+    products: list, parameters: list, config: dict, task_type: str
+) -> int:
+    """custom K线公式，与执行路径逐一对应：
+    - C1.1：占位内层（参数列表不参与组合）× 随机组（custom 路径固定按 random_price 展开）；
+    - C5/C7：产品 × 内层参数，base._get_custom_parameters 不展开随机组，组数不参与计数。
+    """
+    groups = max(1, int(config.get("random_group_count") or 1))
+    if task_type == TYPE_GOOGLE_SHEET_C1_1:
+        return len(products) * groups
     inner = 1
     for values in parameters[1:]:
         if values:
             inner *= len(values)
-    return len(products) * inner * groups
+    return len(products) * inner
 
 
 def estimate_combination_count(
@@ -64,7 +68,9 @@ def estimate_combination_count(
 
     if str(config.get("kline_source") or "auto").strip().lower() == KLINE_SOURCE_CUSTOM:
         return {
-            "estimated_count": _custom_combination_count(products, parameters, config),
+            "estimated_count": _custom_combination_count(
+                products, parameters, config, normalized_type
+            ),
             "source": "formula",
         }
 

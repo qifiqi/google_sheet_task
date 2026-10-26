@@ -66,10 +66,10 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
         Api.endpoints.config.get().then(function(data) {
             const interval = (data && data.config && data.config.frontend_polling_interval) ?
                             data.config.frontend_polling_interval : 15000;
-            setInterval(loadTasks, interval);
+            setIntervalVisible(loadTasks, interval);
         }).catch(function() {
             // 原 ajaxRequest 失败回调同样落到默认 15000ms 轮询
-            setInterval(loadTasks, 15000);
+            setIntervalVisible(loadTasks, 15000);
         });
 
         window.addEventListener('popstate', function(event) {

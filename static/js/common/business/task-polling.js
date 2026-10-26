@@ -21,61 +21,90 @@
     }
   }
 
-  function loadTaskLogs() {
-    console.log("开始加载任务日志...");
-    Api.endpoints.task
-      .logs(currentTaskId)
-      .then(function (data) {
-        console.log("日志API响应:", data);
-        if (data && data.logs) {
-          const logContainer = document.getElementById("log-container");
-          console.log("找到日志容器:", logContainer);
-          console.log("日志数量:", data.logs.length);
+  // 日志增量拉取游标：首载全量，其后每 tick 只取 after_id 之后的新增行做追加，
+  // 避免任务跑数小时后每 tick 仍全量拉 500 条并整体重建 innerHTML。
+  let lastTaskLogId = null;
 
-          if (data.logs.length > 0) {
+  function renderTaskLogLine(log) {
+    const level = log.level || "info";
+    const levelClass =
+      level === "error"
+        ? "text-danger"
+        : level === "warning"
+          ? "text-warning"
+          : level === "info"
+            ? "text-info"
+            : "text-light";
+    // log.message 含任务参数/Sheet 标题等外部输入，进 innerHTML 前必须转义
+    return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${escapeHtml(log.message)}</div>`;
+  }
+
+  function loadTaskLogs() {
+    const logContainer = document.getElementById("log-container");
+    const incremental = lastTaskLogId != null;
+    Api.endpoints.task
+      .logs(currentTaskId, incremental ? `after_id=${lastTaskLogId}` : "")
+      .then(function (data) {
+        if (data && data.logs) {
+          if (!logContainer) {
+            return;
+          }
+          const logs = data.logs;
+
+          if (incremental) {
+            if (logs.length === 0) {
+              return;
+            }
+            const wasAtBottom =
+              logContainer.scrollTop + logContainer.clientHeight >=
+              logContainer.scrollHeight - 5;
+            logContainer.insertAdjacentHTML(
+              "beforeend",
+              logs.map(renderTaskLogLine).join(""),
+            );
+            if (wasAtBottom) {
+              logContainer.scrollTop = logContainer.scrollHeight;
+            }
+          } else if (logs.length > 0) {
             // 保存当前滚动位置
             const wasAtBottom =
               logContainer.scrollTop + logContainer.clientHeight >=
               logContainer.scrollHeight - 5;
 
             // 更新日志内容
-            logContainer.innerHTML = data.logs
-              .map((log) => {
-                const level = log.level || "info";
-                const levelClass =
-                  level === "error"
-                    ? "text-danger"
-                    : level === "warning"
-                      ? "text-warning"
-                      : level === "info"
-                        ? "text-info"
-                        : "text-light";
-                // log.message 含任务参数/Sheet 标题等外部输入，进 innerHTML 前必须转义
-                return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${escapeHtml(log.message)}</div>`;
-              })
-              .join("");
+            logContainer.innerHTML = logs.map(renderTaskLogLine).join("");
 
             // 如果之前在底部，保持滚动到底部
             if (wasAtBottom) {
               logContainer.scrollTop = logContainer.scrollHeight;
             }
-
-            console.log("日志已显示");
           } else {
             logContainer.innerHTML = '<div class="text-muted">暂无日志</div>';
-            console.log("没有日志数据");
+          }
+
+          const maxId = logs.reduce(
+            (acc, log) => (log.id != null && log.id > acc ? log.id : acc),
+            lastTaskLogId || 0,
+          );
+          if (maxId > 0) {
+            lastTaskLogId = maxId;
           }
         } else {
           console.error("加载日志失败:", data);
-          const logContainer = document.getElementById("log-container");
-          logContainer.innerHTML =
-            '<div class="text-danger">加载日志失败</div>';
+          lastTaskLogId = null;
+          if (logContainer) {
+            logContainer.innerHTML =
+              '<div class="text-danger">加载日志失败</div>';
+          }
         }
       })
       .catch(function (err) {
         console.error("加载日志失败:", err);
-        const logContainer = document.getElementById("log-container");
-        logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
+        // 出错即丢弃游标，下一 tick 回落全量加载自愈
+        lastTaskLogId = null;
+        if (logContainer) {
+          logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
+        }
       });
   }
 

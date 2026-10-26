@@ -5,14 +5,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google_task:1.0.7
+    image: google_task:1.1.1
     restart: unless-stopped
     init: true
     # nginx 暂时停用：app 直接对外 8081。
     # 将来启用 nginx 时：改回 expose "5000" + 回环调试口 "127.0.0.1:8082:5000"，
     # 并整体放开下方 nginx 服务块，把 8081 让给 nginx。
     ports:
-      - "8081:5000"
+      - "80:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -45,7 +45,7 @@ services:
   #   build:
   #     context: ..
   #     dockerfile: dockers/Dockerfile.nginx
-  #   image: google_nginx:1.0.7
+  #   image: google_nginx:1.1.1
   #   restart: unless-stopped
   #   ports:
   #     - "8081:80"

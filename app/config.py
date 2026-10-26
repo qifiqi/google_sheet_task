@@ -15,37 +15,23 @@ def _get_int(name, default):
 
 # 项目根目录及运行时数据目录。路径配置不是从 .env 读取的，统一相对于项目根目录。
 BASE_DIR = Path(__file__).parent.parent
-INSTANCE_DIR = BASE_DIR / 'instance'  # SQLite 数据库目录。
 DATA_DIR = BASE_DIR / 'data'          # token、导入文件等运行时数据。
 LOGS_DIR = BASE_DIR / 'logs'          # 应用日志目录。
 
 
-def _resolve_database_url(default_url):
-    database_url = os.environ.get('DATABASE_URL') or default_url
-
-    if database_url.startswith('sqlite:///'):
-        sqlite_path = database_url.replace('sqlite:///', '', 1)
-        sqlite_path_obj = Path(sqlite_path)
-        if not sqlite_path_obj.is_absolute():
-            sqlite_path_obj = BASE_DIR / sqlite_path_obj
-        database_url = f"sqlite:///{sqlite_path_obj.resolve().as_posix()}"
-
-    return database_url
+def _resolve_database_url():
+    # SQLite 本地回退已移除：DATABASE_URL 必须显式配置（MySQL/PostgreSQL）。
+    return os.environ.get('DATABASE_URL', '')
 
 
 def _build_engine_options(_database_url):
     options = {
         'pool_pre_ping': True,
         'pool_recycle': 3600,
+        'pool_size': _get_int('DB_POOL_SIZE', 10),
+        'max_overflow': _get_int('DB_MAX_OVERFLOW', 20),
+        'pool_timeout': _get_int('DB_POOL_TIMEOUT', 30),
     }
-    # 池容量参数对非 SQLite 引擎生效（MySQL 主力 + PostgreSQL 历史在用同享）；
-    # SQLite 仅本地回退，走默认池化。
-    if not _database_url.startswith('sqlite'):
-        options.update({
-            'pool_size': _get_int('DB_POOL_SIZE', 10),
-            'max_overflow': _get_int('DB_MAX_OVERFLOW', 20),
-            'pool_timeout': _get_int('DB_POOL_TIMEOUT', 30),
-        })
     # MySQL 显式声明 utf8mb4，避免跟随服务端/握手默认造成的中文乱码风险。
     if _database_url.startswith('mysql'):
         options['connect_args'] = {'charset': 'utf8mb4'}
@@ -55,11 +41,8 @@ def _build_engine_options(_database_url):
 class BaseConfig:
     # Flask 从该配置类读取最终配置；环境文件已在 app.create_app() 中先加载。
     BASE_DIR = BASE_DIR
-    INSTANCE_DIR = INSTANCE_DIR
     DATA_DIR = DATA_DIR
     LOGS_DIR = LOGS_DIR
-    # 未设置 DATABASE_URL 时使用 instance/app.db，适合最小本地运行。
-    DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "app.db"}'
     DEBUG = False
     TESTING = False
 
@@ -103,10 +86,9 @@ class BaseConfig:
     # 应用日志级别；LOG_FILE 固定写入 logs/app.log。
     LOG_LEVEL = 'INFO'
     LOG_FILE = LOGS_DIR / 'app.log'
-    # 最终数据库地址由 init_app() 根据 DATABASE_URL 解析。
-    SQLALCHEMY_DATABASE_URI = DEFAULT_DATABASE_URL
-    # 数据库连接池参数，SQLite 不使用 pool_size/max_overflow 等参数。
-    SQLALCHEMY_ENGINE_OPTIONS = _build_engine_options(SQLALCHEMY_DATABASE_URI)
+    # 最终数据库地址由 init_app() 根据 DATABASE_URL 解析；未配置时启动期直接报错。
+    SQLALCHEMY_DATABASE_URI = ''
+    SQLALCHEMY_ENGINE_OPTIONS = _build_engine_options('')
 
     @classmethod
     def init_app(cls):
@@ -150,13 +132,16 @@ class BaseConfig:
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
         cls.LOG_FILE = cls.LOGS_DIR / 'app.log'
-        cls.SQLALCHEMY_DATABASE_URI = _resolve_database_url(cls.DEFAULT_DATABASE_URL)
+        cls.SQLALCHEMY_DATABASE_URI = _resolve_database_url()
+        if not cls.SQLALCHEMY_DATABASE_URI:
+            raise RuntimeError(
+                'DATABASE_URL 未配置：SQLite 本地回退已移除，'
+                '必须在环境文件中显式设置数据库连接串（MySQL/PostgreSQL）'
+            )
         cls.SQLALCHEMY_ENGINE_OPTIONS = _build_engine_options(cls.SQLALCHEMY_DATABASE_URI)
 
         cls.DATA_DIR.mkdir(exist_ok=True)
         cls.LOGS_DIR.mkdir(exist_ok=True)
-        if cls.SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
-            cls.INSTANCE_DIR.mkdir(exist_ok=True)
 
 
 class DevelopmentConfig(BaseConfig):
