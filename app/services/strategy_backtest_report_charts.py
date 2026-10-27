@@ -71,10 +71,12 @@ LINE_WIDTH = 0.8
 # 回撤面积图的描边线宽（pt），细于主折线以突出填充主体。
 AREA_EDGE_WIDTH = LINE_WIDTH
 # 使用项目根目录定位字体，避免依赖部署机器的 Windows 字体目录。
+# 复用 Word/PDF 报告同一套 Noto Sans SC（app/assets/fonts），字形与旧 CJKsc 一致，
+# 不再额外随 static 分发 32MB 的全量 CJK 字体副本。
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FONTS_DIR = PROJECT_ROOT / "static" / "fonts"
-FONT_REGULAR_PATH = FONTS_DIR / "NotoSansCJKsc-Regular.otf"
-FONT_BOLD_PATH = FONTS_DIR / "NotoSansCJKsc-Bold.otf"
+FONTS_DIR = PROJECT_ROOT / "app" / "assets" / "fonts"
+FONT_REGULAR_PATH = FONTS_DIR / "NotoSansSC-Regular.otf"
+FONT_BOLD_PATH = FONTS_DIR / "NotoSansSC-Bold.otf"
 
 
 def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -> dict[str, str]:

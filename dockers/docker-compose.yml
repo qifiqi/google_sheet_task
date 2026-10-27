@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google_task:1.1.1
+    image: google_task:1.1.3
     restart: unless-stopped
     init: true
     # nginx 暂时停用：app 直接对外 8081。
@@ -45,7 +45,7 @@ services:
   #   build:
   #     context: ..
   #     dockerfile: dockers/Dockerfile.nginx
-  #   image: google_nginx:1.1.1
+  #   image: google_nginx:1.1.3
   #   restart: unless-stopped
   #   ports:
   #     - "8081:80"

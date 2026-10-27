@@ -34,6 +34,14 @@ Thumbs.db
 .codex/
 .cursor/
 frontend/
+frontend.7z
+.worktrees/
+*.tar
+*.tar.gz
+*.sql
+*.sql.gz
+*.csv
+样例导出/
 data/
 docs/
 .git/
