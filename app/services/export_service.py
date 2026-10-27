@@ -34,6 +34,7 @@ from app.services.export_workbook_service import (
     build_c7_stock_code_export_archive,
     build_export_filename,
     build_task_export,
+    compose_preview_stem,
     model_version_from_config,
     normalize_filename_date,
     sanitize_export_filename,
@@ -220,7 +221,7 @@ class ExportService:
         workbook.save(buffer)
         buffer.seek(0)
         task_name = (payload.get("task") or {}).get("name") or task_id
-        # 手输名替换基名，统一后缀（模型版本/区间/导出时间）照加。
+        # 单文件导出保留基名+时间戳规范（防本地覆盖旧导出）；手输名替换基名。
         base = (
             sanitize_export_filename(export_name)
             if export_name
@@ -251,14 +252,15 @@ class ExportService:
         )
         if payload is None:
             raise NotFoundError("任务不存在")
+        # zip 外层保留任务名基名（聚合容器无单一股票语义，需可辨认来源）；
+        # 成员文件按新规范（模型版本-股票代码_区间），不带任务名。
         task_name = sanitize_export_filename(export_name or task.name or task_id)
         base = task_name if export_name else f"{task_name}_global_preview"
-        # zip 外层按规范不带区间段；每个成员文件带各自包络。
         model_text = self._preview_model_text(task, payload)
         return GeneratedStream(
             filename=build_export_filename(base, model_version=model_text, extension="zip"),
             mimetype=ZIP_MIMETYPE,
-            generate=lambda: self._stream_stock_zip(payload, task_name, model_text),
+            generate=lambda: self._stream_stock_zip(payload, model_text),
         )
 
     def export_global_preview_batch(self, task_ids: list[str]) -> GeneratedFile:
@@ -281,6 +283,7 @@ class ExportService:
                 workbook_buffer = BytesIO()
                 workbook.save(workbook_buffer)
                 kline_start, kline_end = self._preview_kline_bounds(payload)
+                # 批量 zip 成员是"每任务一文件"，保留基名+时间戳规范（非按股票拆分场景）。
                 member_stem = build_export_filename(
                     f"{sanitize_export_filename(task.name)}_global_preview",
                     model_version=self._preview_model_text(task, payload),
@@ -456,7 +459,7 @@ class ExportService:
             )
         return build_global_preview_payload(task.id)
 
-    def _stream_stock_zip(self, payload: dict[str, Any], task_name: str, model_text: str = ""):
+    def _stream_stock_zip(self, payload: dict[str, Any], model_text: str = ""):
         """按股票流式生成 ZIP 文件。"""
         output_queue: Queue = Queue(maxsize=8)
         finished = object()
@@ -473,12 +476,9 @@ class ExportService:
                     for stock_code, stock_payload in stock_payloads:
                         workbook = build_global_preview_workbook(stock_payload)
                         stock_start, stock_end = self._preview_kline_bounds(stock_payload)
-                        filename = build_export_filename(
-                            f"{task_name}_{stock_code}",
-                            model_version=model_text,
-                            kline_start=stock_start,
-                            kline_end=stock_end,
-                        )
+                        # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳，外层 zip 已带）。
+                        stem = compose_preview_stem(model_text, stock_code, stock_start, stock_end)
+                        filename = f"{sanitize_export_filename(stem)}.xlsx"
                         zip_info = ZipInfo(filename, date_time=datetime.now().timetuple()[:6])
                         zip_info.compress_type = ZIP_STORED
                         with archive.open(zip_info, "w") as xlsx_file:

@@ -102,9 +102,10 @@ def test_c7_stock_code_export_archive_keeps_workbooks_separate():
     assert re.fullmatch(r"C7 导出_按股票代码导出-c7_0_3-\d{8}_\d{6}\.zip", archive.filename)
     with ZipFile(archive.buffer) as zip_file:
         member_names = zip_file.namelist()
-        assert [re.sub(r"-\d{8}_\d{6}\.xlsx$", "", name) for name in member_names] == [
-            "C7 导出_600001-c7_0_3",
-            "C7 导出_600000-c7_0_3",
+        # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳）
+        assert member_names == [
+            "c7_0_3-600001.xlsx",
+            "c7_0_3-600000.xlsx",
         ]
 
         first_workbook = load_workbook(BytesIO(zip_file.read(member_names[0])), data_only=True)

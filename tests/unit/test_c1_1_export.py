@@ -120,9 +120,10 @@ def test_c1_1_stock_code_export_archive_groups_by_stock():
     assert re.fullmatch(r"C1_1 导出_按股票代码导出-c1_1-\d{8}_\d{6}\.zip", archive.filename)
     with ZipFile(archive.buffer) as zip_file:
         member_names = zip_file.namelist()
-        assert [re.sub(r"-\d{8}_\d{6}\.xlsx$", "", name) for name in member_names] == [
-            "C1_1 导出_600001-c1_1-20240101-20241231",
-            "C1_1 导出_600000-c1_1-20240101-20241231",
+        # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳）
+        assert member_names == [
+            "c1_1-600001_20240101-20241231.xlsx",
+            "c1_1-600000_20240101-20241231.xlsx",
         ]
         workbook = load_workbook(BytesIO(zip_file.read(member_names[1])), data_only=True)
 

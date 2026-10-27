@@ -457,6 +457,31 @@ def build_task_export(task: Any, results: list[dict[str, Any]], by_stock: bool =
     return _generic_export(task, results)
 
 
+def compose_preview_stem(
+    model_version: Any,
+    stock_code: Any,
+    kline_start: Any,
+    kline_end: Any,
+) -> str:
+    """按股票 zip 成员词干：`模型版本-股票代码_K线起-K线止`（不带任务名与时间戳）。
+
+    缺段优雅降级：头部（版本/股票）与区间段各自以 '-' 连接，
+    两段都有时以 '_' 衔接；全缺返回空串。
+    """
+
+    head = "-".join(
+        sanitize_export_filename(part)
+        for part in (str(model_version or "").strip(), str(stock_code or "").strip())
+        if str(part or "").strip()
+    )
+    start_text = normalize_filename_date(kline_start)
+    end_text = normalize_filename_date(kline_end)
+    tail = "-".join(part for part in (start_text, end_text) if part)
+    if head and tail:
+        return f"{head}_{tail}"
+    return head or tail
+
+
 def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
     """按股票代码拆分 C7/C1.1 结果，并将现有 Excel 导出格式打包为 ZIP。"""
 
@@ -486,13 +511,13 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
             workbook_export.workbook.save(workbook_buffer)
 
             stock_start, stock_end = kline_bounds_from_results(stock_results)
+            # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳，外层 zip 已带）。
             filename_base = sanitize_export_filename(
-                build_export_filename(
-                    f"{task_name}_{stock_code}",
-                    model_version=model_version_from_results(stock_results, task) or model_version,
-                    kline_start=stock_start,
-                    kline_end=stock_end,
-                    extension="",
+                compose_preview_stem(
+                    model_version_from_results(stock_results, task) or model_version,
+                    stock_code,
+                    stock_start,
+                    stock_end,
                 )
             )
             filename = f"{filename_base}.xlsx"
