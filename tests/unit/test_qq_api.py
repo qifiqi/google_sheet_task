@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from app.utils.qq_api import QQStockApi
 
 
@@ -51,3 +53,36 @@ def test_qq_us_kline_uses_us_symbol_and_us_volume_amount_units():
         "turnover_rate": 0.19,
         "timestamp": rows[0]["timestamp"],
     }]
+
+
+def _mk_qq_day_row(date_str):
+    return [date_str, "10.00", "10.10", "10.20", "9.90", "1000", {}, "0.5", "10000"]
+
+
+def test_qq_daily_kline_pagination_cursor_goes_to_end_slot():
+    """日线多页翻页：游标必须写进 param 第4位(end)。
+
+    fqkline 在 end 为空时忽略 start、恒返回最新一段；游标若放 start 位，
+    第二页会原样重取最新一批，命中"游标未前进"提前终止，远期历史（如 2019 年）永远取不到。
+    """
+    api = QQStockApi()
+    captured = []
+
+    def fake_get(_url, params):
+        captured.append(params["param"])
+        if len(captured) == 1:
+            items = [
+                _mk_qq_day_row((date(2023, 1, 2) + timedelta(days=i)).isoformat())
+                for i in range(640)
+            ]
+        else:
+            items = [_mk_qq_day_row("2023-01-01")]
+        return _Response({"data": {"sz000001": {"qfqday": items}}})
+
+    api._get = fake_get
+    rows = api.get_stock_kline_data("000001", "0", limit=641, kline_type="101", adjust_type="1")
+
+    assert captured[0] == "sz000001,day,,,640,qfq"
+    assert captured[1] == "sz000001,day,,2023-01-02,1,qfq"
+    assert [r["stock_date"] for r in rows][:2] == ["2023-01-01", "2023-01-02"]
+    assert len(rows) == 641

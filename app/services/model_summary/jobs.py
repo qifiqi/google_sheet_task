@@ -12,10 +12,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from app.models import Task, TaskLog, TaskResultSummaryIndex
+from app.models import Task, TaskLog, TaskResultSummaryIndex, TaskStatus
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.services.model_summary import extractor
-from app.utils.formatting import parse_lenient_json
+from app.utils.formatting import parse_lenient_json, to_beijing_iso
 from app.utils.logger import get_logger
 
 
@@ -139,7 +139,7 @@ class SummaryJobMixin:
                 name="单模型汇总索引重建",
                 description="后台扫描历史 task_results，重建任务/股票汇总查询索引",
                 task_type=extractor.MODEL_SUMMARY_REBUILD_TASK_TYPE,
-                status="pending",
+                status=TaskStatus.PENDING.value,
                 config=dumps(
                     {
                         "task_type": task_type,
@@ -165,7 +165,7 @@ class SummaryJobMixin:
             job = {
                 "job_id": job_id,
                 "task_id": job_id,
-                "status": "pending",
+                "status": TaskStatus.PENDING.value,
                 "message": "索引重建任务已创建",
                 "params": {
                     "task_type": task_type,
@@ -175,7 +175,7 @@ class SummaryJobMixin:
                 },
                 "result": None,
                 "error": None,
-                "started_at": datetime.now().isoformat(),
+                "started_at": to_beijing_iso(datetime.now()),
                 "finished_at": None,
             }
             self._jobs[job_id] = job
@@ -231,13 +231,13 @@ class SummaryJobMixin:
             with app.app_context():
                 self._update_rebuild_task(
                     job_id,
-                    status="running",
+                    status=TaskStatus.RUNNING.value,
                     start_time=datetime.now(),
                     message="索引重建开始执行",
                 )
                 with self._jobs_lock:
                     self._jobs[job_id].update({
-                        "status": "running",
+                        "status": TaskStatus.RUNNING.value,
                         "message": "索引重建开始执行",
                     })
                 result = self.rebuild(**params, progress_task_id=job_id)
@@ -247,7 +247,7 @@ class SummaryJobMixin:
                     })
                 self._update_rebuild_task(
                     job_id,
-                    status="completed",
+                    status=TaskStatus.COMPLETED.value,
                     end_time=datetime.now(),
                     current_step=result.get("processed_tasks", 0),
                     message=(
@@ -259,16 +259,16 @@ class SummaryJobMixin:
                 )
             with self._jobs_lock:
                 self._jobs[job_id].update({
-                    "status": "completed",
+                    "status": TaskStatus.COMPLETED.value,
                     "message": "索引重建完成",
-                    "finished_at": datetime.now().isoformat(),
+                    "finished_at": to_beijing_iso(datetime.now()),
                 })
         except Exception as exc:
             logger.error("后台重建单模型汇总索引失败: %s", exc, exc_info=True)
             with app.app_context():
                 self._update_rebuild_task(
                     job_id,
-                    status="error",
+                    status=TaskStatus.ERROR.value,
                     end_time=datetime.now(),
                     error_message=str(exc),
                     message=f"索引重建失败: {exc}",
@@ -276,10 +276,10 @@ class SummaryJobMixin:
                 )
             with self._jobs_lock:
                 self._jobs[job_id].update({
-                    "status": "error",
+                    "status": TaskStatus.ERROR.value,
                     "message": "索引重建失败",
                     "error": str(exc),
-                    "finished_at": datetime.now().isoformat(),
+                    "finished_at": to_beijing_iso(datetime.now()),
                 })
 
     def _apply_record(self, item: TaskResultSummaryIndex, row: extractor.SummaryRecord) -> None:
@@ -421,9 +421,9 @@ class SummaryJobMixin:
         if task:
             job["task"] = task.to_dict()
             job["status"] = task.status
-            if task.status == "completed":
+            if task.status == TaskStatus.COMPLETED.value:
                 job["message"] = "索引重建完成"
-            elif task.status == "error":
+            elif task.status == TaskStatus.ERROR.value:
                 job["message"] = task.error_message or "索引重建失败"
         return job
 
@@ -443,7 +443,7 @@ class SummaryJobMixin:
             "params": config if isinstance(config, dict) else {},
             "result": None,
             "error": task.error_message,
-            "started_at": task.start_time.isoformat() if task.start_time else None,
-            "finished_at": task.end_time.isoformat() if task.end_time else None,
+            "started_at": to_beijing_iso(task.start_time),
+            "finished_at": to_beijing_iso(task.end_time),
             "task": task.to_dict(),
         }

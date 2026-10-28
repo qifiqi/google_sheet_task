@@ -261,6 +261,13 @@
                                                         <label class="form-label" for="random_group_count">随机组数</label>
                                                         <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
                                                     </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_series_mode">随机序列模式</label>
+                                                        <select class="form-select" id="random_series_mode">
+                                                            <option value="per_window" selected>各窗口独立随机</option>
+                                                            <option value="full_truncate">全区间生成后按窗口截断</option>
+                                                        </select>
+                                                    </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
                                                         <select class="form-select" id="market_type"></select>
@@ -568,6 +575,7 @@
             versionQuery: 'c5',
             taskType: 'google_sheet_C5',
             templateTaskType: 'google_sheet_c5',
+            tableType: 'c5',
             klineDataSourceDefault: 'dfcf',
             countRandomGroupsMultiplier: false,
             modelVersion: { enabled: false, default: 'c7_0_2' }

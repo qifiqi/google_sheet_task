@@ -52,15 +52,22 @@ class TaskLogMixin:
         except Exception as exc:
             logger.error("添加任务日志失败: %s", exc)
 
-    def get_task_logs(self, task_id: str, limit: int = 500) -> list[dict]:
-        """按时间正序返回最新任务日志；运行中任务读 Redis 运行态，其余读库。"""
+    def get_task_logs(self, task_id: str, limit: int = 500, after_id: int | None = None) -> list[dict]:
+        """按时间正序返回最新任务日志；运行中任务读 Redis 运行态，其余读库。
+
+        after_id 提供时只返回其后的新增日志（id asc）——增量拉取语义要求
+        以库内自增 id 为界，运行态（Redis 日志流无自增 id）不参与该路径，
+        直接走仓储。"""
+        if after_id is None:
+            try:
+                store = get_runtime_state_store()
+                if store.has_state(task_id):
+                    return store.get_logs(task_id, limit=limit)
+            except Exception as exc:
+                logger.error("读取任务运行态日志失败: %s", exc)
         try:
-            store = get_runtime_state_store()
-            if store.has_state(task_id):
-                return store.get_logs(task_id, limit=limit)
-        except Exception as exc:
-            logger.error("读取任务运行态日志失败: %s", exc)
-        try:
+            if after_id is not None:
+                return task_log_repository.list_by_task_after(task_id, after_id, limit=limit)
             return task_log_repository.list_by_task(task_id, limit=limit)
         except Exception as exc:
             logger.error("获取任务日志失败: %s", exc)

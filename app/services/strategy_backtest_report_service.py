@@ -16,10 +16,17 @@ from typing import Any
 from app.repositories import task_repository, task_result_repository
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.services.strategy_backtest_report_charts import generate_correlation_heatmap, generate_report_charts
+from app.services.strategy_backtest_report_charts import (
+    generate_correlation_heatmap,
+    generate_report_charts,
+    generate_same_direction_heatmap,
+)
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
-from app.utils.backtest_report_metadata import get_backtest_model_version
+from app.services.c_result_metric_cells import PARAMETER_CONFIG_ROWS, extract_parameter_metrics
+from app.utils.model_version import format_model_version
+from app.utils.formatting import parse_lenient_json
+from app.utils.market import normalize_market_type
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int
 from app.services.performance_analysis.portfolio_combiner import (
@@ -28,7 +35,11 @@ from app.services.performance_analysis.portfolio_combiner import (
     daily_to_cumulative,
     normalize_weight,
 )
-from app.services.performance_analysis.return_correlation import aligned_daily_returns, pairwise_correlation_matrix
+from app.services.performance_analysis.return_correlation import (
+    aligned_daily_returns,
+    pairwise_correlation_matrix,
+    pairwise_same_direction_matrix,
+)
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
 from app.utils.etf_total_assets import get_etf_total_assets_detail
@@ -76,7 +87,7 @@ class StrategyBacktestReportService:
         # 序列上连代码都没有时无法补位，维持原状。
         if request.task_id and request.report_type != "RPT-M" and not request.products and task_stock_code:
             request.products = [self._task_source_product(
-                request.task_id, task_stock_code, task_stock_name,
+                request.task_id, task_stock_code, task_stock_name, request.return_series_id,
             )]
 
         # 把 DataFrame 和指标字典转换成通用 Word JSON；图表按基准序列循环渲染。
@@ -88,17 +99,30 @@ class StrategyBacktestReportService:
         with TemporaryDirectory(prefix="strategy_backtest_report_") as temp_dir:
             # 图片只在临时目录中存在，DOCX 保存时会将图片内容嵌入文件。
             chart_paths = generate_report_charts(chart_data, temp_dir)
-            correlation_image = None
+            heatmap_images: list[dict[str, Any]] = []
             if correlation:
-                heatmap_path = Path(temp_dir) / "权重相关系数热力图.png"
-                generate_correlation_heatmap(correlation["labels"], correlation["matrix"], heatmap_path)
-                correlation_image = {
+                correlation_path = Path(temp_dir) / "权重相关系数热力图.png"
+                generate_correlation_heatmap(correlation["labels"], correlation["matrix"], correlation_path)
+                heatmap_images.append({
                     "type": "image",
                     "title": "权重日涨跌幅相关系数",
-                    "path": str(heatmap_path),
+                    "path": str(correlation_path),
                     "caption": f"各权重日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
-                }
-            report_data = self._build_report_data(request, runs, correlation_image)
+                })
+                same_direction_path = Path(temp_dir) / "权重同向率热力图.png"
+                generate_same_direction_heatmap(
+                    correlation["labels"], correlation["same_direction"], same_direction_path,
+                )
+                heatmap_images.append({
+                    "type": "image",
+                    "title": "权重日涨跌幅同向率",
+                    "path": str(same_direction_path),
+                    "caption": (
+                        "各权重日涨跌幅同向（同涨或同跌）天数占全部共同交易日的比例"
+                        f"（数据区间 {first_date} 至 {last_date}）"
+                    ),
+                })
+            report_data = self._build_report_data(request, runs, heatmap_images)
             report_data["blocks"].extend([
                 {"type": "heading", "text": "九、分析图表", "level": 1},
                 *[
@@ -146,11 +170,18 @@ class StrategyBacktestReportService:
             product for product in products if isinstance(product, dict)
         ]
 
-    def _task_source_product(self, task_id: str, stock_code: str, stock_name: str) -> dict[str, Any]:
+    def _task_source_product(
+        self,
+        task_id: str,
+        stock_code: str,
+        stock_name: str,
+        return_series_id: Any = None,
+    ) -> dict[str, Any]:
         """task 来源 RPT-S 的权重表产品行：股票来自收益序列，市场口径来自任务配置。
 
         market_type/exchange_market 与 RPT-M 的透传口径一致（平均成交额取数
-        避免纯数字港股代码被误判为 A 股）。
+        避免纯数字港股代码被误判为 A 股）；参数配置指标按收益序列定位对应
+        结果实体回读，取不到时留空由报告侧省略该表。
         """
         config: dict[str, Any] = {}
         task = task_repository.get_entity(task_id)
@@ -161,13 +192,26 @@ class StrategyBacktestReportService:
                 parsed = {}
             if isinstance(parsed, dict):
                 config = parsed
-        return {
+        product = {
             "stock_code": stock_code,
             "product_name": stock_name or stock_code,
             "ratio": "100.00%",
             "market_type": config.get("market_type"),
             "exchange_market": config.get("exchange_market"),
         }
+        series_id = parse_int(return_series_id)
+        if series_id is None:
+            series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
+            series_id = series_ids[0] if len(series_ids) == 1 else None
+        if series_id is not None:
+            result_entity = task_result_repository.get_entity_by_return_series_id(series_id)
+            if result_entity is not None:
+                sheets = config.get("sheets")
+                sheet = sheets[0] if isinstance(sheets, list) and sheets else None
+                product["parameter_metrics"] = extract_parameter_metrics(
+                    parse_lenient_json(result_entity.result, {}), sheet,
+                )
+        return product
 
     def _default_filename(
         self,
@@ -486,7 +530,7 @@ class StrategyBacktestReportService:
         self,
         payload: StrategyBacktestReportSchema,
         runs: list[_BenchmarkRun],
-        correlation_image: dict[str, Any] | None = None,
+        heatmap_images: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """将回测指标转换为通用 Word JSON 协议。"""
         report_type = payload.report_type
@@ -497,9 +541,7 @@ class StrategyBacktestReportService:
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
         generated_at = datetime.now()
-        model_version = str(payload.metadata.get("model_version") or "")
-        if not model_version:
-            model_version = get_backtest_model_version(payload.metadata.get("sheet_title"))
+        model_version = format_model_version(payload.metadata.get("model_version"))
         metadata = [
             {"label": "报告编号", "value": f"{report_type}-{generated_at:%Y%m%d}"},
             {"label": "模型版本", "value": model_version},
@@ -517,17 +559,19 @@ class StrategyBacktestReportService:
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
             *self._weight_allocation_blocks(payload, report_type, amount_texts, asset_texts, assets_header),
+            *self._parameter_config_blocks(payload),
         ]
-        # 相关系数热力图紧跟权重表之后、分析图表区之前。
-        if correlation_image is not None:
-            blocks.append(correlation_image)
+        # 相关系数与同向率热力图紧跟权重区之后、分析图表区之前。
+        if heatmap_images:
+            blocks.extend(heatmap_images)
         sections = self._sections(runs)
         for section in sections:
             blocks.append({"type": "heading", "text": section["title"], "level": 1})
             for subsection in section["subsections"]:
                 if subsection.get("title"):
                     blocks.append({"type": "heading", "text": subsection["title"], "level": 2})
-                blocks.append({"type": "table", **subsection["table"]})
+                for table_block in subsection.get("tables") or [subsection["table"]]:
+                    blocks.append({"type": "table", **table_block})
         return {
             "title": payload.title,
             "footer": payload.title,
@@ -594,6 +638,48 @@ class StrategyBacktestReportService:
             })
         return blocks
 
+    @classmethod
+    def _parameter_config_blocks(cls, payload: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
+        """构造“参数配置”表：各产品结果区指标按比例加权求和 + 手续费。
+
+        权重口径与组合器一致（normalize_weight，比例按原值参与加总）；参与
+        产品缺任一指标时该行显示 "-"（C3 无杠杆列），不编造部分和。全部产品
+        均无指标（手工收益/Sheet 来源）时整表省略。手续费取首个产品的市场：
+        A 股万3.5，其余（美股等）万2。
+        """
+        products = cls._active_report_products(payload.products)
+        if not products:
+            return []
+        weights: list[float] = []
+        for product in products:
+            if not isinstance(product, dict):
+                return []
+            try:
+                weights.append(float(normalize_weight(product.get("ratio", product.get("weight")))))
+            except (TypeError, ValueError):
+                return []
+        if not any(product.get("parameter_metrics") for product in products):
+            return []
+        rows: list[list[str]] = []
+        for key, label, value_format in PARAMETER_CONFIG_ROWS:
+            total = 0.0
+            complete = True
+            for product, weight in zip(products, weights):
+                value = (product.get("parameter_metrics") or {}).get(key)
+                if value is None:
+                    complete = False
+                    break
+                total += float(value) * weight
+            if complete:
+                rows.append([label, f"{total:.2%}" if value_format == "percent" else f"{total:.2f}"])
+            else:
+                rows.append([label, "-"])
+        first_market = normalize_market_type(products[0].get("market_type"))
+        rows.append(["手续费", "0.035%" if first_market == "cn" else "0.02%"])
+        return [{
+            "type": "table", "title": "参数配置", "columns": ["参数", "数值"], "rows": rows,
+        }]
+
     @staticmethod
     def _weight_text(product: dict[str, Any], report_type: str) -> str:
         """权重列展示文本；单品报告缺省 100.00%，纯数值自动补百分号。"""
@@ -603,9 +689,9 @@ class StrategyBacktestReportService:
         return weight if not weight or weight.endswith("%") else f"{weight}%"
 
     def _correlation_matrix(self, payload: StrategyBacktestReportSchema, result: Any) -> dict[str, Any] | None:
-        """构造相关系数热力图数据；有效对齐产品不足 2 个时不输出。
+        """构造相关系数与同向率热力图数据；有效对齐产品不足 2 个时不输出。
 
-        日涨跌幅还原与 Pearson 计算统一走 performance_analysis
+        日涨跌幅还原与 Pearson/同向率计算统一走 performance_analysis
         （口径与组合收益一致），本方法只负责产品筛选与标签组装。
         """
         products = self._active_report_products(payload.products)
@@ -620,9 +706,11 @@ class StrategyBacktestReportService:
         indexes = sorted(aligned)
         if len(indexes) < 2:
             return None
+        series_list = [aligned[index] for index in indexes]
         return {
             "labels": [self._product_code_label(payload, products[index]) for index in indexes],
-            "matrix": pairwise_correlation_matrix([aligned[index] for index in indexes]),
+            "matrix": pairwise_correlation_matrix(series_list),
+            "same_direction": pairwise_same_direction_matrix(series_list),
         }
 
     def _weight_metric_texts(
@@ -864,7 +952,7 @@ class StrategyBacktestReportService:
             if len(runs) > 1
             else [f"{self._strategy_label()}胜率(跑赢{runs[0].label})"]
         )
-        return [
+        subsections = [
             {"title": "1.1 核心收益", "table": self._table(
                 ["指标", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     ["累计回报率", *[self._pct(value) for value in index_cumulatives],
@@ -886,10 +974,57 @@ class StrategyBacktestReportService:
                        for index_returns in index_returns_list]]
                     for year in years
                 ])},
-            {"title": "1.3 滚动收益（月度窗口）", "table": self._table(
-                ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
-                rolling_rows)},
         ]
+        monthly_subsection = self._monthly_returns_subsection(runs)
+        if monthly_subsection is not None:
+            subsections.append(monthly_subsection)
+        subsections.append({"title": f"1.{len(subsections) + 1} 滚动收益（月度窗口）", "table": self._table(
+            ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
+            rolling_rows)})
+        return subsections
+
+    def _monthly_returns_subsection(self, runs: list[_BenchmarkRun]) -> dict[str, Any] | None:
+        """构造 1.3 分月度收益小节：每年一个子标题 + 该年逐月收益表。
+
+        列结构与 1.2 分年度收益率对称（基准/策略/超额按 runs 循环展开），
+        数值取各 run 的 monthly_excess_returns 逐月配对记录；整段无数据
+        时返回 None（小节整体省略，滚动收益编号随之顺延）。
+        """
+        metrics_list = self._run_metrics_list(runs)
+        benchmark_headers = self._benchmark_headers(runs)
+        excess_headers = self._excess_headers(runs)
+        index_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "index_monthly_return")
+            for m in metrics_list
+        ]
+        # 策略月序列在各 run 中同值，但配对帧按基准覆盖裁剪；跨 run 合并取并集，避免
+        # 首基准历史较短时策略列整列缺月。
+        strategy_by_year: dict[str, dict[int, Any]] = {}
+        for metrics in metrics_list:
+            for year, months in self._monthly_by_year(
+                    metrics.get("monthly_excess_returns"), "start_monthly_return").items():
+                target = strategy_by_year.setdefault(year, {})
+                for month, value in months.items():
+                    target.setdefault(month, value)
+        excess_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "monthly_excess_return_diff")
+            for m in metrics_list
+        ]
+        years = sorted(set().union(*(set(item) for item in index_by_year_list)) | set(strategy_by_year))
+        if not years:
+            return None
+        columns = ["月份", *benchmark_headers, self._strategy_label(), *excess_headers]
+        tables = [
+            {"title": f"{year}年", "title_level": 3, **self._table(columns, [
+                [f"{month}月",
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in index_by_year_list],
+                 self._pct_or_dash(strategy_by_year.get(year, {}).get(month)),
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in excess_by_year_list]]
+                for month in range(1, 13)
+            ])}
+            for year in years
+        ]
+        return {"title": "1.3 分月度收益", "tables": tables}
 
     @classmethod
     def _rolling_row(cls, runs: list[_BenchmarkRun], months: int) -> list[str]:
@@ -1266,6 +1401,24 @@ class StrategyBacktestReportService:
             for item in items or []
             if isinstance(item, dict) and item.get("year") not in (None, "all")
         }
+
+    @staticmethod
+    def _monthly_by_year(records: Any, field: str) -> dict[str, dict[int, Any]]:
+        """把月度记录（year_month="YYYY-MM"）整理为 {年: {月: 值}}，畸形记录跳过。"""
+        result: dict[str, dict[int, Any]] = {}
+        for item in records or []:
+            if not isinstance(item, dict):
+                continue
+            year, _, month = str(item.get("year_month") or "").partition("-")
+            if not (len(year) == 4 and year.isdigit() and month.isdigit()):
+                continue
+            result.setdefault(year, {})[int(month)] = item.get(field)
+        return result
+
+    @classmethod
+    def _pct_or_dash(cls, value: Any) -> str:
+        """百分比展示；None 为缺月（首尾年份不满 12 个月），显示 "-" 而非 0.00%。"""
+        return "-" if value is None else cls._pct(value)
 
     @classmethod
     def _net_values(cls, frame: Any, return_column: str) -> list[float]:

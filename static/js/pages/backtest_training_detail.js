@@ -344,7 +344,7 @@
             { label: 'Spreadsheet ID', value: sheet.spreadsheet_id },
             { label: '工作表名称', value: sheet.sheet_name },
             { label: '表格标题', value: sheet.title },
-            { label: 'C7 模型版本', value: sheet.c7_model_version },
+            { label: 'C7 模型版本', value: sheet.model_version },
             { label: 'Token ID', value: config.token_id },
             { label: 'Token 名称', value: config.token_name },
             { label: 'Token 类型', value: config.token_type },
@@ -768,7 +768,6 @@
             }
 
             const stockCode = parameters.stock_code;
-            const year = parameters.year;
             const kline = Array.isArray(parameters.kline) ? parameters.kline : [];
             const parameterValues = Array.isArray(parameters.parameter) ? parameters.parameter : [];
             const primaryChips = [];
@@ -776,11 +775,8 @@
             if (stockCode) {
                 primaryChips.push(`<span class="result-param-chip"><strong>股票</strong><span>${escapeHtml(String(stockCode))}</span></span>`);
             }
-            if (year !== undefined && year !== null && year !== '') {
-                primaryChips.push(`<span class="result-param-chip"><strong>年份</strong><span>${escapeHtml(String(year))}</span></span>`);
-            }
-            if (parameters.Kline_key !== undefined && parameters.Kline_key !== null && parameters.Kline_key !== '') {
-                primaryChips.push(`<span class="result-param-chip"><strong>K 线键</strong><span>${escapeHtml(String(parameters.Kline_key))}</span></span>`);
+            if (parameters.kline_key !== undefined && parameters.kline_key !== null && parameters.kline_key !== '') {
+                primaryChips.push(`<span class="result-param-chip"><strong>K 线键</strong><span>${escapeHtml(String(parameters.kline_key))}</span></span>`);
             }
             if (kline.length) {
                 const firstDate = kline[0] && kline[0].stock_date ? String(kline[0].stock_date) : '-';
@@ -788,7 +784,7 @@
                 primaryChips.push(`<span class="result-param-chip"><strong>K 线</strong><span>${escapeHtml(`${kline.length} 条，${firstDate} ~ ${lastDate}`)}</span></span>`);
             }
 
-            const extraEntries = entries.filter(([key]) => !['stock_code', 'year', 'Kline_key', 'kline', 'parameter'].includes(key));
+            const extraEntries = entries.filter(([key]) => !['stock_code', 'kline_key', 'kline', 'parameter'].includes(key));
             const extraChips = extraEntries.map(([key, value]) => {
                 const display = stringifyCompact(value);
                 const safeDisplay = display.length > 36 ? `${display.slice(0, 36)}...` : display;
@@ -1084,21 +1080,40 @@
         });
     }
 
+    // 日志增量拉取游标：首载全量，其后每 tick 只取 after_id 之后的新增行做追加
+    let lastTaskLogId = null;
+
     function loadTaskLogs(options = {}) {
         const { silent = false } = options;
-        Api.endpoints.task.logs(currentTaskId).then(function(data) {
+        const incremental = lastTaskLogId != null;
+        Api.endpoints.task.logs(currentTaskId, incremental ? `after_id=${lastTaskLogId}` : '').then(function(data) {
             const logContainer = document.getElementById('log-container');
             if (!logContainer) {
                 return;
             }
 
-            const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
-            logContainer.innerHTML = renderTaskLogs((data && data.logs) || []);
-            if (wasNearBottom) {
-                logContainer.scrollTop = logContainer.scrollHeight;
+            const logs = (data && data.logs) || [];
+            if (incremental && logs.length > 0) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.insertAdjacentHTML('beforeend', renderTaskLogs(logs));
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            } else if (!incremental) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.innerHTML = renderTaskLogs(logs);
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            }
+            const maxId = logs.reduce((acc, log) => (log.id != null && log.id > acc ? log.id : acc), lastTaskLogId || 0);
+            if (maxId > 0) {
+                lastTaskLogId = maxId;
             }
             updateRefreshTime();
         }).catch(function(err) {
+            // 出错即丢弃游标，下一 tick 回落全量加载自愈
+            lastTaskLogId = null;
             const logContainer = document.getElementById('log-container');
             if (logContainer) {
                 logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
@@ -1117,16 +1132,16 @@
 
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             refreshPageData({ silent: true });
         }, AUTO_REFRESH_INTERVAL);
     }
 
     function stopAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }

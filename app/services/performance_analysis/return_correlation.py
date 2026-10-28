@@ -65,3 +65,34 @@ def pairwise_correlation_matrix(daily_series: list[list[float]]) -> list[list[fl
             matrix[row][column] = value
             matrix[column][row] = value
     return matrix
+
+
+def same_direction_rate(left: list[float], right: list[float]) -> float | None:
+    """两序列的同向率：同涨或同跌的天数 / 全部共同交易日。
+
+    任一方日收益为 0 视为不同向；无共同交易日时返回 None。
+    """
+    count = min(len(left), len(right))
+    if count < 1:
+        return None
+    same_days = sum(
+        1 for x, y in zip(left[:count], right[:count])
+        if (x > 0 and y > 0) or (x < 0 and y < 0)
+    )
+    return same_days / count
+
+
+def pairwise_same_direction_matrix(daily_series: list[list[float]]) -> list[list[float | None]]:
+    """已对齐日涨跌幅序列的两两同向率矩阵（下三角计算、上三角镜像）。
+
+    不可计算的格子（无共同交易日）为 None，对角线恒为 1。
+    """
+    count = len(daily_series)
+    matrix: list[list[float | None]] = [[None] * count for _ in range(count)]
+    for row in range(count):
+        matrix[row][row] = 1.0
+        for column in range(row):
+            value = same_direction_rate(daily_series[column], daily_series[row])
+            matrix[row][column] = value
+            matrix[column][row] = value
+    return matrix

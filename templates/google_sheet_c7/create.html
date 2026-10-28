@@ -96,10 +96,10 @@
                                             </div>
                                         </div>
                                         <div class="col-md-2 mb-3">
-                                            <label for="c7_model_version" class="form-label">
+                                            <label for="model_version" class="form-label">
                                                 <i class="bi bi-diagram-3"></i> C7 模型版本
                                             </label>
-                                            <select class="form-select c7-model-version-select" id="c7_model_version">
+                                            <select class="form-select model-version-select" id="model_version">
                                                 <option value="c7_0_2" selected>C7.0.2（两列K线）</option>
                                                 <option value="c7_0_3">C7.0.3（OHLC K线）</option>
                                             </select>
@@ -272,6 +272,13 @@
                                                     <div class="col-md-3 d-none random-price-option">
                                                         <label class="form-label" for="random_group_count">随机组数</label>
                                                         <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_series_mode">随机序列模式</label>
+                                                        <select class="form-select" id="random_series_mode">
+                                                            <option value="per_window" selected>各窗口独立随机</option>
+                                                            <option value="full_truncate">全区间生成后按窗口截断</option>
+                                                        </select>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -581,6 +588,7 @@
             templateTaskType: 'google_sheet_c7',
             klineDataSourceDefault: 'akshare',
             countRandomGroupsMultiplier: true,
+            serverEstimate: true,
             modelVersion: { enabled: true, default: 'c7_0_2' }
         };
     </script>

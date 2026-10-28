@@ -25,6 +25,7 @@ from app.services.backtest_multi_product_service import _derive_metrics
 from app.services.backtest_report_query_service import _extract_summary_rows
 from app.services.model_summary.extractor import _extract_backtest_summary_rows
 from app.services.performance_analysis.analyzer import performance_analyzer
+from app.services.performance_analysis.projections import flatten_v1_metrics
 
 CALCULATE_METRICS = {
     "excess_returns": [
@@ -196,8 +197,9 @@ def test_golden_pa_exporter_blocks():
 
 def test_golden_result_mapper_flat_projection():
     analyze_result = json.loads(json.dumps(CALCULATE_METRICS))
-    flat, payload = performance_analyzer.get_return_analysis_v1(
+    payload = performance_analyzer.get_return_analysis_v1(
         json.loads(json.dumps(RETURN_ROWS)))
+    flat = flatten_v1_metrics(payload["metrics"])
     assert flat == MAPPER_FLAT_EXPECTED
     assert payload["schema_version"] == "metrics.v1"
     assert payload["metrics"] == analyze_result or payload["metrics"]

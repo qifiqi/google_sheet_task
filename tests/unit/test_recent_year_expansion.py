@@ -84,7 +84,7 @@ def test_recent_spans_keep_configured_count_when_kline_truncated(app_factory):
 
         data, _, kline_map = _expand(service, ["recent"], [0.5, 2, 4])
 
-    keys = {combination["Kline_key"] for combination in data}
+    keys = {combination["kline_key"] for combination in data}
     assert keys == {"2026-2025", "2026-2024"}
     assert len(data) == 2
     assert kline_map["2026-2024"][0]["stock_date"] == "2024-02-07"
@@ -98,7 +98,7 @@ def test_recent_spans_dedupe_into_full_range_when_data_covers_config(app_factory
 
         data, _, kline_map = _expand(service, ["recent"], [0.5, 2, 4])
 
-    keys = {combination["Kline_key"] for combination in data}
+    keys = {combination["kline_key"] for combination in data}
     assert keys == {"2026-2025", "2026-2023", "2026-2021"}
     assert len(data) == 3
     assert kline_map["2026-2021"][0]["stock_date"] == "2021-09-30"
@@ -111,7 +111,7 @@ def test_full_range_group_survives_when_all_recent_spans_excluded(app_factory):
 
         data, _, kline_map = _expand(service, ["recent"], [0.5, 1, 2, 3, 4, 5])
 
-    assert [combination["Kline_key"] for combination in data] == ["2026-2024"]
+    assert [combination["kline_key"] for combination in data] == ["2026-2024"]
     assert kline_map["2026-2024"][0]["stock_date"] == "2024-02-07"
 
 
@@ -122,6 +122,6 @@ def test_full_year_mode_keeps_year_windows_plus_full_range(app_factory):
 
         data, _, _ = _expand(service, ["full"], [])
 
-    keys = {combination["Kline_key"] for combination in data}
+    keys = {combination["kline_key"] for combination in data}
     assert keys == {2024, 2025, 2026, "2026-2024"}
     assert len(data) == 4

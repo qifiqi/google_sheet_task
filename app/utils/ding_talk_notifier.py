@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import time
 import urllib.parse
+import re
 
 import requests
 from flask import current_app, has_app_context
@@ -13,6 +14,15 @@ from app.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+
+# webhook URL 查询串里的凭据参数，异常消息落日志前打码
+_CREDENTIAL_URL_PARAMS = re.compile(r"(access_token|sign)=[^&\s'\"]+", re.IGNORECASE)
+
+
+def _redact_credentials(text: str) -> str:
+    """打码文本中内嵌的钉钉 webhook 凭据（access_token/sign）。"""
+    return _CREDENTIAL_URL_PARAMS.sub(lambda m: m.group(1) + "=***", str(text or ""))
 
 
 def resolve_external_base_url(config) -> str:
@@ -208,11 +218,11 @@ class DingTalkNotifier:
             result = response.json()
 
             if result.get("errcode") not in (None, 0):
-                logger.error(f"钉钉通知发送失败: {result}")
+                logger.error("钉钉通知发送失败: %s", _redact_credentials(str(result)))
             else:
                 logger.info("钉钉通知发送成功")
 
             return result
         except Exception as e:
-            logger.error(f"发送钉钉消息失败: {str(e)}", exc_info=True)
+            logger.error("发送钉钉消息失败: %s", _redact_credentials(str(e)), exc_info=True)
             return {"error": str(e)}

@@ -135,6 +135,42 @@ class GoogleSheetAnalysisMixin:
             }
             return _data, _data_result, sheet_df
 
+        if 'C1.1' in title:
+            last_now_num = google_sheet.get_last_row("H")
+            if last_now_num < 10:
+                last_now_num = 30
+            # C1.1 sharable-manual 布局：H=YYMMDD 日期、I=Strike（模型取价列，底层值
+            # 即写入 AG 的原始随机价，UNFORMATTED_VALUE 读出精度一致）、J=Day%、
+            # K=P/L%（策略累计收益 = 表内 Total Return，与执行侧 c1_1_output_column_k
+            # 契约同列）、L=P/L%-Cum%（几何超额 = (1+K)/(1+指数累计)-1，不是策略
+            # 收益）；E/F 为 Result 汇总块。指数与策略都取自 H:L 同段，天然行对齐。
+            sheet_data = google_sheet.get_range_2d(f'H2:L{last_now_num}', 'UNFORMATTED_VALUE')
+            result_rows = google_sheet.get_range_2d('E2:F26', 'FORMATTED_VALUE')
+            sheet_df = pd.DataFrame(sheet_data, columns=[
+                'date', 'close', 'day_pct', 'pl_pct', 'pl_cum_pct'])
+
+            # Excel/Google Sheets 的基准日期是 1899-12-30
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
+            sheet_df["pl_pct"] = pd.to_numeric(sheet_df["pl_pct"], errors='coerce')
+            sheet_df["close"] = pd.to_numeric(sheet_df["close"], errors='coerce')
+
+            # 表尾公式残留行（'-'、'#VALUE!' 等）按解析失败剔除
+            sheet_df = sheet_df.dropna(subset=['date', 'pl_pct', 'close']).reset_index(drop=True)
+            sheet_df = sheet_df[sheet_df['close'] != 0].reset_index(drop=True)
+            if len(sheet_df) < 10:
+                raise ValueError('C1.1 有效数据行不足 10 行')
+
+            sheet_df['index_return'] = sheet_df['close'] / sheet_df['close'].iloc[0] - 1
+            sheet_df['start_return'] = sheet_df['pl_pct']
+            _data = sheet_df[['date', 'index_return', 'start_return']].to_dict(orient='records')
+
+            _data_result = {
+                row[0]: row[1]
+                for row in result_rows
+                if len(row) >= 2 and row[0] not in ('', 'year#')
+            }
+            return _data, _data_result, sheet_df
+
         if any(t in title for t in ('C7', 'C5', 'C4')):
             last_now_num = google_sheet.get_last_row("A")
             if last_now_num < 10:
@@ -154,7 +190,7 @@ class GoogleSheetAnalysisMixin:
 
             _data_result = {}
 
-            for item in sheet_df[['result_key_C', 'result_values_D']].to_dict(orient='records'):
+            for item in sheet_df[['result_key_C', 'result_values_D']].to_dict(orient='records   '):
                 if item['result_key_C'] in ['', 'year#']:
                     continue
 
@@ -185,3 +221,4 @@ class GoogleSheetAnalysisMixin:
                 _data_result[item['Parameter_H']] = item['Value_I']
 
             return _data, _data_result, sheet_df
+

@@ -6,8 +6,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadTasks();
     loadStats();
     
-    // 定期刷新数据
-    setInterval(function() {
+    // 定期刷新数据（仅页面可见时；后台标签挂起，回前台立即补拉）
+    setIntervalVisible(function() {
         loadTasks();
         loadStats();
     }, 30000); // 30秒刷新一次

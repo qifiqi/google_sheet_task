@@ -36,7 +36,7 @@
 | `app/services/performance_analysis/text_analysis.py:22` | `get_performance_analysis`（旧 V0 入口） | ~46 | 全仓仅定义处 |
 | `app/utils/ttl_cache.py:37-69` | `TTLCache` 类（同模块的 word 导出磁盘缓存函数是活的，勿动） | ~33 | 类仅 `tests/unit/test_ttl_cache.py` 使用，可连同测试一起删 |
 | `app/startup.py:776-780,801` | `_start_background_components` 及被注释的调用点；连带不可达 `init_scheduler`(:702)/`init_task_watchdog`(:719) | ~35 | 调用已注释；注意 `tests/test_startup_orchestration.py:39` 仍断言该阶段被调用（该文件在 tests 根目录、不在统一回归入口内，故断言过时未暴露）——删除时同步修测试，或决策恢复调用 |
-| `app/services/export_workbook_service.py:80-92,190-210` | `C3_PARAM_COUNT`/`C3_METRIC_CELL_MAP`/`METRIC_DISPLAY_NAME_MAP` | ~33 | 已被 `app/constants/c_template_layout.py` 取代，`docs/design/constants-audit-2026-09/01-常量审计报告.md` 已判定无消费方 |
+| `app/services/export_workbook_service.py:80-92,190-210` | `C3_PARAM_COUNT`/`C3_METRIC_CELL_MAP`/`METRIC_DISPLAY_NAME_MAP` | ~33 | 已被 `app/constants/c_template_layout.py` 取代，`docs/archive/design/constants-audit-2026-09/01-常量审计报告.md` 已判定无消费方 |
 | `app/routes/backtest_api.py:167-180` | `_build_zip_member_name` | ~14 | 生产用 `backtest_report_query_service.py:52` 同名实现 |
 | `app/services/performance_analysis/service.py:21-24,68,74` | `_EMPTY_RESULT_DATA`/`EMPTY_RESULT_DATA`/`get_index_annualized_rates`/`get_start_max_drawdown` | ~15 | 全仓零引用（注释自称"公开出口"但无任何 import） |
 | `app/services/backtest_report_query_service.py:70-78,721-727,716` | `_sanitize_json_value`（含 1459-1468 失效别名表）、内嵌 `_normalize_display_value`、死参数 `model_name` | ~18 | 函数体内从未调用 |

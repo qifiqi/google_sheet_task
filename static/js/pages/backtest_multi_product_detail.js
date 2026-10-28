@@ -944,7 +944,7 @@
             const hiddenKeys = [
                 'stock_code',
                 'year',
-                'Kline_key',
+                'kline_key',
                 'kline',
                 'parameter',
                 'product_name',
@@ -1248,21 +1248,40 @@
         });
     }
 
+    // 日志增量拉取游标：首载全量，其后每 tick 只取 after_id 之后的新增行做追加
+    let lastTaskLogId = null;
+
     function loadTaskLogs(options = {}) {
         const { silent = false } = options;
-        Api.endpoints.task.logs(currentTaskId).then(function(data) {
+        const incremental = lastTaskLogId != null;
+        Api.endpoints.task.logs(currentTaskId, incremental ? `after_id=${lastTaskLogId}` : '').then(function(data) {
             const logContainer = document.getElementById('log-container');
             if (!logContainer) {
                 return;
             }
 
-            const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
-            logContainer.innerHTML = renderTaskLogs((data && data.logs) || []);
-            if (wasNearBottom) {
-                logContainer.scrollTop = logContainer.scrollHeight;
+            const logs = (data && data.logs) || [];
+            if (incremental && logs.length > 0) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.insertAdjacentHTML('beforeend', renderTaskLogs(logs));
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            } else if (!incremental) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.innerHTML = renderTaskLogs(logs);
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            }
+            const maxId = logs.reduce((acc, log) => (log.id != null && log.id > acc ? log.id : acc), lastTaskLogId || 0);
+            if (maxId > 0) {
+                lastTaskLogId = maxId;
             }
             updateRefreshTime();
         }).catch(function(err) {
+            // 出错即丢弃游标，下一 tick 回落全量加载自愈
+            lastTaskLogId = null;
             const logContainer = document.getElementById('log-container');
             if (logContainer) {
                 logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
@@ -1281,16 +1300,16 @@
 
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             refreshPageData({ silent: true });
         }, AUTO_REFRESH_INTERVAL);
     }
 
     function stopAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }

@@ -321,6 +321,29 @@ class TaskHttpRepository(HttpRepositoryBase):
         rows.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
         return rows
 
+    def list_pending_entities(self, exclude_task_id=None):
+        """待执行任务实体，按创建时间先后（Sheet 排队接力/启动补跑用）。"""
+        rows = [
+            RemoteRecord(row)
+            for row in self.list_all_filtered(status="pending")
+            if not exclude_task_id or row.get("id") != exclude_task_id
+        ]
+        rows.sort(key=lambda r: (str(r.get("created_at") or ""), str(r.get("id") or "")))
+        return rows
+
+    def list_pending_queued_entities(self, queued_prefix: str):
+        """带排队标记的 pending 任务（启动期补跑扫描用，FIFO）。
+
+        远端无 error_message 前缀过滤：pending 全量取回后本地前缀匹配。
+        """
+        rows = [
+            RemoteRecord(row)
+            for row in self.list_all_filtered(status="pending")
+            if str(row.get("error_message") or "").startswith(queued_prefix)
+        ]
+        rows.sort(key=lambda r: (str(r.get("created_at") or ""), str(r.get("id") or "")))
+        return rows
+
     def mark_running_if_not_running(self, task_id, start_time, commit=True):
         """原子置 running（非 running 状态才生效）；返回 1/0。
 

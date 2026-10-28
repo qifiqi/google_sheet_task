@@ -25,13 +25,15 @@ def test_extract_task_result_payload_handles_metadata_outside_sheet_payload(app_
             result=json.dumps({
                 "return_series_id": 99,
                 "sheet__title": {
-                    "calculate_metrics": {
-                        "excess_returns": [
-                            {
-                                "year": "all",
-                                "start_annualized_return": 0.12,
-                            }
-                        ]
+                    "metrics_payload": {
+                        "metrics": {
+                            "excess_returns": [
+                                {
+                                    "year": "all",
+                                    "start_annualized_return": 0.12,
+                                }
+                            ]
+                        }
                     },
                     "D2": "12%",
                 },
@@ -89,7 +91,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
             name="C7 units",
             task_type="backtest_training",
             status="completed",
-            config=json.dumps({"sheets": [{"title": "C7 model"}]}),
+            config=json.dumps({"sheets": [{"title": "C7 model", "model_version": "c7_0_2"}]}),
         )
         db.session.add(task)
         task_result = TaskResult(
@@ -97,7 +99,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
             step_index=0,
             parameters="{}",
             result=json.dumps({"sheet__title": {
-                "calculate_metrics": {"excess_returns": []},
+                "metrics_payload": {"metrics": {"excess_returns": []}},
                 "D10": "-0.14",
                 "D18": "0.01",
                 "D22": "122.95%",

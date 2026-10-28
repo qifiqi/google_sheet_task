@@ -1,4 +1,7 @@
 """登录/登出信封与导出错误载荷回归。"""
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from app.exceptions import BadRequestError
@@ -7,6 +10,11 @@ from app.routes.export_api import _require_completed_task
 
 def _make_auth_disabled_app(monkeypatch):
     monkeypatch.setenv("AUTH_ENABLED", "false")
+    # SQLite 本地回退已移除（config 重构）：测试显式给临时库地址。
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"sqlite:///{Path(tempfile.mkdtemp()) / 'test_auth_reg.db'}",
+    )
     from app import create_app
 
     app = create_app()

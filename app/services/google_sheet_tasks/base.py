@@ -3,7 +3,10 @@ import calendar
 # null，无法等价表达，见 app/utils/json_utils.py）；其余统一走 json_utils。
 import json
 from app.utils.json_utils import dumps, loads, JSONDecodeError
+from concurrent.futures import ThreadPoolExecutor
 import random
+import re
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -17,12 +20,17 @@ from app.services.google_sheet_token_service import get_google_sheet_token_servi
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
+from app.services.task_kline_snapshot_service import (
+    SnapshotLazyKlineMap,
+    task_kline_snapshot_service,
+)
 from app.utils.db_retry import safe_db_operation
 from app.utils.alert_decorator import alert_on_failure
 from app.remote_api import stock_api
 from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.formatting import sanitize_json_value
+from app.utils.value_parser import parse_int
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import (
@@ -40,6 +48,32 @@ logger = get_logger(__name__)
 
 DEFAULT_EXECUTION_DELAY_MIN = 20
 DEFAULT_EXECUTION_DELAY_MAX = 30
+MIN_KLINE_ROWS_CONFIG_KEY = 'min_kline_rows'
+DEFAULT_MIN_KLINE_ROWS = 30
+DEFAULT_C3_MIN_KLINE_ROWS = 100
+DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS = 100
+DEFAULT_SHEET_SETTLE_SECONDS = 20
+MAX_SHEET_SETTLE_SECONDS = 300
+DEFAULT_SHEET_REFRESH_INTERVAL = 10
+DEFAULT_SHEET_REFRESH_ATTEMPTS = (5, 15, 25, 35)
+POLL_ATTEMPT_LIMIT = 60
+
+# random_price 随机序列模式：per_window 各窗口独立播种（现状默认，seed 含窗口键）；
+# full_truncate 全区间生成一次、各窗口按日期截断切片（seed 用全区间窗口键，
+# 同组号跨窗口共享同一条逻辑随机序列）。
+RANDOM_SERIES_MODE_PER_WINDOW = "per_window"
+RANDOM_SERIES_MODE_FULL_TRUNCATE = "full_truncate"
+RANDOM_SERIES_MODES = (RANDOM_SERIES_MODE_PER_WINDOW, RANDOM_SERIES_MODE_FULL_TRUNCATE)
+
+
+def normalize_random_series_mode(value) -> str:
+    """随机序列模式归一化：空值回落 per_window，非法值报错。"""
+    mode = str(value or RANDOM_SERIES_MODE_PER_WINDOW).strip().lower()
+    if mode not in RANDOM_SERIES_MODES:
+        raise ValueError(
+            "随机序列模式仅支持 per_window（各窗口独立随机）或 full_truncate（全区间生成后截断）"
+        )
+    return mode
 
 
 def should_alert_execute_task_result(result):
@@ -56,6 +90,51 @@ def _shift_date_months(date_str, months):
     return f"{total // 12:04d}-{total % 12 + 1:02d}-{day:02d}"
 
 
+def parse_range_start(range_a1: str) -> tuple[str, int]:
+    """解析 A1 范围的起始单元格，返回 (列字母, 起始行号)；非法范围抛 ValueError。"""
+    match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
+    if not match:
+        raise ValueError(f"无效的结果范围: {range_a1}")
+    return match.group(1), int(match.group(2))
+
+
+def calculate_index_returns_from_closes(kline_rows) -> list[float]:
+    """以真实收盘价计算相对首日的累计指数收益（C7.0.3/C1.1 共用）。"""
+    base_close = None
+    index_returns = []
+
+    for index, row in enumerate(kline_rows, start=1):
+        try:
+            close_price = float(row["close"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"K线第 {index} 条收盘价无效") from error
+        if close_price <= 0:
+            raise ValueError(f"K线第 {index} 条收盘价必须大于 0")
+
+        if base_close is None:
+            base_close = close_price
+        index_returns.append(close_price / base_close - 1)
+
+    return index_returns
+
+
+def resolve_min_kline_rows(default: int = DEFAULT_MIN_KLINE_ROWS, log_warning=None) -> int:
+    """K线最小条数统一配置；留空或非法时回退到调用方默认值。"""
+    raw_value = get_config_manager().get_config(MIN_KLINE_ROWS_CONFIG_KEY, None)
+    if raw_value in (None, ''):
+        return default
+
+    min_rows = parse_int(raw_value, default=None)
+    if min_rows is None or min_rows < 1:
+        message = f"K线最小条数配置无效（{raw_value!r}），使用默认值 {default}"
+        if log_warning:
+            log_warning(message)
+        else:
+            logger.warning(message)
+        return default
+    return min_rows
+
+
 def build_execute_task_alert(target, func_name, phase, exc, result):
     if exc is not None:
         return f"{func_name} 执行异常: {type(exc).__name__}: {exc}"
@@ -68,6 +147,12 @@ def build_execute_task_alert(target, func_name, phase, exc, result):
 
 
 class BaseGoogleSheetService:
+    _model_version = ""
+    # 日志缓冲刷新边界：条数/时间双阈值 + error 级立即刷。
+    # 最长 10 秒延迟远低于看门狗 last_write_time 判卡死阈值（默认 watchdog_log_timeout_minutes=30 分钟）。
+    _LOG_FLUSH_BATCH_SIZE = 20
+    _LOG_FLUSH_INTERVAL_SECONDS = 10
+
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         self.config = config
         self.task_id = task_id
@@ -76,6 +161,10 @@ class BaseGoogleSheetService:
         self.task_name = ''
         self.task = None
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
+        # 日志批量落库缓冲（见 _save_to_database；任务线程独享，锁只防收尾 flush 并发）
+        self._log_buffer = []
+        self._log_buffer_lock = threading.Lock()
+        self._log_last_flush_monotonic = time.monotonic()
 
     def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
         """Ensure persisted result parameters always contain stock_code."""
@@ -183,24 +272,111 @@ class BaseGoogleSheetService:
     def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
         return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
+    def _get_min_kline_rows(self, default: int = DEFAULT_MIN_KLINE_ROWS) -> int:
+        return resolve_min_kline_rows(default, log_warning=self._log_warning)
+
+    def _get_sheet_settle_seconds(self) -> int:
+        try:
+            settle_seconds = int(
+                get_config_manager().get_config(
+                    'sheet_settle_seconds', DEFAULT_SHEET_SETTLE_SECONDS
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"Sheet 等待配置无效，使用默认值 {DEFAULT_SHEET_SETTLE_SECONDS} 秒: {exc}"
+            )
+            return DEFAULT_SHEET_SETTLE_SECONDS
+
+        if settle_seconds < 0 or settle_seconds > MAX_SHEET_SETTLE_SECONDS:
+            self._log_warning(
+                f"Sheet 等待配置无效，使用默认值 {DEFAULT_SHEET_SETTLE_SECONDS} 秒: {settle_seconds}"
+            )
+            return DEFAULT_SHEET_SETTLE_SECONDS
+        return settle_seconds
+
+    def _get_refresh_interval(self) -> int:
+        try:
+            interval = int(
+                get_config_manager().get_config(
+                    'sheet_refresh_interval_attempts', DEFAULT_SHEET_REFRESH_INTERVAL
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"刷新间隔配置无效，使用默认值 {DEFAULT_SHEET_REFRESH_INTERVAL}: {exc}"
+            )
+            return DEFAULT_SHEET_REFRESH_INTERVAL
+
+        if interval < 0 or interval >= POLL_ATTEMPT_LIMIT:
+            self._log_warning(
+                f"刷新间隔配置无效，使用默认值 {DEFAULT_SHEET_REFRESH_INTERVAL}: {interval}"
+            )
+            return DEFAULT_SHEET_REFRESH_INTERVAL
+        return interval
+
+    @staticmethod
+    def _coerce_refresh_attempts(value) -> frozenset[int]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return frozenset()
+            try:
+                value = loads(text)
+            except (TypeError, ValueError):
+                value = [part.strip() for part in text.split(',') if part.strip()]
+
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"刷新轮次必须是数组: {value!r}")
+
+        attempts = set()
+        for item in value:
+            attempt = int(item)
+            if attempt < 1 or attempt >= POLL_ATTEMPT_LIMIT:
+                raise ValueError(f"刷新轮次必须在 1-{POLL_ATTEMPT_LIMIT - 1} 之间: {attempt}")
+            attempts.add(attempt)
+        return frozenset(attempts)
+
+    def _get_refresh_attempts(self) -> frozenset[int]:
+        try:
+            value = get_config_manager().get_config(
+                'sheet_refresh_attempts', list(DEFAULT_SHEET_REFRESH_ATTEMPTS)
+            )
+            return self._coerce_refresh_attempts(value)
+        except (TypeError, ValueError) as exc:
+            self._log_warning(
+                f"刷新轮次配置无效，使用默认值 {list(DEFAULT_SHEET_REFRESH_ATTEMPTS)}: {exc}"
+            )
+            return frozenset(DEFAULT_SHEET_REFRESH_ATTEMPTS)
+
+    def _get_poll_refresh_settings(self) -> tuple[int, frozenset[int]]:
+        return self._get_refresh_interval(), self._get_refresh_attempts()
+
     def _poll_google_sheet_completion(self, attempt_fn, refresh_fn=None, post_attempt_fn=None, timeout_payload=(False, {})):
         """C 系参数组合轮询骨架（ponytail 审计 B3 上提，c3/c4/c5/c7/training 共用）。
 
-        - refresh_fn(20)：可选的防卡顿参数刷新，在 attempt%10==0 或
-          attempt∈[5,15,25,35]（且非首轮）的检查**之前**触发；c5/c7/training 使用；
-        - post_attempt_fn(attempt)：检查之后触发的钩子（c4 用于 [5,15,25,35]
-          轮的重写参数+重快照，其内部自带 30s 等待）；
+        - refresh_fn(settle)：可选的防卡顿参数刷新，在
+          sheet_refresh_attempts / 每 sheet_refresh_interval_attempts 次
+          （且非首轮）的检查**之前**触发；C3/C5/C7/training 共用同一套刷新策略；
+          settle 读 sheet_settle_seconds；
+        - post_attempt_fn(attempt)：检查之后触发的钩子（c4 用于配置的刷新轮次
+          重写参数+重快照，其内部自带 30s 等待）；
         - attempt_fn(attempt) → (是否全部完成, 结果载荷)；完成与未完成的
           业务日志由 attempt_fn 自行输出；
-        - 超过 60 次未完成返回 timeout_payload（c5/c7/c4 为 (False, {})，
+        - 超过 POLL_ATTEMPT_LIMIT 次未完成返回 timeout_payload（c5/c7/c4 为 (False, {})，
           training 为 (False, {}, [])）。
         """
         delay_min, delay_max = self._get_execution_poll_delay_bounds()
-        for attempt in range(60):
+        refresh_interval, refresh_attempts = self._get_poll_refresh_settings()
+        settle_seconds = self._get_sheet_settle_seconds() if refresh_fn is not None else 0
+        for attempt in range(POLL_ATTEMPT_LIMIT):
             # 定期刷新参数，防止模型卡顿
-            if refresh_fn is not None and attempt != 0 and (attempt % 10 == 0 or attempt in [5, 15, 25, 35]):
+            if refresh_fn is not None and attempt != 0 and (
+                (refresh_interval > 0 and attempt % refresh_interval == 0)
+                or attempt in refresh_attempts
+            ):
                 self._log_info("刷新参数")
-                refresh_fn(20)
+                refresh_fn(settle_seconds)
 
             _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
             self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
@@ -209,7 +385,7 @@ class BaseGoogleSheetService:
             done, payload = attempt_fn(attempt)
             if done:
                 return True, payload
-            if post_attempt_fn is not None and attempt in [5, 15, 25, 35]:
+            if post_attempt_fn is not None and attempt in refresh_attempts:
                 post_attempt_fn(attempt)
         self._log_warning("执行超时，未在规定时间内完成")
         return timeout_payload
@@ -261,8 +437,8 @@ class BaseGoogleSheetService:
         return message
 
     def _persist_log(self, level: str, message: str):
-        """业务日志写入（方案 B）：运行态存在写 Redis 日志流，结束快照统一
-        回灌 TaskLog；无运行态（异常兜底路径）直写数据库。
+        """业务日志写入：运行态存在写 Redis 日志流（结束快照统一回灌 TaskLog）；
+        无运行态（异常兜底路径）进批量落库缓冲（error 级立即刷）。
         """
         try:
             store = get_runtime_state_store()
@@ -272,18 +448,48 @@ class BaseGoogleSheetService:
         except Exception:
             pass
 
-        def save_log_operation():
-            task_log_repository.create_log(self.task_id, level, message)
+        # 组合热路径每组合产生多条日志，逐条 INSERT+COMMIT 是任务时长的主要 DB 开销；
+        # 缓冲定量/定时合并为一次事务提交（error 级立即落库）。
+        with self._log_buffer_lock:
+            self._log_buffer.append((level, message))
+            should_flush = (
+                level == 'error'
+                or len(self._log_buffer) >= self._LOG_FLUSH_BATCH_SIZE
+                or (time.monotonic() - self._log_last_flush_monotonic)
+                >= self._LOG_FLUSH_INTERVAL_SECONDS
+            )
+            if not should_flush:
+                return
+            pending = self._log_buffer[:]
+            self._log_buffer.clear()
+            self._log_last_flush_monotonic = time.monotonic()
+        self._flush_log_buffer(pending)
+
+    def _flush_log_buffer(self, pending=None):
+        """把缓冲日志（缺省取全部未刷日志）合并为一次事务提交；吞掉异常不向调用方传播。"""
+        if pending is None:
+            with self._log_buffer_lock:
+                pending = self._log_buffer[:]
+                self._log_buffer.clear()
+                self._log_last_flush_monotonic = time.monotonic()
+        if not pending:
+            return
+
+        def save_logs_operation():
+            task_log_repository.create_logs(
+                self.task_id,
+                [{"level": lv, "message": msg} for lv, msg in pending],
+            )
 
         try:
             if has_app_context():
-                safe_db_operation(save_log_operation)
+                safe_db_operation(save_logs_operation)
             elif self.app:
                 with self.app.app_context():
-                    safe_db_operation(save_log_operation)
+                    safe_db_operation(save_logs_operation)
             else:
                 with current_app.app_context():
-                    safe_db_operation(save_log_operation)
+                    safe_db_operation(save_logs_operation)
         except Exception:
             # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
             # 否则后续任务结果写入会触发 PendingRollbackError。
@@ -291,7 +497,6 @@ class BaseGoogleSheetService:
                 task_result_repository.rollback()
             except Exception:
                 pass
-            pass
 
     def _summarize_result_for_log(self, result: Any) -> str:
         """返回不包含收益序列的短结果摘要，避免将大对象写入任务日志。"""
@@ -356,21 +561,33 @@ class BaseGoogleSheetService:
         """去重签名的任务特定附加字段；默认无附加。"""
         return ()
 
+    @staticmethod
+    def _resolve_kline_signature(kline_data_map, kline_key):
+        """窗口签名 (首日, 末日, 行数)；惰性映射读登记元数据，普通映射物化行。"""
+        signature_getter = getattr(kline_data_map, "kline_signature", None)
+        if signature_getter is not None:
+            return signature_getter(kline_key)
+        kline = kline_data_map.get(kline_key)
+        if not kline:
+            return None
+        return (
+            kline[0].get('stock_date'),
+            kline[-1].get('stock_date'),
+            len(kline),
+        )
+
     def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
         """按股票、参数和实际K线区间去除重复回测组合。"""
         deduplicated = []
         seen = set()
         for combination in combinations:
-            kline = kline_data_map.get(combination.get('Kline_key'))
-            if not kline:
+            kline_signature = self._resolve_kline_signature(
+                kline_data_map, combination.get('kline_key')
+            )
+            if kline_signature is None:
                 deduplicated.append(combination)
                 continue
 
-            kline_signature = (
-                kline[0].get('stock_date'),
-                kline[-1].get('stock_date'),
-                len(kline),
-            )
             signature = (
                 str(combination.get('stock_code', '')),
                 str(combination.get('A1', '')),
@@ -405,6 +622,9 @@ class BaseGoogleSheetService:
     # 外层异常是否打 [NETWORK_RETRYABLE] 标记（C7 = True；C5 默认无）。
     _retryable_outer = False
 
+    # 随机价展开时是否落 K 线快照；组合数精算置 False（估算不是任务执行）。
+    _persist_random_snapshots = True
+
     def _load_custom_kline_map(self, config_data: dict) -> dict:
         """custom K线读取钩子（C5 默认：固定 c5 A/B 输入列；C7 覆盖为布局驱动）。"""
         c5_input_column_a = config_data.get('c5_input_column_a').upper()
@@ -437,6 +657,9 @@ class BaseGoogleSheetService:
             "custom_kline_map": custom_kline_map,
             "random_price_range": config_data.get('random_price_range', 'high_low'),
             "random_group_count": int(config_data.get('random_group_count') or 1),
+            "random_series_mode": normalize_random_series_mode(
+                config_data.get('random_series_mode')
+            ),
         }
 
     def _expand_parameters(self, outer_param, parameters, batch):
@@ -455,7 +678,80 @@ class BaseGoogleSheetService:
             data_source=batch["data_source"],
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
+            random_series_mode=batch["random_series_mode"],
         )
+
+    def _get_precompute_concurrency(self) -> int:
+        """K线预计算并行度（SystemConfig kline_precompute_concurrency，0/1=串行）。
+
+        默认 4、上限 16；外部行情源（东财/Yahoo）存在限流风险，调高前确认配额。
+        """
+        try:
+            config_manager = get_config_manager()
+            value = int(config_manager.get_config('kline_precompute_concurrency', 4))
+        except (TypeError, ValueError):
+            return 4
+        return max(0, min(value, 16))
+
+    def _expand_all_outer_parameters(self, batch, parameters):
+        """外层参数（多股票）预计算展开，返回 [(combinations, column_A_length, kline_data_map)]。
+
+        并行度 >1 且多股票时用有界线程池：每股在独立服务实例上展开——
+        KlineService 持有 requests.Session 与内部K线库客户端，非线程安全不能跨线程共享；
+        并各自推独立 app context（随机价快照落库、股票元数据 upsert 依赖 per-thread
+        session，Flask-SQLAlchemy 3.x 随 context 弹出回收）。任一股票失败按原顺序
+        抛出第一个异常，与串行语义一致。
+        """
+        outer_params = list(parameters[0])
+
+        def expand(index):
+            outer_param = outer_params[index]
+            if batch["kline_source"] == 'custom':
+                return self._get_custom_parameters(outer_param, parameters, batch["custom_kline_map"])
+            return self._expand_parameters(outer_param, parameters, batch)
+
+        concurrency = self._get_precompute_concurrency()
+        if batch["kline_source"] == 'custom' or concurrency <= 1 or len(outer_params) <= 1:
+            return [expand(index) for index in range(len(outer_params))]
+
+        context_app = self.app or current_app
+        workers: Dict[int, "BaseGoogleSheetService"] = {}
+        workers_lock = threading.Lock()
+
+        def run_at(index):
+            ident = threading.get_ident()
+            with workers_lock:
+                worker = workers.get(ident)
+                if worker is None:
+                    # 构造必须在 app context 内：KlineService/StockAPIClient 在
+                    # __init__ 读 current_app.config（STOCK_BASE_URL 等），
+                    # 线程无上下文时会静默落到 SDK 默认地址
+                    with context_app.app_context():
+                        worker = type(self)(self.config, self.task_id, app=self.app, stop_event=self.stop_event)
+                    workers[ident] = worker
+            with context_app.app_context():
+                return worker._expand_parameters(outer_params[index], parameters, batch)
+
+        results = [None] * len(outer_params)
+        first_error = None
+        executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="kline-precompute")
+        try:
+            futures = {index: executor.submit(run_at, index) for index in range(len(outer_params))}
+            for index in sorted(futures):
+                try:
+                    results[index] = futures[index].result()
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+        finally:
+            executor.shutdown(wait=True)
+            # 回收各 worker 独立缓冲的任务日志（worker 自身不再被使用）
+            for worker in workers.values():
+                worker._flush_log_buffer()
+
+        if first_error is not None:
+            raise first_error
+        return results
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map, *, deduplicate: bool = True):
         """custom K线模式的固定双参数组合（原 C5/C7 各持一份，仅去重差异经参数表达）。
@@ -470,8 +766,7 @@ class BaseGoogleSheetService:
                     "stock_code": parameter,
                     "A1": v1,
                     "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
+                    "kline_key": "custom",
                 })
 
         if not data:
@@ -481,35 +776,174 @@ class BaseGoogleSheetService:
             data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
-        """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。"""
+    def _expand_random_price_groups(
+        self,
+        combinations,
+        kline_data_map,
+        price_mode,
+        random_price_range,
+        random_group_count,
+        snapshot_meta=None,
+        random_series_mode=RANDOM_SERIES_MODE_PER_WINDOW,
+        full_kline=None,
+        full_kline_key=None,
+    ):
+        """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。
+
+        有 Flask app context 且传入 snapshot_meta 时落库并复用随机K线快照；
+        返回的 kline 映射为 SnapshotLazyKlineMap（只登记 series id 与窗口签名，
+        行列表执行期按需物化），避免全任务驻留全部合并行；
+        纯生成单测无上下文时保留原内存路径，不写库。
+
+        random_series_mode=per_window（默认）：seed 含窗口键，各窗口独立摇序列（现状）。
+        random_series_mode=full_truncate：seed 用 full_kline_key（全区间窗口键）在全区间
+        K线上生成一次，再按当前窗口首末日期截取切片——同组号跨窗口共享同一条逻辑序列，
+        各窗口的 series 仍按各自 kline_key 落库（值为切片，seed 相同）。
+        """
         if price_mode != "random_price":
             return combinations, kline_data_map
+        full_truncate = random_series_mode == RANDOM_SERIES_MODE_FULL_TRUNCATE
+        if full_truncate and (not full_kline or not full_kline_key):
+            raise ValueError("全区间截断模式需要全区间K线与窗口键")
+        persist_snapshots = (
+            snapshot_meta is not None
+            and has_app_context()
+            and self._persist_random_snapshots
+        )
         grouped_data = []
-        grouped_map = {}
+        if persist_snapshots:
+            # 持久路径不物化合并行：只登记 series id，行列表执行期从快照表按需拼回
+            grouped_map: Any = SnapshotLazyKlineMap(
+                task_kline_snapshot_service.materialize_series_rows
+            )
+        else:
+            grouped_map = {}
+        group_series_ids = {}
+        sources_by_key = {}
+        full_rows_by_group = {}
         for combination in combinations:
-            source_key = combination["Kline_key"]
+            source_key = combination["kline_key"]
             source_kline = kline_data_map[source_key]
+            stock_code = str(combination.get("stock_code") or "").strip()
+            source = None
+            if persist_snapshots:
+                source_cache_key = (stock_code, source_key)
+                if source_cache_key not in sources_by_key:
+                    sources_by_key[source_cache_key] = (
+                        task_kline_snapshot_service.get_or_create_source(
+                            task_id=self.task_id,
+                            stock_code=stock_code,
+                            stock_name=(
+                                snapshot_meta.get("stock_name")
+                                or combination.get("stock_name")
+                            ),
+                            market_type=snapshot_meta.get("market_type"),
+                            kline_key=source_key,
+                            data_source=snapshot_meta.get("data_source"),
+                            adjust_type=snapshot_meta.get("adjust_type"),
+                            rows=source_kline,
+                        )
+                    )
+                source = sources_by_key[source_cache_key]
             for random_group in range(1, int(random_group_count or 1) + 1):
                 group_key = f"{source_key}:random-{random_group}"
                 if group_key not in grouped_map:
-                    random_generator = random.Random(
-                        f"{self.task_id}:{combination.get('stock_code', '')}:"
-                        f"{source_key}:{random_price_range}:{random_group}"
+                    # full_truncate 的播种基准是全区间窗口键，与具体窗口无关
+                    seed_key = full_kline_key if full_truncate else source_key
+                    seed = (
+                        f"{self.task_id}:{stock_code}:"
+                        f"{seed_key}:{random_price_range}:{random_group}"
                     )
-                    grouped_map[group_key] = KlineService.build_price_rows(
-                        source_kline,
-                        price_mode,
-                        include_ohlc=True,
-                        random_price_range=random_price_range,
-                        random_generator=random_generator,
-                    )
+                    if full_truncate:
+                        group_cache_key = (stock_code, random_group)
+                        if group_cache_key not in full_rows_by_group:
+                            full_rows_by_group[group_cache_key] = (
+                                KlineService.build_price_rows(
+                                    full_kline,
+                                    price_mode,
+                                    include_ohlc=True,
+                                    random_price_range=random_price_range,
+                                    random_generator=random.Random(seed),
+                                )
+                            )
+                        window_rows = self._slice_random_rows_by_window(
+                            full_rows_by_group[group_cache_key], source_kline
+                        )
+                        if persist_snapshots:
+                            series = task_kline_snapshot_service.get_or_create_series(
+                                source=source,
+                                task_id=self.task_id,
+                                stock_code=stock_code,
+                                kline_key=source_key,
+                                random_group=random_group,
+                                price_mode=price_mode,
+                                random_price_range=random_price_range,
+                                seed=seed,
+                                rows=source_kline,
+                                values=[row["stock_val"] for row in window_rows],
+                            )
+                            grouped_map.register(
+                                group_key,
+                                series["id"],
+                                start_date=source["start_date"],
+                                end_date=source["end_date"],
+                                row_count=int(source.get("row_count") or 0),
+                            )
+                            group_series_ids[group_key] = series["id"]
+                        else:
+                            grouped_map[group_key] = window_rows
+                    elif persist_snapshots:
+                        series = task_kline_snapshot_service.get_or_create_series(
+                            source=source,
+                            task_id=self.task_id,
+                            stock_code=stock_code,
+                            kline_key=source_key,
+                            random_group=random_group,
+                            price_mode=price_mode,
+                            random_price_range=random_price_range,
+                            seed=seed,
+                            rows=source_kline,
+                        )
+                        grouped_map.register(
+                            group_key,
+                            series["id"],
+                            start_date=source["start_date"],
+                            end_date=source["end_date"],
+                            row_count=int(source.get("row_count") or 0),
+                        )
+                        group_series_ids[group_key] = series["id"]
+                    else:
+                        random_generator = random.Random(seed)
+                        grouped_map[group_key] = KlineService.build_price_rows(
+                            source_kline,
+                            price_mode,
+                            include_ohlc=True,
+                            random_price_range=random_price_range,
+                            random_generator=random_generator,
+                        )
                 item = dict(combination)
-                item["Kline_key"] = group_key
-                item["year"] = group_key
+                item["kline_key"] = group_key
                 item["random_group"] = random_group
+                if persist_snapshots:
+                    item["kline_series_id"] = group_series_ids[group_key]
                 grouped_data.append(item)
         return grouped_data, grouped_map
+
+    @staticmethod
+    def _slice_random_rows_by_window(full_rows, window_kline):
+        """全区间随机序列行按窗口K线首末日期截取切片；行数必须与窗口K线一致。"""
+        start_date = window_kline[0]["stock_date"]
+        end_date = window_kline[-1]["stock_date"]
+        rows = [
+            row for row in full_rows
+            if start_date <= row["stock_date"] <= end_date
+        ]
+        if len(rows) != len(window_kline):
+            raise ValueError(
+                f"全区间随机序列切片行数 {len(rows)} 与窗口K线行数 {len(window_kline)} 不一致，"
+                f"窗口 {start_date}~{end_date}"
+            )
+        return rows
 
     def _expand_auto_year_parameters(
         self,
@@ -528,12 +962,16 @@ class BaseGoogleSheetService:
         include_ohlc=False,
         random_price_range="high_low",
         random_group_count=1,
+        random_series_mode=RANDOM_SERIES_MODE_PER_WINDOW,
+        include_vwap=True,
     ):
         """C5/C7 共享的 auto-K线年度参数展开骨架（ponytail 审计 B1 合并）。
 
         此前 c5.py / c7.py 各持有一份 ~155 行拷贝；差异经参数表达：
         - include_ohlc：C7 写回需要 OHLC 列；random_price 展开强制开启；
         - random_price_range / random_group_count：随机价格分组（C5 已同步该能力）；
+        - random_series_mode：per_window 各窗口独立随机（默认）/ full_truncate
+          全区间生成一次后各窗口截断切片（播种基准 = 全区间窗口键）；
         - recent 模式统一包含近半年（0.5）区间；
         - count_mode=N+1 时同样生成全区间组合（"+1"），与窗口重合时由组合去重合并。
         custom K线分支仍留在各自 service（_get_custom_parameters），不进本骨架。
@@ -561,6 +999,7 @@ class BaseGoogleSheetService:
             start_date=start_date,
             end_date=end_date,
             adjust_type=adjust_type,
+            include_vwap=include_vwap,
         )
         stock_name = str(klines[0].get("stock_name") or "") if klines else ""
         parameter = str(klines[0].get("stock_code") or parameter) if klines else parameter
@@ -581,7 +1020,7 @@ class BaseGoogleSheetService:
             market_type,
             klines,
             context="原始K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field=price_field,
         )
 
@@ -624,6 +1063,15 @@ class BaseGoogleSheetService:
             data_end_date=data_end_date,
             include_ohlc=include_ohlc,
         )
+        snapshot_meta = {
+            "stock_name": stock_name,
+            "market_type": market_type,
+            "data_source": data_source,
+            "adjust_type": adjust_type,
+        }
+        # 全区间窗口键：full_truncate 随机序列的播种基准（与全区间组合 kline_key
+        # 同源；_start_date 已按数据首日截断修正）
+        full_kline_key = f'{_end_year_1}-{_start_date}'
         data = []
 
         kline_data_map = {}
@@ -631,19 +1079,27 @@ class BaseGoogleSheetService:
         # 近年模式 = 各近年窗口 + 全区间；窗口与全区间完全重合时由组合去重合并。
         for i, v1 in enumerate(parameters[1]):
             for j, v2 in enumerate(parameters[2]):
-                Kline_key = f'{_end_year_1}-{_start_date}'
-                # 'year' 与 'Kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'Kline_key' 是 K线区间索引，均为既有契约
-                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                kline_key = f'{_end_year_1}-{_start_date}'
+                # 'year' 与 'kline_key' 同值落盘：'year' 被 C4 kline_range 消费，'kline_key' 是 K线区间索引，均为既有契约
+                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'kline_key': kline_key}
                 if stock_name:
                     d['stock_name'] = stock_name
-                if Kline_key not in kline_data_map:
-                    kline_data_map[Kline_key] = all_kline
+                if kline_key not in kline_data_map:
+                    kline_data_map[kline_key] = all_kline
 
                 data.append(d)
 
         if count_mode != 'n_plus_1':
             data, kline_data_map = self._expand_random_price_groups(
-                data, kline_data_map, price_mode, random_price_range, random_group_count
+                data,
+                kline_data_map,
+                price_mode,
+                random_price_range,
+                random_group_count,
+                snapshot_meta=snapshot_meta,
+                random_series_mode=random_series_mode,
+                full_kline=all_kline,
+                full_kline_key=full_kline_key,
             )
             data = self._deduplicate_parameter_combinations(data, kline_data_map)
             return data, len(all_kline) + 20,kline_data_map
@@ -674,8 +1130,8 @@ class BaseGoogleSheetService:
                 )
                 if not kline:
                     continue
-                Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
-                existing = kline_data_map.get(Kline_key)
+                kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                existing = kline_data_map.get(kline_key)
                 if existing is not None and (
                     existing[0]['stock_date'] != kline[0]['stock_date']
                     or existing[-1]['stock_date'] != kline[-1]['stock_date']
@@ -684,17 +1140,17 @@ class BaseGoogleSheetService:
                     # 键标签相同但窗口不同（同年配置下近半年 vs 全区间）：
                     # kline_data_map 按键只能存一份，后者让位，避免组合取到错误窗口。
                     self._log_info(
-                        f"股票{parameter} 近年窗口 {Kline_key} 与已注册窗口区间不同，"
+                        f"股票{parameter} 近年窗口 {kline_key} 与已注册窗口区间不同，"
                         f"跳过该窗口（{kline[0]['stock_date']}~{kline[-1]['stock_date']}）"
                     )
                     continue
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'kline_key': kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in kline_data_map:
-                            kline_data_map[Kline_key] = kline
+                        if kline_key not in kline_data_map:
+                            kline_data_map[kline_key] = kline
 
                         data.append(d)
 
@@ -702,22 +1158,30 @@ class BaseGoogleSheetService:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
             for year in range(_start_date, _end_year_1 + 1):
                 kline = self.kline_service.build_price_rows(_all_kline, projection_mode, year=year, include_ohlc=include_ohlc)
-                Kline_key = year
+                kline_key = year
                 if not kline:
                     continue
 
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'kline_key': kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        if Kline_key not in kline_data_map:
-                            kline_data_map[Kline_key] = kline
+                        if kline_key not in kline_data_map:
+                            kline_data_map[kline_key] = kline
 
                         data.append(d)
 
         data, kline_data_map = self._expand_random_price_groups(
-            data, kline_data_map, price_mode, random_price_range, random_group_count
+            data,
+            kline_data_map,
+            price_mode,
+            random_price_range,
+            random_group_count,
+            snapshot_meta=snapshot_meta,
+            random_series_mode=random_series_mode,
+            full_kline=all_kline,
+            full_kline_key=full_kline_key,
         )
 
         if not data:
@@ -738,8 +1202,9 @@ class BaseGoogleSheetService:
         google_sheet.clear_range(f"{batch['c5_input_column_a']}2:{batch['c5_input_column_b']}{a_num + 2}")
 
     def _stamp_combination(self, combination: dict, batch: dict) -> None:
-        """组合级打标钩子；默认无（C7 覆盖以写入 c7_model_version）。"""
-        return None
+        """组合级打标：写入统一 model_version；C7 覆盖为逐表版本。"""
+        if self._model_version:
+            combination['model_version'] = self._model_version
 
     def get_bdl(self, task, name, parameters, config_data):
         """批量执行模板（原 C5/C7 各自复制 198/225 行，C3 批次收敛为基类唯一实现；
@@ -754,13 +1219,7 @@ class BaseGoogleSheetService:
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
 
-            for outer_param in parameters[0]:
-                if batch["kline_source"] == 'custom':
-                    combinations, column_A_length, kline_data_map = self._get_custom_parameters(
-                        outer_param, parameters, batch["custom_kline_map"]
-                    )
-                else:
-                    combinations, column_A_length, kline_data_map = self._expand_parameters(outer_param, parameters, batch)
+            for combinations, column_A_length, kline_data_map in self._expand_all_outer_parameters(batch, parameters):
                 precomputed_params.append((combinations, column_A_length, kline_data_map))
                 total_combinations += len(combinations)
 
@@ -788,8 +1247,9 @@ class BaseGoogleSheetService:
                 for google_sheet in self.google_sheets:
                     self._clear_input_columns(google_sheet, batch)
 
-                self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-                if not self._interruptible_sleep(20):
+                settle_seconds = self._get_sheet_settle_seconds()
+                self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+                if not self._interruptible_sleep(settle_seconds):
                     return success_count, failed_count, 'cancelled'
             else:
                 self._log_info('自定义K线模式：保留表格现有K线，仅写入参数')
@@ -838,7 +1298,8 @@ class BaseGoogleSheetService:
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = kline_data_map.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['kline_key'], None)
+                        # combination['']
                         combination['kline'] = [kline[0], kline[-1]]
 
                         self.send_stock_param_result_data(
@@ -928,7 +1389,7 @@ class BaseGoogleSheetService:
                     return 'error'
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -963,7 +1424,7 @@ class BaseGoogleSheetService:
                 name = task.name
                 self.task_name = name
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -1014,6 +1475,9 @@ class BaseGoogleSheetService:
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
+        finally:
+            # 兜底：任何返回路径都把剩余缓冲日志落库（含取消/异常路径）
+            self._flush_log_buffer()
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool, return_date=None):
         """保存任务结果到数据库，包含重试逻辑。
@@ -1049,7 +1513,11 @@ class BaseGoogleSheetService:
                 "success": success,
             }
             return_fields = {"task_id": self.task_id, **series_fields} if series_fields else None
-            task_result_repository.create_with_return(result_fields, return_fields)
+            task_result_repository.create_with_return(
+                result_fields,
+                return_fields,
+                kline_series_id=safe_parameters.get("kline_series_id"),
+            )
 
         try:
             if self.app:

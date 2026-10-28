@@ -12,6 +12,23 @@
         ).join('');
         select.value = normalizeMarketTypeValue(selectedValue);
     }
+
+    // 市场联动 K 线数据源：akshare/dfcf/qq/tdx 仅覆盖 A股行情，
+    // 用户把市场切换为非 A股（en/hk/...）时，数据源自动切到 Yahoo；切回 A股不自动还原。
+    function linkKlineSourceToMarket(marketType) {
+        const sourceSelect = document.getElementById('kline_data_source');
+        if (!sourceSelect) {
+            return;
+        }
+        const market = normalizeMarketTypeValue(marketType);
+        if (!market || market === 'cn') {
+            return;
+        }
+        if (sourceSelect.value !== 'yahoo') {
+            sourceSelect.value = 'yahoo';
+            showError('非A股市场：K线数据源已联动切换为 Yahoo');
+        }
+    }
     const GOOGLE_SHEET_TABLE_TYPE = 'c3';
 
     let googleSheetTokens = [];
@@ -660,6 +677,10 @@
                 if (rebuiltEndDateInput) {
                     rebuiltEndDateInput.value = currentEndDate;
                 }
+                // 重建后的日期输入是全新节点，重跑全局日期守卫补 min/max 与越界拦截
+                if (typeof initDateInputGuards === 'function') {
+                    initDateInputGuards();
+                }
             }
         }
 
@@ -1141,7 +1162,10 @@
             }
         });
 
-        document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
+        document.getElementById('market_type')?.addEventListener('change', function() {
+            linkKlineSourceToMarket(this.value);
+            debouncedSaveFormData();
+        });
 
         document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
             bindSheetConfigItemEvents(item, debouncedSaveFormData);

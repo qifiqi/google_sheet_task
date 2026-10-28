@@ -19,6 +19,8 @@ logger = get_logger(__name__)
 
 
 class C5Service(BaseGoogleSheetService):
+    _model_version = "c5"
+
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C5"
 
@@ -59,7 +61,7 @@ class C5Service(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
-        analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+        analyze_result = (result.get('metrics_payload') or {}).get('metrics', {})
 
         payload.update({
             "multiplier": combination.get("A1", 0),
@@ -93,24 +95,24 @@ class C5Service(BaseGoogleSheetService):
             c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
             cell_updates[c5_parameter_positions[0]] = c5_parameter_1
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
-                kline_data_map.get(Kline_key),
-                context=f"K线区间 {Kline_key}",
+                kline_data_map.get(kline_key),
+                context=f"K线区间 {kline_key}",
             )
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 kline = current_kline
                 _kline_len = len(kline)
 
                 if is_custom_kline:
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
-                elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                elif kline_key != cache_kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
                         A_num = column_A_length
                         self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
@@ -212,9 +214,8 @@ class C5Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
-                        _result["flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
@@ -269,19 +270,23 @@ class C5Service(BaseGoogleSheetService):
             "custom",
             rows,
             context="自定义K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field="stock_val",
         )
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=True)
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1, random_series_mode="per_window"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。
 
         C5 由此同步获得 C7 的近半年（0.5）区间与随机价格（random_price 模式）
         能力：配置提供相应键即启用，缺省时 price_mode != random_price，
         随机分组为空操作。
+
+        random_series_mode 透传基类骨架（per_window 默认 / full_truncate 全区间
+        生成后窗口截断）；random_price_range / random_group_count 未透传为既有
+        行为（C5 随机价固定 high_low 单组），此处不顺手改。
         """
         return self._expand_auto_year_parameters(
             parameter,
@@ -296,4 +301,5 @@ class C5Service(BaseGoogleSheetService):
             adjust_type=adjust_type,
             data_source=data_source,
             source_label="google_sheet_c5",
+            random_series_mode=random_series_mode,
         )

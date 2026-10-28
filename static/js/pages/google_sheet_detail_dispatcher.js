@@ -8,6 +8,7 @@
         const normalized = String(taskType || '').toLowerCase();
         if (normalized === 'google_sheet_c5') return 'c5';
         if (normalized === 'google_sheet_c7') return 'c7';
+        if (normalized === 'google_sheet_c1_1') return 'c1_1';
         if (normalized === 'google_sheet_c4') return 'c4';
         if (normalized === 'google_sheet') return 'c3';
         return null;

@@ -32,7 +32,7 @@ def _service(monkeypatch, row):
     monkeypatch.setattr(
         service,
         "_build_live_usage_snapshot",
-        lambda: {"token_usage": {1: 1}, "current_total": 1},
+        lambda exclude_task_id=None: {"token_usage": {1: 1}, "current_total": 1},
     )
     monkeypatch.setattr(service, "_assert_global_usage_available", lambda **kwargs: None)
     monkeypatch.setattr(service, "_assert_token_usage_available", lambda *args: None)

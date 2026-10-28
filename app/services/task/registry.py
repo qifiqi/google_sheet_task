@@ -29,9 +29,27 @@ TASK_TYPE_REGISTRY: dict[str, TaskTypeSpec] = {
         TaskTypeSpec("google_sheet_c4", "C4", "_execute_google_sheet_c4_task", "task_concurrency_google_sheet_c4"),
         TaskTypeSpec("google_sheet_c5", "C5", "_execute_google_sheet_c5_task", "task_concurrency_google_sheet_c5"),
         TaskTypeSpec("google_sheet_c7", "C7", "_execute_google_sheet_c7_task", "task_concurrency_google_sheet_c7"),
+        TaskTypeSpec("google_sheet_c1_1", "C1.1.0", "_execute_google_sheet_c1_1_task", "task_concurrency_google_sheet_c1_1"),
         TaskTypeSpec("backtest_training", "单品回测", "_execute_backtest_training_task", "task_concurrency_backtest_training"),
         TaskTypeSpec("backtest_multi_product", "多品回测", "_execute_backtest_multi_product_task", "task_concurrency_backtest_multi_product"),
     )
+}
+
+# 并发上限配置键的中文标签，与下面的种子表一起供 app/config.py 的 init_config()
+# 生成配置项说明；代码默认值与库内初值同源，避免漂移。
+CONCURRENCY_LABELS: dict[str, str] = {
+    GLOBAL_MAX_KEY: "全局（所有类型合计）",
+    **{spec.max_concurrency_key: spec.display_name for spec in TASK_TYPE_REGISTRY.values() if spec.max_concurrency_key},
+}
+
+# 落到 SystemConfig 的并发上限初值（key -> 默认值）。
+CONCURRENCY_CONFIG_DEFAULTS: dict[str, int] = {
+    GLOBAL_MAX_KEY: GLOBAL_MAX_DEFAULT,
+    **{
+        spec.max_concurrency_key: spec.max_concurrency_default
+        for spec in TASK_TYPE_REGISTRY.values()
+        if spec.max_concurrency_key
+    },
 }
 
 

@@ -7,7 +7,7 @@ import pytest
 
 from app.exceptions import BadRequestError, ConflictError, ValidationError
 from app.extensions import db
-from app.models import BacktestSheetRunLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import SheetExecutionLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.task import (
@@ -337,6 +337,11 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             start_time=datetime.now(),
         )
         db.session.add_all([sheet, running_task])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="spreadsheet-queue",
+            task_id="running-backtest",
+            task_type="backtest_training",
+        ))
         db.session.commit()
 
         manager = TaskManager()
@@ -350,77 +355,48 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
         queued_task = db.session.get(Task, response["task_id"])
         assert response["queued"] is True
         assert queued_task.status == "pending"
-        assert "已有回测任务正在运行" in response["message"]
+        assert "同一 Google Sheet 正在被其他任务执行" in response["message"]
 
 
-def test_backtest_start_task_blocks_same_sheet_running_task_created_within_one_day(app_factory):
+def test_backtest_start_task_queues_on_lock_even_if_holder_row_stale(app_factory):
+    """执行锁是唯一权威：持锁任务行即使不是 running（异常残留）也照样排队。"""
     with app_factory.app_context():
-        spreadsheet_id = "spreadsheet-one-day-running"
-        running_task = Task(
-            id="running-backtest-day",
-            name="running-backtest-day",
+        spreadsheet_id = "spreadsheet-stale-holder"
+        stale_holder = Task(
+            id="stale-holder",
+            name="stale-holder",
             description="",
             task_type="backtest_training",
             config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
-            status="running",
-            created_at=datetime.now() - timedelta(minutes=1),
-            start_time=datetime.now() - timedelta(minutes=1),
-        )
-        queued_task = Task(
-            id="queued-backtest-day",
-            name="queued-backtest-day",
-            description="",
-            task_type="backtest_training",
-            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
-            status="pending",
-            created_at=datetime.now(),
-        )
-        db.session.add_all([running_task, queued_task])
-        db.session.commit()
-        queued_task_id = queued_task.id
-
-        manager = TaskManager()
-        started = manager.start_task(queued_task_id)
-
-        refreshed = db.session.get(Task, queued_task_id)
-        assert started is False
-        assert refreshed.status == "pending"
-        assert "已有回测任务正在运行" in manager.get_start_error(queued_task_id)
-
-
-def test_backtest_start_task_blocks_same_sheet_running_task_older_than_one_day(app_factory):
-    with app_factory.app_context():
-        spreadsheet_id = "spreadsheet-old-running"
-        running_task = Task(
-            id="running-backtest-old",
-            name="running-backtest-old",
-            description="",
-            task_type="backtest_training",
-            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
-            status="running",
+            status="completed",
             created_at=datetime.now() - timedelta(days=2),
-            start_time=datetime.now() - timedelta(days=2),
         )
         queued_task = Task(
-            id="queued-backtest-old",
-            name="queued-backtest-old",
+            id="queued-on-stale",
+            name="queued-on-stale",
             description="",
             task_type="backtest_training",
             config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
             status="pending",
             created_at=datetime.now(),
         )
-        db.session.add_all([running_task, queued_task])
+        db.session.add_all([stale_holder, queued_task])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id=spreadsheet_id,
+            task_id="stale-holder",
+            task_type="backtest_training",
+        ))
         db.session.commit()
         queued_task_id = queued_task.id
 
         manager = TaskManager()
-        started = manager.start_task(queued_task_id)
+        result = manager.start_task(queued_task_id)
 
         refreshed = db.session.get(Task, queued_task_id)
-        assert started is False
+        assert result.queued
+        assert result.started is False
         assert refreshed.status == "pending"
-        assert "已有回测任务正在运行" in manager.get_start_error(queued_task_id)
+        assert "同一 Google Sheet 正在被其他任务执行" in manager.get_start_error(queued_task_id)
 
 
 def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory, tmp_path):
@@ -441,7 +417,7 @@ def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory
 
         manager = TaskManager()
         db.session.add(
-            BacktestSheetRunLock(
+            SheetExecutionLock(
                 spreadsheet_id=spreadsheet_id,
                 task_id="locked-backtest",
                 task_type="backtest_training",
@@ -452,9 +428,9 @@ def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory
         started = manager.start_task(task_id)
 
         refreshed = db.session.get(Task, task_id)
-        assert started is False
+        assert started.queued and not started.started
         assert refreshed.status == "pending"
-        assert "已有回测任务正在运行" in manager.get_start_error(task_id)
+        assert "同一 Google Sheet 正在被其他任务执行" in manager.get_start_error(task_id)
         assert "locked-backtest" in manager.get_start_error(task_id)
 
 
@@ -478,25 +454,19 @@ def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
         db.session.commit()
         task_id = task.id
 
-        class _FailThread:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def start(self):
-                raise RuntimeError("thread failed")
-
-            def is_alive(self):
-                return False
-
         manager = TaskManager()
-        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _FailThread)
 
-        started = manager.start_task(task_id)
+        def _fail_submit(*_args, **_kwargs):
+            raise RuntimeError("thread failed")
+
+        monkeypatch.setattr(manager, "submit_task_execution", _fail_submit)
+
+        result = manager.start_task(task_id)
 
         refreshed = db.session.get(Task, task_id)
-        assert started is False
+        assert not result.started and result.status == "rejected"
         assert refreshed.status == "pending"
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).count() == 0
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id=spreadsheet_id).count() == 0
 
 
 def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory, tmp_path):
@@ -541,15 +511,16 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
             "submit_task_execution",
             lambda task_id, app, runner: _FakeHandle(),
         )
-        assert manager.start_task(first_task_id) is True
+        assert manager.start_task(first_task_id).started
 
         refreshed_first = db.session.get(Task, first_task_id)
         assert refreshed_first.status == "running"
 
-        assert manager.start_task(second_task_id) is False
+        result = manager.start_task(second_task_id)
+        assert result.queued
         refreshed_second = db.session.get(Task, second_task_id)
         assert refreshed_second.status == "pending"
-        assert "已有回测任务正在运行" in manager.get_start_error(second_task_id)
+        assert "同一 Google Sheet 正在被其他任务执行" in manager.get_start_error(second_task_id)
 
 
 def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
@@ -568,10 +539,18 @@ def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
         task_id = task.id
 
         manager = TaskManager()
-        manager.start_errors[task_id] = "同一个 Google Sheet 已有回测任务正在运行，当前任务保持待执行: running-task"
-        monkeypatch.setattr(manager, "start_task", lambda task_id: False)
+        from app.services.task.runtime import TaskStartResult
 
-        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
+        monkeypatch.setattr(
+            manager,
+            "start_task",
+            lambda task_id: TaskStartResult(
+                status="rejected",
+                message="Token校验失败，无法启动任务",
+            ),
+        )
+
+        with pytest.raises(ConflictError, match="Token校验失败"):
             manager.restart_task(task_id)
 
 
@@ -580,6 +559,7 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
     app_factory,
     tmp_path,
 ):
+    """断点重启撞锁 → queued 排队（不再抛 ConflictError 烧重试次数）。"""
     with app_factory.app_context():
         spreadsheet_id = "spreadsheet-running-restart"
         task = Task(
@@ -598,7 +578,7 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
 
         manager = TaskManager()
         db.session.add(
-            BacktestSheetRunLock(
+            SheetExecutionLock(
                 spreadsheet_id=spreadsheet_id,
                 task_id="other-running-lock",
                 task_type="backtest_training",
@@ -606,26 +586,19 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
         )
         db.session.commit()
 
-        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
-            manager.restart_task(task_id, resume_from_checkpoint=True)
+        result = manager.restart_task(task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, task_id)
+        assert result["queued"] is True
+        assert "同一 Google Sheet 正在被其他任务执行" in result["message"]
         assert refreshed.status == "pending"
+        assert refreshed.error_message.startswith("[SHEET_QUEUED]")
 
 
-def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch, app_factory):
+def test_backtest_checkpoint_restart_queues_via_start_task_lock_check(monkeypatch, app_factory):
+    """restart_task 不再自带 running 扫描特判：排队判定统一在 start_task 执行锁。"""
     with app_factory.app_context():
         spreadsheet_id = "spreadsheet-restart-same-sheet"
-        running_task = Task(
-            id="running-backtest-restart-conflict",
-            name="running-backtest-restart-conflict",
-            description="",
-            task_type="backtest_training",
-            config=json.dumps({"sheets": [{"spreadsheet_id": spreadsheet_id}]}),
-            status="running",
-            created_at=datetime.now(),
-            start_time=datetime.now(),
-        )
         restart_task = Task(
             id="cancelled-backtest-restart-conflict",
             name="cancelled-backtest-restart-conflict",
@@ -635,22 +608,22 @@ def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch
             status="cancelled",
             created_at=datetime.now(),
         )
-        db.session.add_all([running_task, restart_task])
+        db.session.add(restart_task)
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id=spreadsheet_id,
+            task_id="running-backtest-restart-conflict",
+            task_type="backtest_training",
+        ))
         db.session.commit()
         restart_task_id = restart_task.id
 
         manager = TaskManager()
-        monkeypatch.setattr(
-            manager,
-            "start_task",
-            lambda task_id: pytest.fail("start_task should not be called"),
-        )
 
         result = manager.restart_task(restart_task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, restart_task_id)
         assert result["queued"] is True
-        assert "已有回测任务正在运行" in result["message"]
+        assert "同一 Google Sheet 正在被其他任务执行" in result["message"]
         assert refreshed.status == "pending"
 
 
@@ -676,7 +649,7 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
 
         manager = TaskManager()
         db.session.add(
-            BacktestSheetRunLock(
+            SheetExecutionLock(
                 spreadsheet_id=spreadsheet_id,
                 task_id="running-from-lock",
                 task_type="backtest_training",
@@ -684,10 +657,10 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
         )
         db.session.commit()
 
-        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
-            manager.restart_task(task_id, resume_from_checkpoint=True)
+        result = manager.restart_task(task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, task_id)
+        assert result["queued"] is True
         assert refreshed.status == "pending"
 
 
@@ -787,7 +760,13 @@ def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_fact
         task_id = task.id
 
         manager = TaskManager()
-        monkeypatch.setattr(manager, "start_task", lambda task_id: True)
+        from app.services.task.runtime import TaskStartResult
+
+        monkeypatch.setattr(
+            manager,
+            "start_task",
+            lambda task_id: TaskStartResult(status="started"),
+        )
 
         result = manager.restart_task(task_id, resume_from_checkpoint=False)
 
@@ -857,18 +836,20 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
         )
         manager.start_task = _start_task
 
-        manager._start_next_pending_backtest_task(finished_task_id, app_factory)
+        manager._start_next_pending_task(
+            finished_task_id, ["spreadsheet-next"], app_factory
+        )
 
         refreshed_next = db.session.get(Task, next_task_id)
         transition_message = (
-            "回测任务 finished-backtest 结束，启动同 sheet 的下一个待执行任务: "
-            "next-backtest"
+            "任务 finished-backtest 结束并释放 Sheet 占用，接力启动同 sheet 的"
+            "下一个待执行任务: next-backtest"
         )
         finished_logs = [log.message for log in TaskLog.query.filter_by(task_id=finished_task_id).all()]
         next_logs = [log.message for log in TaskLog.query.filter_by(task_id=next_task_id).all()]
         assert started_task_ids == ["next-backtest"]
         assert refreshed_next.status == "running"
-        assert BacktestSheetRunLock.query.filter_by(
+        assert SheetExecutionLock.query.filter_by(
             spreadsheet_id="spreadsheet-next",
             task_id="next-backtest",
         ).count() == 1
@@ -1054,7 +1035,8 @@ def test_watchdog_restart_uses_cancel_then_restart(monkeypatch):
     monkeypatch.setattr(
         "app.services.task_watchdog.task_manager.restart_task",
         lambda task_id, resume_from_checkpoint=True: (
-            events.append(("restart", task_id, resume_from_checkpoint)) or {"status": "success"}
+            events.append(("restart", task_id, resume_from_checkpoint))
+            or {"message": "任务重启成功", "restart_from_step": 0}
         ),
     )
 

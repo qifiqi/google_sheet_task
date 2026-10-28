@@ -12,6 +12,7 @@ from typing import Any
 
 from app.exceptions import ValidationError
 from app.repositories import task_repository, task_result_repository
+from app.utils.formatting import to_beijing_iso
 from app.services.backtest_multi_product_service import (
     SUMMARY_ROW_DEFS,
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -31,8 +32,10 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
     normalize_ratio_display,
 )
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
+from app.utils.backtest_report_metadata import get_price_type
+from app.utils.model_version import format_model_version, resolve_model_version
 from app.utils.formatting import parse_lenient_json
+from app.services.c_result_metric_cells import extract_parameter_metrics
 from app.services.performance_analysis.portfolio_combiner import normalize_weighting_mode
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.logger import get_logger
@@ -154,7 +157,7 @@ def build_multi_product_global_preview_payload(
         group["product_results"][product_index] = {
             "result_id": result.id,
             "step_index": result.step_index,
-            "timestamp": result.timestamp.isoformat() if result.timestamp else None,
+            "timestamp": to_beijing_iso(result.timestamp),
             "parameters": parameters,
             "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "return_date": _get_return_date_for_task_result(result),
@@ -305,6 +308,7 @@ def build_multi_product_global_preview_word_payload(
         product_index = int(parameters.get("product_index") or 0)
         product_results[product_index] = {
             "return_date": _get_return_date_for_task_result(result),
+            "result_payload": parse_lenient_json(result.result, {}),
         }
 
     missing_indexes = [
@@ -328,8 +332,8 @@ def build_multi_product_global_preview_word_payload(
     word_products = []
     for product in products:
         sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
-        model_version = get_backtest_model_version(
-            sheet.get("title") or product.get("title") or product.get("spreadsheet_title")
+        model_version = format_model_version(
+            resolve_model_version("backtest_multi_product", sheet)
         )
         price_type = get_price_type(product.get("price_mode") or product.get("price_type"))
         if model_version and model_version not in model_versions:
@@ -344,6 +348,11 @@ def build_multi_product_global_preview_word_payload(
             # 市场信息透传给 Word 报告的成交量取数，避免纯数字港股代码被误判为 A 股。
             "market_type": product.get("market_type"),
             "exchange_market": product.get("exchange_market"),
+            # 参数配置表：年换手率/杠杆率等结果区指标，报告按比例加权聚合。
+            "parameter_metrics": extract_parameter_metrics(
+                product_results[product["product_index"]]["result_payload"],
+                product.get("sheet"),
+            ),
         })
     weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
     return {

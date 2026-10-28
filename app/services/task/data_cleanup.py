@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.repositories import (
     backtest_repository,
+    sheet_lock_repository,
+    task_kline_snapshot_repository,
     task_log_repository,
     task_result_repository,
 )
@@ -24,6 +26,7 @@ def delete_task_result_dependencies(result_ids: list[int]) -> None:
     if not result_ids:
         return
     _delete_legacy_performance_analysis_jobs(result_ids=result_ids)
+    task_kline_snapshot_repository.delete_links_by_result_ids(result_ids, commit=False)
     backtest_repository.delete_summary_index_by_result_ids(result_ids, commit=False)
 
 
@@ -43,6 +46,7 @@ def clear_task_execution_data(task_id: str, *, include_logs: bool = False) -> No
         backtest_repository.delete_summary_index_by_result_ids(result_ids, commit=False)
     task_result_repository.delete_by_task(task_id, commit=False)
     task_result_repository.delete_returns_by_task(task_id, commit=False)
-    backtest_repository.release_locks_by_task(task_id, commit=False)
+    task_kline_snapshot_repository.delete_by_task(task_id, commit=False)
+    sheet_lock_repository.release_all_by_task(task_id, commit=False)
     if include_logs:
         task_log_repository.delete_by_task(task_id, commit=False)

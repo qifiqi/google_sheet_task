@@ -14,6 +14,8 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from app import create_app
+from app.exceptions import ConflictError, NotFoundError
+from app.models import Task, TaskStatus
 from app.repositories import task_repository
 
 from ding_stream_service.message_format import build_markdown_message
@@ -302,7 +304,7 @@ class TaskCommandService:
                 logger.info(
                     "异常任务重启结果: task_id=%s restart_status=%s message=%s",
                     task_id,
-                    restart_result.get("status"),
+                    restart_status,
                     restart_result.get("message"),
                 )
                 results.append(
@@ -311,7 +313,9 @@ class TaskCommandService:
                         "task_name": task_name,
                         "task_type": task_type,
                         "original_status": original_status,
-                        "restart_status": restart_result.get("status"),
+                        "restart_status": (
+                            "queued" if restart_result.get("queued") else restart_status
+                        ),
                         "message": restart_result.get("message"),
                         "restart_from_step": restart_result.get("restart_from_step"),
                     }
@@ -404,7 +408,7 @@ class TaskCommandService:
             logger.info(
                 "单任务重启结果: task_id=%s restart_status=%s message=%s",
                 task_id,
-                result.get("status"),
+                restart_status,
                 result.get("message"),
             )
             result.update(
@@ -596,7 +600,11 @@ def format_batch_restart_reply(
         )
 
     restart_results = result.get("results") or []
-    success_count = sum(1 for item in restart_results if item.get("restart_status") == "success")
+    success_count = sum(
+        1
+        for item in restart_results
+        if item.get("restart_status") in ("success", "queued")
+    )
     failed_count = len(restart_results) - success_count
     fields = [
         ("用户", sender_nick),
@@ -617,7 +625,10 @@ def format_batch_restart_reply(
 
     body_lines = []
     for index, item in enumerate(restart_results, start=1):
-        status_label = "成功" if item.get("restart_status") == "success" else "失败"
+        status_label = {
+            "success": "成功",
+            "queued": "已排队",
+        }.get(item.get("restart_status"), "失败")
         body_lines.extend(
             [
                 f"{index}. **{item.get('task_name') or '-'}**",

@@ -24,7 +24,8 @@
         document.getElementById('exportGlobalPreviewBtn')?.addEventListener('click', exportGlobalPreview);
         document.getElementById('exportSeriesBtn')?.addEventListener('click', exportReturnSeries);
         document.getElementById('exportWordBtn')?.addEventListener('click', openExportWordModal);
-        document.getElementById('confirmExportWordBtn')?.addEventListener('click', confirmExportWord);
+        document.getElementById('confirmExportWordBtn')?.addEventListener('click', () => confirmExportWord('word'));
+        document.getElementById('confirmExportPdfBtn')?.addEventListener('click', () => confirmExportWord('pdf'));
         document.getElementById('groupSelect')?.addEventListener('change', (event) => {
             activeGroupKey = event.target.value;
             renderActiveGroup();
@@ -117,7 +118,7 @@
         `).join('');
     }
 
-    async function confirmExportWord() {
+    async function confirmExportWord(format) {
         const selectedId = document.querySelector('input[name="wordExportParam"]:checked')?.value;
         if (!selectedId) {
             alert('请先选择要导出的参数结果');
@@ -143,10 +144,11 @@
             }
         }
 
-        const btn = document.getElementById('confirmExportWordBtn');
-        btn.disabled = true;
-        const original = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
+        const btn = document.getElementById(format === 'pdf' ? 'confirmExportPdfBtn' : 'confirmExportWordBtn');
+        // 两个确认按钮同弹窗且导出期间不关闭：一并禁用，防止并发触发第二次服务端转换。
+        const siblingBtn = document.getElementById(format === 'pdf' ? 'confirmExportWordBtn' : 'confirmExportPdfBtn');
+        if (siblingBtn) siblingBtn.disabled = true;
+        setButtonBusy(btn, true, format === 'pdf' ? '转换中…' : '导出中…');
 
         try {
             const payload = JSON.parse(JSON.stringify(basePayload));
@@ -164,14 +166,16 @@
                 risk_free_rate: riskFreePercent / 100,
             };
 
-            const response = await Api.endpoints.export.wordReport(payload);
+            const response = await (format === 'pdf'
+                ? Api.endpoints.export.pdfReport(payload)
+                : Api.endpoints.export.wordReport(payload));
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
-                throw new Error(data.message || 'Word 导出失败');
+                throw new Error(data.message || (format === 'pdf' ? 'PDF 导出失败' : 'Word 导出失败'));
             }
             const filename = response.headers.get('Content-Disposition')
                 ?.match(/filename[^;=\n]*=(?:UTF-8''|")?([^;\n"]+)/i)?.[1]
-                || 'RPT-S.docx';
+                || `RPT-S.${format === 'pdf' ? 'pdf' : 'docx'}`;
             const objectUrl = URL.createObjectURL(await response.blob());
             const link = document.createElement('a');
             link.href = objectUrl;
@@ -182,18 +186,16 @@
             URL.revokeObjectURL(objectUrl);
             bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
         } catch (error) {
-            alert(error.message || 'Word 导出失败');
+            alert(error.message || (format === 'pdf' ? 'PDF 导出失败' : 'Word 导出失败'));
         } finally {
-            btn.disabled = false;
-            btn.innerHTML = original;
+            setButtonBusy(btn, false);
+            if (siblingBtn) siblingBtn.disabled = false;
         }
     }
 
     async function exportGlobalPreview() {
         const button = document.getElementById('exportGlobalPreviewBtn');
-        const originalHtml = button.innerHTML;
-        button.disabled = true;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+        setButtonBusy(button, true, '导出中…');
 
         try {
             const response = await Api.endpoints.export.globalPreview(encodeURIComponent(TASK_ID));
@@ -223,8 +225,7 @@
         } catch (error) {
             alert(error.message || '导出失败');
         } finally {
-            button.disabled = false;
-            button.innerHTML = originalHtml;
+            setButtonBusy(button, false);
         }
     }
 

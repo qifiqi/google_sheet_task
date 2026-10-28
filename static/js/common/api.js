@@ -111,12 +111,25 @@
       cancel: function (taskId) {
         return post("/api/tasks/" + taskId + "/cancel");
       },
-      logs: function (taskId) {
-        return get("/api/tasks/" + taskId + "/logs");
+      logs: function (taskId, query) {
+        return get(
+          "/api/tasks/" + taskId + "/logs" + (query ? "?" + query : ""),
+        );
       },
       results: function (taskId, query) {
         return get(
           "/api/tasks/" + taskId + "/results" + (query ? "?" + query : ""),
+        );
+      },
+      klineSnapshots: function (taskId, query) {
+        return get(
+          "/api/tasks/" + taskId + "/kline-snapshots" +
+            (query ? "?" + query : ""),
+        );
+      },
+      klineSnapshot: function (taskId, seriesId) {
+        return get(
+          "/api/tasks/" + taskId + "/kline-snapshots/" + seriesId,
         );
       },
       statusCheck: function (taskId) {
@@ -252,6 +265,9 @@
       },
       worksheets: function (payload) {
         return post("/api/google-sheets/worksheets", payload);
+      },
+      combinationEstimate: function (payload) {
+        return post("/api/google-sheet/combination-estimate", payload);
       },
       tokens: function (query) {
         return get("/api/google-sheet-tokens" + (query ? "?" + query : ""));
@@ -394,6 +410,16 @@
       taskStocks: function (taskId) {
         return fetch("/api/exports/tasks/" + taskId + "/stocks");
       },
+      // 任务级随机K线快照合并 CSV（C1.1/C5/C7 详情页），文件流下载。
+      taskKlineSnapshots: function (taskId) {
+        return fetch("/api/tasks/" + taskId + "/kline-snapshots/export");
+      },
+      // 单组随机K线 CSV（查看弹窗内下载），文件流下载。
+      seriesKlineSnapshot: function (taskId, seriesId) {
+        return fetch(
+          "/api/tasks/" + taskId + "/kline-snapshots/" + seriesId + "?format=csv",
+        );
+      },
       // 全局预览 XLSX 导出（backtest 双胞胎 / 全局预览中心），文件流下载，返回原始 Response。
       // query 形如 '?export_name=...' / '?ratios=...'，无参时传空。
       globalPreview: function (taskId, query) {
@@ -433,6 +459,18 @@
       // 回测 Word 报告导出（RPT-S/RPT-M），文件流下载，返回原始 Response。
       wordReport: function (payload) {
         return fetch("/api/exports/backtest-reports/word", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken":
+              document.querySelector('meta[name="csrf-token"]')?.content || "",
+          },
+          body: JSON.stringify(payload),
+        });
+      },
+      // 回测 PDF 报告导出（RPT-S/RPT-M），复用 Word 载荷，服务端转换耗时较长。
+      pdfReport: function (payload) {
+        return fetch("/api/exports/backtest-reports/pdf", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

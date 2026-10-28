@@ -24,8 +24,10 @@ from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepos
 from app.repositories.navigation_repository import NavigationRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
+from app.repositories.sheet_lock_repository import SheetLockRepository
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.repositories.system_config_repository import SystemConfigRepository
+from app.repositories.task_kline_snapshot_repository import TaskKlineSnapshotRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
@@ -51,8 +53,10 @@ __all__ = [
     "navigation_repository",
     "auth_repository",
     "scheduled_task_repository",
+    "sheet_lock_repository",
     "stock_metadata_repository",
     "system_config_repository",
+    "task_kline_snapshot_repository",
     "task_log_repository",
     "task_repository",
     "task_result_repository",
@@ -84,6 +88,10 @@ google_sheet_token_repository = (
 # 导航菜单远端无对应表，固定本地。
 navigation_repository = NavigationRepository()
 auth_repository = AuthRepository()
+# 新增表（统一 Sheet 执行锁 / K线快照）远端尚无对应端点，暂固定本地；
+# db-to-http 接入清单更新后并入上方条件绑定。
+sheet_lock_repository = SheetLockRepository()
+task_kline_snapshot_repository = TaskKlineSnapshotRepository()
 scheduled_task_repository = (
     ScheduledTaskHttpRepository() if _USE_HTTP_BACKEND else ScheduledTaskRepository()
 )

@@ -21,6 +21,17 @@ class TaskLogRepository(BaseRepository):
         )
         return [row.to_dict() for row in reversed(rows)]
 
+    def list_by_task_after(self, task_id, after_id, limit=500):
+        """返回 id 大于 after_id 的新增日志（id asc；详情页轮询增量拉取游标）。"""
+        rows = (
+            TaskLog.query.filter_by(task_id=task_id)
+            .filter(TaskLog.id > after_id)
+            .order_by(TaskLog.id.asc())
+            .limit(limit)
+            .all()
+        )
+        return [row.to_dict() for row in rows]
+
     def list_by_task_paginated(self, task_id, page, per_page, level=None):
         query = TaskLog.query.filter_by(task_id=task_id)
         if level:

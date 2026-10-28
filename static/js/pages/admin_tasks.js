@@ -129,7 +129,7 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
             const interval = (data && data.data.config && data.data.config.tasks_admin_refresh_interval)
                 ? data.data.config.tasks_admin_refresh_interval : 30000;
-            setInterval(loadTasks, interval);
+            setIntervalVisible(loadTasks, interval);
         });
 
         document.getElementById('batchRestartModal').addEventListener('hidden.bs.modal', function() {

@@ -3,10 +3,11 @@ from enum import Enum
 from app.utils.json_utils import loads, JSONDecodeError
 
 from sqlalchemy import event, Text
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
+from app.utils.formatting import to_beijing_iso
 from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
 from app.utils.market import infer_market_type, normalize_stock_code
 
@@ -80,8 +81,8 @@ class User(db.Model):
             'mobile': self.mobile,
             'is_active': self.is_active,
             'is_alert_oncall': self.is_alert_oncall,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': to_beijing_iso(self.created_at),
+            'last_login': to_beijing_iso(self.last_login),
             'roles': [r.to_dict() for r in self.roles],
         }
         if include_permissions:
@@ -100,6 +101,7 @@ class Role(db.Model):
     code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
     description = db.Column(db.String(200), comment='角色描述')
     is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
+    created_at = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     permissions = db.relationship(
         'Permission',
         secondary=role_permissions,
@@ -115,6 +117,7 @@ class Role(db.Model):
             'code': self.code,
             'description': self.description,
             'is_system': self.is_system,
+            'created_at': to_beijing_iso(self.created_at),
         }
         if include_permissions:
             d['permissions'] = [p.to_dict() for p in self.permissions]
@@ -133,6 +136,7 @@ class Permission(db.Model):
     group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
     description = db.Column(db.String(200), comment='权限描述')
     route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
+    created_at = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
 
     def to_dict(self):
         return {
@@ -142,6 +146,7 @@ class Permission(db.Model):
             'group': self.group,
             'description': self.description,
             'route_path': self.route_path,
+            'created_at': to_beijing_iso(self.created_at),
         }
 
 
@@ -153,6 +158,7 @@ class GoogleSheetTableType(str, Enum):
     C4 = "c4"
     C5 = "c5"
     C7 = "c7"
+    C1_1 = "c1_1"
     BACKTEST_TRAINING = "backtest_training"
 
     @classmethod
@@ -172,6 +178,7 @@ class GoogleSheetTableType(str, Enum):
             cls.C4: "C4",
             cls.C5: "C5",
             cls.C7: "C7",
+            cls.C1_1: "C1.1.0",
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]
@@ -232,6 +239,7 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
         GoogleSheetTableType.C4.value,
         GoogleSheetTableType.C5.value,
         GoogleSheetTableType.C7.value,
+        GoogleSheetTableType.C1_1.value,
     }:
         return "c_series"
     return normalized
@@ -272,6 +280,7 @@ class TaskType(str, Enum):
     GOOGLE_SHEET_C4 = "google_sheet_C4"
     GOOGLE_SHEET_C5 = "google_sheet_C5"
     GOOGLE_SHEET_C7 = "google_sheet_C7"
+    GOOGLE_SHEET_C1_1 = "google_sheet_C1_1"
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
     MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
@@ -283,6 +292,7 @@ class TaskType(str, Enum):
             cls.GOOGLE_SHEET_C4: "Google Sheet C4",
             cls.GOOGLE_SHEET_C5: "Google Sheet C5",
             cls.GOOGLE_SHEET_C7: "Google Sheet C7",
+            cls.GOOGLE_SHEET_C1_1: "Google Sheet C1.1",
             cls.BACKTEST_TRAINING: "单品回测",
             cls.BACKTEST_MULTI_PRODUCT: "多品回测",
             cls.MODEL_SUMMARY_REBUILD: "汇总索引重建",
@@ -356,13 +366,13 @@ class Task(db.Model):
             "task_type": self.task_type,
             "config": _json_object_or_empty(self.config),
             "created_by_user_id": self.created_by_user_id,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "start_time": to_beijing_iso(self.start_time),
+            "end_time": to_beijing_iso(self.end_time),
             "current_step": self.current_step,
             "total_steps": self.total_steps,
             "error_message": self.error_message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
     def get_progress_percentage(self):
@@ -407,7 +417,7 @@ class TaskLog(db.Model):
             "id": self.id,
             "level": self.level,
             "message": self.message,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_beijing_iso(self.timestamp),
         }
 
 
@@ -449,7 +459,7 @@ class TaskResult(db.Model):
             "return_series_id": self.return_series_id,
             "success": self.success,
             "error_message": self.error_message,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_beijing_iso(self.timestamp),
         }
 
 
@@ -484,6 +494,7 @@ class TaskResultReturn(db.Model):
     stock_date = db.Column(db.Text, comment="日期")
     index_return = db.Column(db.Text, comment="指数收益")
     start_return = db.Column(db.Text, comment="策略起始收益")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
 
     def to_dict(self):
         return {
@@ -497,6 +508,7 @@ class TaskResultReturn(db.Model):
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
@@ -527,17 +539,21 @@ class BacktestProductResultCache(db.Model):
             "returns_json": self.returns_json,
             "source_task_id": self.source_task_id,
             "source_step_index": self.source_step_index,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_beijing_iso(self.created_at),
         }
 
 
-class BacktestSheetRunLock(db.Model):
-    """Database-backed per-spreadsheet run lock for backtest tasks."""
+class SheetExecutionLock(db.Model):
+    """Database-backed per-spreadsheet execution lock (all task types).
+
+    统一 Sheet 执行锁：键为 spreadsheet_id，与任务类型无关；表名与唯一约束名
+    沿用历史 backtest 命名（零迁移），task_type 仅作持锁方展示信息。
+    """
 
     __tablename__ = "t_param_backtest_sheet_run_locks"
     __table_args__ = (
         db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
-        {"comment": "回测任务 Google Sheet 运行锁表"},
+        {"comment": "Google Sheet 执行锁表（全任务类型统一，键为 spreadsheet_id）"},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
@@ -559,8 +575,8 @@ class BacktestSheetRunLock(db.Model):
             "spreadsheet_id": self.spreadsheet_id,
             "task_id": self.task_id,
             "task_type": self.task_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -631,9 +647,9 @@ class TaskResultSummaryIndex(db.Model):
             "best_metric_value": self.best_metric_value,
             "metrics": _normalize_summary_metrics(_json_object_or_empty(self.metrics_json)),
             "is_best": self.is_best,
-            "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "result_timestamp": to_beijing_iso(self.result_timestamp),
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -667,8 +683,8 @@ class StockMetadata(db.Model):
             "security_type_name": self.security_type_name,
             "source": self.source,
             "raw": _json_object_or_empty(self.raw_json),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -691,8 +707,8 @@ class TaskTemplate(db.Model):
             "name": self.name,
             "description": self.description,
             "config": _json_object_or_empty(self.config),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -714,8 +730,8 @@ class SystemConfig(db.Model):
             "key": self.key,
             "value": self.value,
             "description": self.description,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -746,8 +762,8 @@ class NavigationMenuItem(db.Model):
             "parent_key": self.parent_key,
             "sort_order": self.sort_order,
             "is_visible": self.is_visible,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
         if include_children:
             data["children"] = []
@@ -799,9 +815,9 @@ class GoogleSheetToken(db.Model):
             "max_usage_count": self.max_usage_count,
             "is_active": self.is_active,
             "is_available": self.is_available(),
-            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_used_at": to_beijing_iso(self.last_used_at),
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
             "token_context_size": len(self.token_context or ""),
         }
         if include_context:
@@ -845,8 +861,8 @@ class GoogleSheet(db.Model):
             "is_active": self.is_active,
             "is_in_use": self.is_in_use,
             "current_task_id": self.current_task_id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
         }
 
 
@@ -922,9 +938,136 @@ class ScheduledTask(db.Model):
             "task_function": self.task_function,
             "task_params": _json_object_or_empty(self.task_params),
             "is_active": self.is_active,
-            "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
-            "next_run_time": self.next_run_time.isoformat() if self.next_run_time else None,
+            "last_run_time": to_beijing_iso(self.last_run_time),
+            "next_run_time": to_beijing_iso(self.next_run_time),
             "run_count": self.run_count,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_beijing_iso(self.created_at),
+            "updated_at": to_beijing_iso(self.updated_at),
+        }
+
+
+class TaskKlineSource(db.Model):
+    """随机价格K线的源行情快照（任务+股票+窗口一行）。"""
+
+    __tablename__ = "t_param_task_kline_sources"
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "stock_code", "kline_key", name="uk_task_kline_source"),
+        {"comment": "随机价格K线源快照表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    stock_code = db.Column(db.String(64), nullable=False, comment="股票代码")
+    stock_name = db.Column(db.String(255), comment="股票名称")
+    market_type = db.Column(db.String(16), comment="业务市场类型 cn/us")
+    kline_key = db.Column(db.String(64), nullable=False, comment="K线窗口键")
+    data_source = db.Column(db.String(32), comment="实际K线数据源")
+    adjust_type = db.Column(db.String(16), comment="复权类型")
+    start_date = db.Column(db.String(10), comment="K线开始日期")
+    end_date = db.Column(db.String(10), comment="K线结束日期")
+    row_count = db.Column(db.Integer, nullable=False, default=0, comment="K线行数")
+    dates_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="日期数组JSON")
+    open_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="开盘价数组JSON")
+    high_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最高价数组JSON")
+    low_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="最低价数组JSON")
+    close_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="收盘价数组JSON")
+    vwap_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="加权平均价数组JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "market_type": self.market_type,
+            "kline_key": self.kline_key,
+            "data_source": self.data_source,
+            "adjust_type": self.adjust_type,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "row_count": self.row_count,
+            "dates_json": self.dates_json,
+            "open_json": self.open_json,
+            "high_json": self.high_json,
+            "low_json": self.low_json,
+            "close_json": self.close_json,
+            "vwap_json": self.vwap_json,
+            "created_at": to_beijing_iso(self.created_at),
+        }
+
+
+class TaskRandomSeries(db.Model):
+    """单个随机价格序列（源快照 + 随机组唯一）。"""
+
+    __tablename__ = "t_param_task_random_series"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "task_id",
+            "stock_code",
+            "kline_key",
+            "random_price_range",
+            "random_group",
+            name="uk_task_random_series_dataset",
+        ),
+        db.Index("idx_task_random_series_source_id", "source_id"),
+        {"comment": "随机价格K线序列表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    source_id = db.Column(db.Integer, nullable=False, comment="源快照ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    stock_code = db.Column(db.String(64), nullable=False, comment="股票代码")
+    kline_key = db.Column(db.String(64), nullable=False, comment="K线窗口键")
+    dataset_key = db.Column(db.String(128), nullable=False, comment="快照数据集展示键")
+    random_group = db.Column(db.Integer, nullable=False, comment="随机组号")
+    price_mode = db.Column(db.String(32), nullable=False, comment="价格模式")
+    random_price_range = db.Column(db.String(16), nullable=False, comment="随机价格区间")
+    seed = db.Column(db.String(512), nullable=False, comment="随机种子")
+    row_count = db.Column(db.Integer, nullable=False, default=0, comment="序列行数")
+    values_json = db.Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False, comment="随机价格数组JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "source_id": self.source_id,
+            "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "kline_key": self.kline_key,
+            "dataset_key": self.dataset_key,
+            "random_group": self.random_group,
+            "price_mode": self.price_mode,
+            "random_price_range": self.random_price_range,
+            "seed": self.seed,
+            "row_count": self.row_count,
+            "values_json": self.values_json,
+            "created_at": to_beijing_iso(self.created_at),
+        }
+
+
+class TaskResultKlineLink(db.Model):
+    """任务结果与实际随机K线序列的关联。"""
+
+    __tablename__ = "t_param_task_result_kline_links"
+    __table_args__ = (
+        db.UniqueConstraint("result_id", name="uk_task_result_kline_link_result"),
+        db.Index("idx_task_result_kline_links_task_id", "task_id"),
+        db.Index("idx_task_result_kline_links_series_id", "series_id"),
+        {"comment": "任务结果随机K线关联表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    result_id = db.Column(db.Integer, nullable=False, comment="任务结果ID")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    series_id = db.Column(db.Integer, nullable=False, comment="随机K线序列ID")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "result_id": self.result_id,
+            "task_id": self.task_id,
+            "series_id": self.series_id,
+            "created_at": to_beijing_iso(self.created_at),
         }

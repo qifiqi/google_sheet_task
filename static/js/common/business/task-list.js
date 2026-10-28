@@ -55,6 +55,7 @@ window.Biz = window.Biz || {};
     }
 
     return date.toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -66,14 +67,8 @@ window.Biz = window.Biz || {};
   }
 
   function getStatusText(status) {
-    const labels = {
-      pending: "待执行",
-      running: "运行中",
-      completed: "已完成",
-      cancelled: "已取消",
-      error: "失败",
-      failed: "失败",
-    };
+    // 状态文案镜像后端 TaskStatus（common/contract-constants.js）。
+    const labels = window.BizConstants.TASK_STATUS_LABELS;
     return labels[status] || status || "-";
   }
 
@@ -87,22 +82,16 @@ window.Biz = window.Biz || {};
       return `<span class="fw-medium">${escapeHtml(value)}</span>`;
     }
 
-    const main = date.toLocaleDateString("zh-CN");
-    const sub = date.toLocaleTimeString("zh-CN", { hour12: false });
+    const main = date.toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
+    const sub = date.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
     return `<div class="fw-medium">${main}</div><div class="time-sub text-body-secondary">${sub}</div>`;
   }
 
   function renderStatus(status) {
     const normalized = status || "pending";
-    const classMap = {
-      pending: "text-bg-secondary",
-      running: "text-bg-primary",
-      completed: "text-bg-success",
-      cancelled: "text-bg-info",
-      error: "text-bg-danger",
-      failed: "text-bg-danger",
-    };
-    const badgeClass = classMap[normalized] || "text-bg-secondary";
+    // badge 配色与状态文案同源镜像（common/contract-constants.js）。
+    const badgeClass =
+      window.BizConstants.TASK_STATUS_BADGE_CLASSES[normalized] || "text-bg-secondary";
     return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(getStatusText(normalized))}</span>`;
   }
 

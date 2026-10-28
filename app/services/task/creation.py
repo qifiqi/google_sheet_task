@@ -14,8 +14,9 @@ from typing import Any, Optional
 from pydantic import ValidationError as PydanticValidationError
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
-from app.models import GoogleSheetTokenTaskType, TaskStatus
+from app.models import GoogleSheetTokenTaskType, TaskStatus, TaskType
 from app.schemas.task_configs import validate_task_config_shape
+from app.utils.model_version import normalize_sheets_model_versions
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -24,9 +25,11 @@ from app.utils.backtest_parameter_utils import normalize_backtest_training_confi
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.services.kline_service import KlineService
 from app.repositories import task_repository
+from app.utils.value_parser import coerce_bool
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
+from app.utils.task_types import TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C7, is_c_series_task_type
 
 logger = get_logger(__name__)
 
@@ -86,23 +89,18 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
     return normalized
 
 
-def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(config)
-    price_mode = normalized.get("price_mode") or "vwap_price"
-    if price_mode != "random_price":
-        normalized.pop("random_price_range", None)
-        normalized.pop("random_group_count", None)
-        return normalized
-
-    versions = {
-        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
-        for sheet in normalized.get("sheets") or []
-    }
-    if "c7_0_3" in versions:
-        raise ValidationError("随机价格仅支持 C7.0.2")
+def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]:
+    """random_price 模式的随机范围/组数/序列模式公共校验（C7/C1.1 共用）。"""
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
     if random_range not in {"high_low", "open_close"}:
         raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
+    series_mode = str(
+        normalized.get("random_series_mode") or "per_window"
+    ).strip().lower()
+    if series_mode not in {"per_window", "full_truncate"}:
+        raise ValidationError(
+            "随机序列模式仅支持各窗口独立随机（per_window）或全区间截断（full_truncate）"
+        )
     try:
         raw_group_count = normalized.get("random_group_count")
         group_count = 1 if raw_group_count in (None, "") else int(raw_group_count)
@@ -114,7 +112,42 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("随机组数必须是正整数")
     normalized["random_price_range"] = random_range
     normalized["random_group_count"] = group_count
+    normalized["random_series_mode"] = series_mode
     return normalized
+
+
+def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    price_mode = normalized.get("price_mode") or "vwap_price"
+    if price_mode != "random_price":
+        normalized.pop("random_price_range", None)
+        normalized.pop("random_group_count", None)
+        normalized.pop("random_series_mode", None)
+        return normalized
+
+    versions = {
+        str(sheet.get("model_version") or "c7_0_2").strip().lower()
+        for sheet in normalized.get("sheets") or []
+    }
+    if "c7_0_3" in versions:
+        raise ValidationError("随机价格仅支持 C7.0.2")
+    return _validate_random_price_options(normalized)
+
+
+def _normalize_c1_1_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    """C1.1 固定随机价格：price_mode 强制 random_price 后校验随机选项。
+
+    custom 模式无 price_mode（K线读自表格），ext 随机价在执行期按组生成，不在此强制。
+    c1_1_vwap_enabled 控制是否计算并写入 vwap 列，缺省计算（True）。
+    """
+    normalized = dict(config)
+    normalized["c1_1_vwap_enabled"] = coerce_bool(
+        normalized.get("c1_1_vwap_enabled"), True
+    )
+    if str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower() == KLINE_SOURCE_CUSTOM:
+        return normalized
+    normalized["price_mode"] = "random_price"
+    return _validate_random_price_options(normalized)
 
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
@@ -192,6 +225,7 @@ class TaskCreationMixin:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
+        normalized = normalize_sheets_model_versions(normalized, task_type)
         market_type = normalize_market_type(normalized.get("market_type"))
         if market_type:
             normalized["market_type"] = market_type
@@ -201,15 +235,17 @@ class TaskCreationMixin:
                 market_type or infer_market_type(normalized["stock_code"]),
                 normalized.get("exchange_market"),
             )
-        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
+        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7","google_sheet_c1_1"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
             normalized["kline_data_source"] = KlineService.normalize_data_source(
                 normalized.get("kline_data_source", normalized.get("data_source"))
             )
-            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7"):
+            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c1_1"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
-            if task_type.lower() == "google_sheet_c7":
+            if task_type.lower() == TYPE_GOOGLE_SHEET_C7:
                 normalized = _normalize_c7_random_price_config(normalized)
+            if task_type.lower() == TYPE_GOOGLE_SHEET_C1_1:
+                normalized = _normalize_c1_1_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
@@ -218,7 +254,7 @@ class TaskCreationMixin:
             normalized.pop("token_json", None)
             # 顶层 price_mode/kline_data_source 仅单品回测是生效值；多品生效值在
             # products[]（执行器产品级优先），顶层不合成默认值，避免详情页读到假配置。
-            if task_type == "backtest_training":
+            if task_type == TaskType.BACKTEST_TRAINING.value:
                 normalized["price_mode"] = (
                     normalized.get("price_mode")
                     if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
@@ -234,7 +270,7 @@ class TaskCreationMixin:
             )
 
             normalized = normalize_multi_product_config(normalized)
-        elif task_type == "backtest_training":
+        elif task_type == TaskType.BACKTEST_TRAINING.value:
             normalized = normalize_backtest_training_config(normalized)
 
         # 结构收口唯一出口：按 task_type 配置模型校验并输出规范形态
@@ -277,13 +313,13 @@ class TaskCreationMixin:
         if isinstance(config, dict):
             config = _hydrate_stock_name_from_metadata(config)
             config = get_google_sheet_token_service().prepare_task_config(config)
-            if task_type == "backtest_training":
+            if task_type == TaskType.BACKTEST_TRAINING.value:
                 self.validate_backtest_training_sheet(config)
-            self.validate_google_sheet_available_for_task(
-                config,
-                local_task_id,
-                allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
-            )
+            if is_c_series_task_type(task_type):
+                # 仅合法性校验；Sheet 占用不再拦截创建，任务排队等执行锁。
+                self.validate_c_series_sheet_models(config)
+            else:
+                self.validate_google_sheet_available_for_task(config)
             for stock_item in _stock_metadata_items_from_config(config):
                 upsert_stock_metadata_in_session(stock_item)
 
@@ -295,15 +331,12 @@ class TaskCreationMixin:
                 "description": description,
                 "task_type": task_type,
                 "config": config_str,
-                "status": "pending",
+                "status": TaskStatus.PENDING.value,
                 "created_by_user_id": created_by_user_id,
             },
             commit=False,
         )
         task_id = str((created or {}).get("id") or local_task_id)
-
-        if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
-            self.ensure_google_sheet_occupancy(task_id, config)
 
         task_logger = get_task_logger(task_id, f"{__name__}.create")
         task_logger.info(
@@ -323,7 +356,7 @@ class TaskCreationMixin:
         config: dict[str, Any],
         created_by_user_id: Optional[int] = None,
     ):
-        """创建并启动任务；成功返回 {task_id, queued?}，启动被拒抛 BadRequestError。"""
+        """创建并启动任务；Sheet 被占返回 queued（排队），启动被拒抛 BadRequestError。"""
         task_id = self.create_task(
             name,
             description,
@@ -331,13 +364,12 @@ class TaskCreationMixin:
             config,
             created_by_user_id=created_by_user_id,
         )
-        if self.start_task(task_id):
+        result = self.start_task(task_id)
+        if result.started:
             return {"task_id": task_id}
-        start_error = self.get_start_error(task_id)
-        if task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
-            return {"task_id": task_id, "queued": True, "message": start_error}
-        self.release_google_sheet_occupancy(task_id)
-        raise BadRequestError(start_error)
+        if result.queued:
+            return {"task_id": task_id, "queued": True, "message": result.message}
+        raise BadRequestError(result.message)
 
     def batch_create_and_start_task(
         self,
@@ -359,7 +391,7 @@ class TaskCreationMixin:
         description = str(
             data.get("description") or config.get("task_description") or ""
         ).strip()
-        child_task_type = "google_sheet"
+        child_task_type = TaskType.GOOGLE_SHEET.value
 
         sheets = config.get("sheets") or []
         stock_codes = config.get("stock_codes") or []
@@ -421,8 +453,13 @@ class TaskCreationMixin:
                     f"{year_n} 所含有的表格数，无法对齐参数数量，{combination_count},检查是否是参数设置过多还是表格创建过少"
                 )
 
+        # 预检全部 Sheet 模型合法性，避免部分子任务创建成功后才发现模型不可用；
+        # 占用不再拦截（子任务创建后排队等执行锁）。
+        self.validate_c_series_sheet_models({"sheets": sheets})
+
         created_task_ids = []
         started_task_ids = []
+        queued_task_ids = []
         failed_to_start = []
         child_summaries = []
 
@@ -530,15 +567,18 @@ class TaskCreationMixin:
                     )
                     created_task_ids.append(task_id)
 
-                    started = self.start_task(task_id)
-                    if started:
+                    result = self.start_task(task_id)
+                    started = result.started
+                    if result.started:
                         started_task_ids.append(task_id)
+                    elif result.queued:
+                        queued_task_ids.append(task_id)
                     else:
                         failed_to_start.append(
                             {
                                 "task_id": task_id,
                                 "task_name": task_name,
-                                "error": self.get_start_error(task_id),
+                                "error": result.message,
                             }
                         )
 
@@ -551,6 +591,7 @@ class TaskCreationMixin:
                             "stock_code": stock_code,
                             "parameters": child_parameters,
                             "started": started,
+                            "queued": result.queued,
                         }
                     )
                     time.sleep(0.5)
@@ -558,22 +599,25 @@ class TaskCreationMixin:
         if not created_task_ids:
             raise ValidationError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
 
-        if not started_task_ids:
+        if not started_task_ids and not queued_task_ids:
             raise BadRequestError(
                 f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，但全部启动失败"
             )
         message = (
             f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，"
-            f"成功启动 {len(started_task_ids)} 个，未启动 {len(failed_to_start)} 个"
+            f"成功启动 {len(started_task_ids)} 个，排队等待 {len(queued_task_ids)} 个，"
+            f"未启动 {len(failed_to_start)} 个"
         )
         return {
             "message": message,
-            "task_id": started_task_ids[0],
+            "task_id": (started_task_ids or queued_task_ids or created_task_ids)[0],
             "task_ids": created_task_ids,
             "started_task_ids": started_task_ids,
+            "queued_task_ids": queued_task_ids,
             "failed_to_start": failed_to_start,
             "total_created": len(created_task_ids),
             "total_started": len(started_task_ids),
+            "total_queued": len(queued_task_ids),
             "children": child_summaries,
         }
 
@@ -660,17 +704,8 @@ class TaskCreationMixin:
             )
             if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(effective_config)
-            old_config = task["config"] or {}
-            # sheets[] 形态下顶层无 google_sheet_id，占用迁移对比走配置收集
-            # （sheets[].google_sheet_id，缺登记时回退 spreadsheet_id 反查）。
-            old_sheet_ids = sorted(self._collect_google_sheet_ids(old_config))
-            new_sheet_ids = sorted(self._collect_google_sheet_ids(effective_config))
-
-            if old_sheet_ids != new_sheet_ids:
-                if old_sheet_ids:
-                    self.release_google_sheet_occupancy(task_id)
-                if new_sheet_ids:
-                    self.ensure_google_sheet_occupancy(task_id, effective_config)
+            if is_c_series_task_type(task["task_type"]):
+                self.validate_c_series_sheet_models(effective_config)
 
             fields = {"config": dumps(effective_config)}
             if update_name:
@@ -720,6 +755,8 @@ class TaskCreationMixin:
                 original_task["task_type"],
                 original_config,
             )
+            if is_c_series_task_type(original_task["task_type"]):
+                self.validate_c_series_sheet_models(original_config)
 
             created = task_repository.create({
                 "id": new_task_id,
@@ -727,15 +764,11 @@ class TaskCreationMixin:
                 "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
                 "task_type": original_task["task_type"],
                 "config": dumps(original_config),
-                "status": "pending",
+                "status": TaskStatus.PENDING.value,
                 "created_by_user_id": original_task["created_by_user_id"],
             })
             # http 数据层模式主键由远端生成，以返回记录为准（db 模式返回同一 id）。
             new_task_id = str((created or {}).get("id") or new_task_id)
-
-            # original_task 来自 task_repository.get()（dict），取值必须用下标而非属性访问。
-            if isinstance(original_config, dict) and original_task["task_type"] not in ("backtest_training", "backtest_multi_product"):
-                self.ensure_google_sheet_occupancy(new_task_id, original_config)
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)
             return new_task_id

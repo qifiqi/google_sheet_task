@@ -174,3 +174,81 @@ def combine_product_returns(
         })
     data = daily_to_cumulative(weighted_rows)
     return data
+
+
+def build_combination_context(products: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
+    """预计算组合不变量（共同日期轴 + 各产品共同区间日收益数组）。
+
+    权重组合枚举里，同一产品子集在所有权重组合间只有权重不同，共同日期
+    求交、排序与 cumulative_to_daily 都是不变量；权重组合热循环经此把
+    每组合的成本从"全量重建"降到一次 float 加权复利。口径与
+    combine_product_returns 一致（先截共同日期、从共同区间初始净值 1.0
+    还原日收益）；子集内任一产品无有效行或无共同日期时返回 None。
+    """
+    product_maps: list[dict[str, dict[str, float]]] = []
+    common_dates: set[str] | None = None
+    for product in products or []:
+        rows = product.get("returns", product.get("return_date", [])) if isinstance(product, dict) else []
+        row_map = _valid_rows(rows)
+        if not row_map:
+            return None
+        dates = set(row_map)
+        common_dates = dates if common_dates is None else common_dates & dates
+        product_maps.append(row_map)
+
+    if not common_dates:
+        return None
+
+    ordered_dates = sorted(common_dates)
+    daily_index: list[list[float]] = []
+    daily_start: list[list[float]] = []
+    for row_map in product_maps:
+        common_rows = [{"date": date, **row_map[date]} for date in ordered_dates]
+        daily_rows = _valid_rows(cumulative_to_daily(common_rows))
+        daily_index.append([daily_rows[date]["index_return"] for date in ordered_dates])
+        daily_start.append([daily_rows[date]["start_return"] for date in ordered_dates])
+    return {
+        "ordered_dates": ordered_dates,
+        "daily_index": daily_index,
+        "daily_start": daily_start,
+    }
+
+
+def combine_with_context(context: dict[str, Any], weights: Iterable[Any]) -> list[dict[str, Any]]:
+    """按 build_combination_context 的不变量做 float 加权复利组合。
+
+    与 combine_product_returns 同一口径（日收益加权后复利还原累计行）；
+    加权与复利用 float 直算，与 Decimal 路径仅存在 1e-16 量级的浮点表示差，
+    只服务枚举热循环的排名/预览场景，不出现在对账路径。
+    """
+    normalized = [float(normalize_weight(value)) for value in weights]
+    daily_index = context["daily_index"]
+    daily_start = context["daily_start"]
+    if len(normalized) != len(daily_index):
+        raise ValueError("比例数量与产品数量不一致")
+
+    index_nav = 1.0
+    start_nav = 1.0
+    index_series: list[float] = []
+    start_series: list[float] = []
+    for position in range(len(context["ordered_dates"])):
+        index_total = 0.0
+        start_total = 0.0
+        for weight, index_daily, start_daily in zip(normalized, daily_index, daily_start):
+            index_total += weight * index_daily[position]
+            start_total += weight * start_daily[position]
+        index_nav *= 1.0 + index_total
+        start_nav *= 1.0 + start_total
+        index_series.append(index_nav - 1.0)
+        start_series.append(start_nav - 1.0)
+
+    return [
+        {
+            "date": date,
+            "index_return": index_return,
+            "start_return": start_return,
+        }
+        for date, index_return, start_return in zip(
+            context["ordered_dates"], index_series, start_series
+        )
+    ]

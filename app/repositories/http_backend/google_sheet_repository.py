@@ -60,6 +60,15 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
             key=lambda item: (str(item.get("name") or ""), item.get("id") or 0),
         )
 
+    def list_by_spreadsheet_id(self, spreadsheet_id):
+        """按 spreadsheet_id 取全部配置（跨 table_type / registry_scope；id asc）。"""
+        rows = [
+            row for row in self.list_all()
+            if str(row.get("spreadsheet_id") or "") == str(spreadsheet_id)
+        ]
+        rows.sort(key=lambda row: int(row.get("id") or 0))
+        return rows
+
     def get_by_spreadsheet_id(self, spreadsheet_id):
         """按 spreadsheet_id 取第一条配置（占用收集用）。"""
         for row in self.list_all():

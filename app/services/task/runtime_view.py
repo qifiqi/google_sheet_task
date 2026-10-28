@@ -10,6 +10,7 @@ from app.exceptions import NotFoundError
 from app.repositories import task_log_repository, task_repository, task_result_repository
 
 from app.models import Task
+from app.utils.formatting import to_beijing_iso
 from app.utils.return_series import parse_return_series_fields
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
@@ -131,18 +132,22 @@ class TaskRuntimeViewService:
             "stop_confirmed": stop_confirmed,
             "current_step": task.current_step if task else None,
             "total_steps": task.total_steps if task else None,
-            "checked_at": datetime.now().isoformat(),
+            "checked_at": to_beijing_iso(datetime.now()),
             "status_check": status_check,
         }
 
     def build_result_summary(self, task_id: str) -> dict[str, Any]:
-        results = task_result_repository.list_entities_by_task_ordered(task_id)
-        total = len(results)
-        success_count = sum(1 for item in results if item.success)
-        failed_count = total - success_count
+        # 计数与取尾全部下推 SQL（结果表行含 LONGTEXT，禁止全量加载后内存统计）
+        counts = task_result_repository.count_by_task_success(task_id)
+        success_count = counts["total_success"]
+        failed_count = counts["total_failed"]
+        total = success_count + failed_count
 
         metric_points = []
-        for result in results[-30:]:
+        recent_results = task_result_repository.list_recent_entities_by_task(
+            task_id, limit=30
+        )
+        for result in reversed(recent_results):
             result_payload = _as_dict(_safe_json_loads(result.result, {}))
             parameters_payload = _safe_json_loads(result.parameters, {})
             annualized = (
@@ -167,10 +172,10 @@ class TaskRuntimeViewService:
             )
 
         return_chart = []
-        series_result = next((item for item in reversed(results) if item.return_series_id), None)
+        series_result_id = task_result_repository.get_latest_return_series_id(task_id)
         series_row = (
-            task_result_repository.get_return_entity(series_result.return_series_id)
-            if series_result and series_result.return_series_id
+            task_result_repository.get_return_entity(series_result_id)
+            if series_result_id
             else None
         )
         if series_row:
@@ -180,15 +185,17 @@ class TaskRuntimeViewService:
                 for item in parse_return_series_fields(series_row)
             ][-120:]
         if not return_chart:
-            returns = task_result_repository.list_return_entities_by_task(task_id)
+            return_rows = task_result_repository.list_recent_return_columns_by_task(
+                task_id, limit=120
+            )
             return_chart = [
                 {
-                    "date": item.stock_date,
-                    "index_return": item.index_return,
-                    "strategy_return": item.start_return,
+                    "date": stock_date,
+                    "index_return": index_return,
+                    "strategy_return": start_return,
                 }
-                for item in returns[-120:]
-                if item.stock_date is not None
+                for stock_date, index_return, start_return in reversed(return_rows)
+                if stock_date is not None
             ]
 
         return {
@@ -298,5 +305,5 @@ class TaskRuntimeViewService:
             "daily_trend": daily_trend,
             "recent_tasks": recent_tasks,
             "active_tasks": active_tasks,
-            "checked_at": now.isoformat(),
+            "checked_at": to_beijing_iso(now),
         }

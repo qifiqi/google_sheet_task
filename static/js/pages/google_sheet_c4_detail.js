@@ -672,7 +672,8 @@ if (versionParam && versionParam !== 'c4') {
     }
 
     // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
-    function exportResultsToCSV() {
+    function exportResultsToCSV(btn) {
+        setButtonBusy(btn, true, '导出中…');
         // 为了导出完整结果，这里单独请求一次不分页的结果集
         Api.endpoints.task.results(currentTaskId).then(function(data) {
             const rdata = data || {};
@@ -853,6 +854,8 @@ if (versionParam && versionParam !== 'c4') {
             showNotification('CSV 导出已开始下载', 'success');
         }).catch(function() {
             showNotification('暂无可导出的结果', 'warning');
+        }).finally(function() {
+            setButtonBusy(btn, false);
         });
     }
 
@@ -903,12 +906,14 @@ if (versionParam && versionParam !== 'c4') {
     }
 
     // 显示单条结果详情（指定分组和模型索引）
+    // 「更多」按钮挂在筛选后的 filteredResults 上，这里必须同源取数；
+    // 若读 groupedResults，「仅成功/仅失败」筛选下索引错位，弹窗会显示成别的行。
     function showResultDetail(groupIndex, modelIndex) {
-        if (!Array.isArray(groupedResults) || groupIndex < 0 || groupIndex >= groupedResults.length) {
+        if (!Array.isArray(filteredResults) || groupIndex < 0 || groupIndex >= filteredResults.length) {
             return;
         }
 
-        const group = groupedResults[groupIndex];
+        const group = filteredResults[groupIndex];
         const models = group.models || [];
         if (modelIndex < 0 || modelIndex >= models.length) {
             return;
@@ -917,9 +922,9 @@ if (versionParam && versionParam !== 'c4') {
         const result = models[modelIndex];
         const modalTitle = document.getElementById('resultDetailModalLabel');
         const metaEl = document.getElementById('result-detail-meta');
-        const tbody = document.getElementById('result-detail-body');
+        const bodyEl = document.getElementById('result-detail-body');
 
-        if (!modalTitle || !metaEl || !tbody) {
+        if (!modalTitle || !metaEl || !bodyEl) {
             return;
         }
 
@@ -929,118 +934,44 @@ if (versionParam && versionParam !== 'c4') {
             modalTitle.textContent = `${result.modelKey || ''}`;
         }
 
-        metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · 执行时间：${formatTime(group.timestamp) || '-'}`;
+        metaEl.innerHTML = Biz.taskPolling.renderResultDetailMeta([
+            {label: '股票代码', value: group.stockCode || '-'},
+            {label: 'K线区间', value: group.klineRange || '-'},
+            {label: '步骤', value: group.stepIndex + 1},
+            {label: '状态', html: `<span class="badge ${group.success ? 'bg-success' : 'bg-danger'}">${group.success ? '成功' : '失败'}</span>`},
+            {label: '执行时间', value: formatTime(group.timestamp) || '-'}
+        ]);
 
         const metrics = result.rawMetrics || {};
         const detailMetrics = Biz.taskPolling.getDetailMetricSource(metrics);
         const hasFlatResult = !!Biz.taskPolling.getFlatResult(metrics);
 
-        // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片
-        const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);
-        const indexReturn = hasFlatResult ? null : (metrics.index_return_xpl || null);
-
+        // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片；
+        // metrics_payload 平铺结果没有这两个字典，跳过
         const cards = [];
-
-        if (startReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">模型收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', startReturn.start_date)}
-                            ${renderStatLine('结束日期', startReturn.end_date)}
-                            ${renderStatLine('月份数', startReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(startReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(startReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(startReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(startReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
+        if (!hasFlatResult) {
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('模型收益分析', metrics.start_return_xpl, (v) => formatMetricRawValue(v, 6)));
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('指数收益分析', metrics.index_return_xpl, (v) => formatMetricRawValue(v, 6)));
         }
 
-        if (indexReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">指数收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', indexReturn.start_date)}
-                            ${renderStatLine('结束日期', indexReturn.end_date)}
-                            ${renderStatLine('月份数', indexReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(indexReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(indexReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(indexReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(indexReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
-        }
+        // 剩余字段进入通用指标网格（剔除字典字段），并按排序规则排
+        const keys = sortMetricKeys(Object.keys(detailMetrics).filter(Biz.taskPolling.shouldShowDetailMetric));
+        const entries = keys.map((key) => {
+            const value = detailMetrics[key];
+            return {
+                label: getMetricDisplayLabel(key),
+                html: formatMetricDisplayValue(value),
+                wide: Array.isArray(value) || (value != null && typeof value === 'object')
+            };
+        });
 
-        // 剩余字段进入通用两列表格（剔除字典字段），并按排序规则排
-        const metricKeys = Object.keys(detailMetrics).filter(Biz.taskPolling.shouldShowDetailMetric);
-        const keys = sortMetricKeys(metricKeys);
-        const rows = [];
-
-        for (let i = 0; i < keys.length; i += 2) {
-            const k1 = keys[i];
-            const k2 = keys[i + 1];
-
-            const v1 = detailMetrics[k1];
-            const v2 = k2 != null ? detailMetrics[k2] : undefined;
-
-            const display1 = formatMetricDisplayValue(v1);
-            const display2 = k2 != null ? formatMetricDisplayValue(v2) : '<span class="text-muted small">-</span>';
-
-            rows.push(`
-                <tr>
-                    <td class="small fw-semibold">${getMetricDisplayLabel(k1)}</td>
-                    <td>${display1}</td>
-                    <td class="small fw-semibold">${k2 != null ? getMetricDisplayLabel(k2) : ''}</td>
-                    <td>${k2 != null ? display2 : ''}</td>
-                </tr>
-            `);
-        }
-
-        // 先渲染统计卡片，再渲染表格行
-        const cardsHtml = cards.length > 0
-            ? `<tr><td colspan="4" class="p-0"><div class="row g-2 m-0">${cards.join('')}</div></td></tr>`
-            : '';
-
-        if (rows.length === 0 && !cardsHtml) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">无详细指标</td></tr>';
-        } else {
-            tbody.innerHTML = cardsHtml + rows.join('');
-        }
+        bodyEl.innerHTML = Biz.taskPolling.renderResultDetailBody({cards: cards, entries: entries});
 
         if (typeof bootstrap !== 'undefined') {
             const modalEl = document.getElementById('resultDetailModal');
             const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
             modal.show();
         }
-    }
-
-    // 在统计卡片中渲染一行 label + value
-    function renderStatLine(label, value) {
-        const safeLabel = escapeHtml(String(label));
-        let safeValue;
-
-        if (value == null || value === '') {
-            safeValue = '<span class="text-muted">-</span>';
-        } else if (typeof value === 'number') {
-            safeValue = formatMetricRawValue(value, 6);
-        } else {
-            safeValue = escapeHtml(String(value));
-        }
-
-        return `
-            <div class="d-flex justify-content-between mb-1">
-                <span class="text-muted me-2">${safeLabel}</span>
-                <span class="text-end">${safeValue}</span>
-            </div>
-        `;
     }
 
     // HTML 转义
@@ -1201,11 +1132,11 @@ if (versionParam && versionParam !== 'c4') {
     // 启动自动刷新
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
         
         console.log(`启动自动刷新，每${Biz.taskPolling.getFrequencyText(currentRefreshFrequency)}刷新一次`);
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             console.log('自动刷新任务详情和日志...');
             loadTaskDetail(); // 这会重新加载所有信息，包括日志
         }, currentRefreshFrequency);
@@ -1215,7 +1146,7 @@ if (versionParam && versionParam !== 'c4') {
     function stopAutoRefresh() {
         if (refreshInterval) {
             console.log('停止自动刷新');
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }
@@ -1367,7 +1298,7 @@ if (versionParam && versionParam !== 'c4') {
                 return;
             }
 
-            // sheets：从多行输入收集（逐表附加键 c7_model_version/google_sheet_id 随行保留）
+            // sheets：从多行输入收集（逐表附加键 model_version/google_sheet_id 随行保留）
             const sheets = Biz.configEdit.collectEditSheetsRows();
 
             // 其它参数

@@ -10,6 +10,7 @@ from app.exceptions import NotFoundError, ValidationError
 from app.navigation import sync_navigation_permissions
 from app.repositories import navigation_repository
 from app.services.config_manager import coerce_bool
+from app.utils.formatting import to_beijing_iso
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,8 +32,8 @@ def _menu_item_payload(item):
         "parent_key": item.parent_key or "",
         "sort_order": item.sort_order or 0,
         "is_visible": bool(item.is_visible),
-        "created_at": item.created_at.isoformat() if item.created_at else None,
-        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        "created_at": to_beijing_iso(item.created_at),
+        "updated_at": to_beijing_iso(item.updated_at),
     }
 
 

@@ -12,6 +12,7 @@ from datetime import datetime
 from flask import current_app, has_app_context
 
 from app.repositories import task_log_repository, task_repository
+from app.models import TaskStatus
 from app.utils.task_error_utils import (
     NETWORK_ERROR_PREFIX,
     is_retryable_network_error,

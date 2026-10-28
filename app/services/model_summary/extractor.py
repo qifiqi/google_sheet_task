@@ -11,25 +11,35 @@ from typing import Any
 from flask import has_app_context
 
 from app.constants.c_template_layout import C3_METRIC_CELLS, C4_C5_METRIC_CELLS
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskStatus, TaskType
 from app.services.performance_analysis.historical_metrics import (
     avg_monthly_excess_return_diff,
     collect_summary_all_entries,
     find_all_entry as _all_entry,
-    upgrade_historical_metrics,
 )
+from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import normalize_scientific_text, parse_lenient_json
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
-from app.utils.task_types import normalize_task_type
+from app.utils.task_types import TYPE_BACKTEST_TRAINING, TYPE_GOOGLE_SHEET, TYPE_GOOGLE_SHEET_C4, TYPE_GOOGLE_SHEET_C5, normalize_task_type
 from app.utils.value_parser import parse_int, parse_percent_like
 
 
-SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
-MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
-FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
-ACTIVE_REBUILD_TASK_STATUSES = ("pending", "running")
+# 词汇自 TaskType/TaskStatus 枚举派生（常量收敛 P3），值与历史字面量逐项等价。
+SUPPORTED_TASK_TYPES = (
+    TaskType.GOOGLE_SHEET.value,
+    TaskType.GOOGLE_SHEET_C4.value,
+    TaskType.GOOGLE_SHEET_C5.value,
+    TaskType.BACKTEST_TRAINING.value,
+)
+MODEL_SUMMARY_REBUILD_TASK_TYPE = TaskType.MODEL_SUMMARY_REBUILD.value
+FINISHED_TASK_STATUSES = (
+    TaskStatus.COMPLETED.value,
+    TaskStatus.CANCELLED.value,
+    TaskStatus.ERROR.value,
+)
+ACTIVE_REBUILD_TASK_STATUSES = (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
 
 SUMMARY_COLUMNS = [
     {"key": "return_rate", "label": "Return%", "format": "percent"},
@@ -109,10 +119,10 @@ BACKTEST_SUMMARY_KEY_BY_LABEL = {
 }
 
 TASK_TYPE_LABELS = {
-    "google_sheet": "C3",
-    "google_sheet_C4": "C4",
-    "google_sheet_C5": "C5",
-    "backtest_training": "回测",
+    TaskType.GOOGLE_SHEET.value: "C3",
+    TaskType.GOOGLE_SHEET_C4.value: "C4",
+    TaskType.GOOGLE_SHEET_C5.value: "C5",
+    TaskType.BACKTEST_TRAINING.value: "回测",
 }
 
 
@@ -232,7 +242,7 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
         return period_key
 
     normalized = normalize_task_type(task.task_type)
-    if normalized == "google_sheet":
+    if normalized == TYPE_GOOGLE_SHEET:
         config = parse_lenient_json(task.config, {})
         if isinstance(config, dict):
             period_key = _period_key_from_year_n(config.get("year_n"))
@@ -295,7 +305,7 @@ def _parameter_summary(parameters: Any) -> dict[str, Any]:
         summary = {
             "stock_code": parameters.get("stock_code"),
             "task_name": parameters.get("task_name") or parameters.get("name"),
-            "year": parameters.get("year") or parameters.get("Kline_key"),
+            "year": parameters.get("kline_key"),
             "A1": parameters.get("A1"),
             "B1": parameters.get("B1"),
         }
@@ -324,9 +334,9 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
     text = str(raw_name or "").strip()
     lower_text = text.lower()
     normalized = normalize_task_type(task_type)
-    if "c5" in lower_text or normalized == "google_sheet_c5":
+    if "c5" in lower_text or normalized == TYPE_GOOGLE_SHEET_C5:
         return "C5"
-    if "c4" in lower_text or normalized == "google_sheet_c4":
+    if "c4" in lower_text or normalized == TYPE_GOOGLE_SHEET_C4:
         return "C4"
     return text
 
@@ -454,14 +464,10 @@ def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRe
 
 
 def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float]:
-    """处理_extract_return_analysis_metrics相关逻辑。"""
-    flat_result = payload.get("flat_result")
-    if isinstance(flat_result, dict):
-        payload = {**payload, **flat_result}
-
-    # 历史 TaskResult 仍存旧键名（sotino/excess_sharp/excess_of_promissory_note 等），
-    # 与 _extract_backtest 一致在读取期升级；历史载荷迁移后可移除。
-    payload = upgrade_historical_metrics(payload)
+    """从 metrics_payload.metrics 的读取期投影提取汇总字段。"""
+    metrics_payload = payload.get("metrics_payload") if isinstance(payload, dict) else None
+    metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else None
+    payload = flatten_v1_metrics(metrics)
 
     field_map = {
         "start_monthly_std_dev": "start_monthly_std_dev",
@@ -560,7 +566,7 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
     records = []
     for model_key, raw_metrics in payload.items():
-        if model_key == "flat_result" or not isinstance(raw_metrics, dict):
+        if model_key == "metrics_payload" or not isinstance(raw_metrics, dict):
             continue
 
         return_beats = parse_percent_like(raw_metrics.get("D11"))
@@ -590,7 +596,7 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
             ),
         })
         stock_code = _extract_stock_code(task, parameters)
-        year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
+        year_label = str(parameters.get("kline_key") or "")
         records.append(
             SummaryRecord(
                 task_id=task.id,
@@ -807,12 +813,8 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
         # 统一存储契约：{schema_version, metrics, canonical_metrics}。
         calculate_metrics = core["metrics_payload"].get("metrics")
     else:
-        # TODO: 数据库历史 TaskResult 仍保存 calculate_metrics 旧键，迁移后移除回退。
-        calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
+        calculate_metrics = None
     calculate_metrics = calculate_metrics if isinstance(calculate_metrics, dict) else {}
-    if calculate_metrics:
-        # TODO: 历史载荷字段名（sotino/cumulative_excess 等）迁移后移除该升级。
-        calculate_metrics = upgrade_historical_metrics(calculate_metrics)
     if not calculate_metrics:
         return []
 
@@ -831,7 +833,7 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     if annualized_diff is None:
         annualized_diff = parse_percent_like((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
     stock_code = _extract_stock_code(task, parameters)
-    year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
+    year_label = str(parameters.get("kline_key") or "")
     return [
         SummaryRecord(
             task_id=task.id,
@@ -859,12 +861,12 @@ def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecor
     if not result.success:
         return []
     normalized = normalize_task_type(task.task_type) or str(task.task_type or "")
-    if normalized == "google_sheet":
+    if normalized == TYPE_GOOGLE_SHEET:
         return _extract_c3(task, result)
-    if normalized == "google_sheet_c4":
+    if normalized == TYPE_GOOGLE_SHEET_C4:
         return _extract_c4_c5(task, result)
-    if normalized == "google_sheet_c5":
+    if normalized == TYPE_GOOGLE_SHEET_C5:
         return _extract_c5(task, result)
-    if normalized == "backtest_training":
+    if normalized == TYPE_BACKTEST_TRAINING:
         return _extract_backtest(task, result)
     return []

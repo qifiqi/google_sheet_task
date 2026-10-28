@@ -170,9 +170,7 @@ async function loadTaskResultIndex() {
 async function openWordExportModal() {
     if (!currentTaskId) return showMessage('请先查询任务', 'warning');
     const button = document.getElementById('exportWordBtn');
-    const originalHtml = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>准备中';
+    setButtonBusy(button, true, '准备中…');
     try {
         showMessage('正在读取结果列表…', 'info');
         await loadTaskResultIndex();
@@ -188,8 +186,7 @@ async function openWordExportModal() {
     } catch (error) {
         showMessage(error.message || '读取结果列表失败');
     } finally {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
     }
 }
 
@@ -249,9 +246,7 @@ async function confirmWordExport() {
 
 async function runWordExport(exportable) {
     const button = document.getElementById('exportWordBtn');
-    const originalHtml = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中';
+    setButtonBusy(button, true, '导出中…');
     try {
         // 与多产品全局预览同一个接口（RPT-S），每个结果（股票×年份×参数方案）一个文档，
         // 前端逐个调用、逐个下载；单个失败不中断，最后汇总。
@@ -289,8 +284,7 @@ async function runWordExport(exportable) {
     } catch (error) {
         showMessage(error.message || 'Word 导出失败');
     } finally {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
     }
 }
 
@@ -298,18 +292,22 @@ async function exportPreview() {
     const exportName = document.getElementById('exportNameInput').value.trim();
     const query = exportName ? `?export_name=${encodeURIComponent(exportName)}` : '';
     const button = document.getElementById('exportBtn');
-    button.disabled = true; button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>正在导出';
-    // 此入口的历史契约始终是“按股票拆 Excel，再合并 ZIP”。
-    // 不从首屏预览元数据推断股票数量：首屏只预加载一个年份分组，无法代表整任务。
-    const response = await Api.endpoints.export.globalPreviewStocks(encodeURIComponent(currentTaskId), query);
-    if (!response.ok) { button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出'; return showMessage('导出失败'); }
-    const contentDisposition = response.headers.get('Content-Disposition') || '';
-    const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-    const fallbackFilename = contentDisposition.match(/filename="?([^";]+)"?/i);
-    const downloadName = utf8Filename ? decodeURIComponent(utf8Filename[1]) : (fallbackFilename?.[1] || '导出文件');
-    const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = downloadName; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-    button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出';
+    setButtonBusy(button, true, '导出中…');
+    // try/finally 保证任一步 reject 都恢复按钮，否则网络中断后按钮永久卡在 busy。
+    try {
+        // 此入口的历史契约始终是“按股票拆 Excel，再合并 ZIP”。
+        // 不从首屏预览元数据推断股票数量：首屏只预加载一个年份分组，无法代表整任务。
+        const response = await Api.endpoints.export.globalPreviewStocks(encodeURIComponent(currentTaskId), query);
+        if (!response.ok) { showMessage('导出失败'); return; }
+        const contentDisposition = response.headers.get('Content-Disposition') || '';
+        const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        const fallbackFilename = contentDisposition.match(/filename="?([^";]+)"?/i);
+        const downloadName = utf8Filename ? decodeURIComponent(utf8Filename[1]) : (fallbackFilename?.[1] || '导出文件');
+        const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a');
+        link.href = url; link.download = downloadName; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    } finally {
+        setButtonBusy(button, false);
+    }
 }
 
 document.getElementById('queryForm').addEventListener('submit', queryTask);

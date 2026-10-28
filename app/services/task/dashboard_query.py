@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from app.models import Task
+from app.models import Task, TaskStatus
 from app.repositories import task_repository
+from app.utils.formatting import to_beijing_iso
 
 
 class TaskDashboardQueryService:
@@ -38,7 +39,7 @@ class TaskDashboardQueryService:
             "daily_trend": daily_trend,
             "recent_tasks": [],
             "active_tasks": [],
-            "checked_at": now.isoformat(),
+            "checked_at": to_beijing_iso(now),
         }
 
     def get_recent_task_models(
@@ -58,7 +59,7 @@ class TaskDashboardQueryService:
         return task_repository.list_recent_entities(
             allowed_task_types,
             limit=limit,
-            status="running",
+            status=TaskStatus.RUNNING.value,
         )
 
     def get_status_distribution(self, allowed_task_types: Iterable[str]) -> dict[str, int]:

@@ -98,6 +98,9 @@ class KlineService:
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self._akshare_api = None
+        # 证券名称软解析缓存：命中西"代码+市场"直接复用；空串为负缓存，
+        # 避免东财/yahoo 均无名称的代码每次取数都重复发起搜索。
+        self._resolved_name_cache: dict[tuple[str, str], str] = {}
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
             DATA_SOURCE_DFCF: self._fetch_dfcf,
             DATA_SOURCE_QQ: self._fetch_qq,
@@ -132,10 +135,10 @@ class KlineService:
     ) -> list[dict[str, Any]]:
         """按 price_mode 取价，把 K 线行投影成可直接写入表格的价格序列。
 
-        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close。
+        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close/vwap。
         price_field 为空时按 price_mode 映射价格字段；year 非空按年份过滤（与 int(stock_date[:4]) 直接比较），
         否则 start_date/end_date 任一非空按闭区间过滤；都未传则不过滤。
-        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，
+        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，统一保留 3 位小数，
         random_generator 用于随机价格分组复现同一序列。
         """
         resolved_field = price_field or get_kline_price_field(price_mode)
@@ -153,7 +156,7 @@ class KlineService:
                 lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
                 lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
                 generator = random_generator or random
-                stock_val = generator.uniform(lower, upper)
+                stock_val = round(generator.uniform(lower, upper), 3)
             else:
                 stock_val = kline[resolved_field]
             row = {"stock_date": date, "stock_val": stock_val}
@@ -163,6 +166,7 @@ class KlineService:
                     "high": kline.get("high"),
                     "low": kline.get("low"),
                     "close": kline.get("close"),
+                    "vwap": kline.get("vwap"),
                 })
             projected.append(row)
         return projected
@@ -328,6 +332,7 @@ class KlineService:
         exchange_market: str | None = None,
         stock_name: str | None = None,
         kline_type: str = DAILY_KLINE_TYPE,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         source = self.normalize_data_source(data_source, self.sources)
         raw_code = str(stock_code or "").strip().upper()
@@ -360,6 +365,7 @@ class KlineService:
                 DATA_SOURCE_DATABASE,
                 market_type=market_type,
                 exchange_market=exchange_market,
+                include_vwap=include_vwap,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
             return self._filter_rows_by_date_range(internal_rows, start_date, end_date, limit)
@@ -393,6 +399,7 @@ class KlineService:
             rows, code, resolved_name, source,
             market_type=market_type,
             exchange_market=exchange_market,
+            include_vwap=include_vwap,
         )
         if aggregate_from_daily:
             normalized_rows = self._aggregate_klines(normalized_rows, kline_type)
@@ -436,22 +443,28 @@ class KlineService:
                 code,
             )
         elif source == DATA_SOURCE_YAHOO:
-            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索。
-            exchange, resolved_name, resolved_code = (
+            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索；
+            # 证券名称单独走东财搜索（软失败，Yahoo longName 兜底）。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         elif source in {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}:
             exchange, resolved_name, resolved_code = self._resolve_exchange_and_name(
                 code, market_type, exchange_market, stock_name
             )
         else:
-            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码。
-            exchange, resolved_name, resolved_code = (
+            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码；
+            # 名称与 Yahoo 分支同策略：东财搜索软失败解析，取不到留空。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         handler = self.sources.get(source)
         if handler is None:
@@ -569,6 +582,39 @@ class KlineService:
         if first in {"4", "8"}:
             return market_enum.BJ
         raise ValueError(f"TDX 数据源仅支持 A股场内证券代码: {code}")
+
+    def _resolve_stock_name_soft(
+        self,
+        code: str,
+        market_type: str,
+        exchange_market: str | None = None,
+    ) -> str:
+        """仅解析证券名称的软失败路径（Yahoo/注册源用，不影响代码与交易市场判定）。
+
+        优先东财搜索（含 stock_meta 前置缓存与成功回写），失败回退 Yahoo
+        longName，再取不到返回空串由调用方留空。任何异常都吞掉记日志，
+        取名失败绝不阻断 K 线任务。
+        """
+        market_key = str(market_type or "").strip().lower()
+        cache_key = (str(code or "").strip().upper(), market_key)
+        if cache_key in self._resolved_name_cache:
+            return self._resolved_name_cache[cache_key]
+        name = ""
+        try:
+            name = str(
+                self.stock_search_service.resolve_stock(code, market_type)["name"] or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("东财搜索解析证券名称失败 code=%s market=%s: %s", code, market_type, exc)
+        if not name:
+            try:
+                name = self._get_yahoo_api().get_stock_name(
+                    to_yahoo_ticker(code, market_type, exchange_market)
+                )
+            except Exception as exc:
+                logger.warning("Yahoo 兜底解析证券名称失败 code=%s: %s", code, exc)
+        self._resolved_name_cache[cache_key] = name
+        return name
 
     def _resolve_exchange_and_name(
         self,
@@ -701,6 +747,7 @@ class KlineService:
         source: str,
         market_type: str | None = None,
         exchange_market: str | None = None,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for raw in rows or []:
@@ -746,13 +793,19 @@ class KlineService:
                 amount = float(amount)
             except (TypeError, ValueError):
                 amount = 0.0
-            vwap_raw = raw.get("vwap")
-            try:
-                vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
-                    amount / volume if volume else values["close"]
-                )
-            except (TypeError, ValueError):
-                vwap = values["close"]
+            if not include_vwap:
+                # C1.1 关闭 vwap 开关：不派生加权平均价，行内恒为 None
+                vwap = None
+            else:
+                vwap_raw = raw.get("vwap")
+                try:
+                    vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
+                        amount / volume if volume else values["close"]
+                    )
+                except (TypeError, ValueError):
+                    vwap = values["close"]
+                # 与 dfcf/yf 源及周月聚合口径一致，加权平均价统一保留 3 位小数
+                vwap = round(vwap, 3)
             row.update(
                 {
                     **values,

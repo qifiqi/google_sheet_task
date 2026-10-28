@@ -12,9 +12,16 @@ from flask import Blueprint, g, request
 
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery, \
-    TaskConfigUpdateSchema
+    TaskConfigUpdateSchema, KlineSnapshotPageQuery
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.utils.api_response import error, success
+from app.services.task_kline_snapshot_service import task_kline_snapshot_service
+from app.utils.api_response import (
+    csv_response,
+    csv_stream_response,
+    error,
+    paginated,
+    success,
+)
 from app.utils.request_parsing import parse_body, parse_query
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
@@ -151,10 +158,11 @@ def cancel_task(task_id):
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
 @login_required
 def get_task_logs(task_id):
-    """获取任务日志"""
+    """获取任务日志（可选 after_id：详情页轮询增量拉取该 id 之后的新增日志）"""
     task_manager.get_required_task(task_id)
 
-    logs = task_manager.get_task_logs(task_id)
+    after_id = request.args.get('after_id', type=int)
+    logs = task_manager.get_task_logs(task_id, after_id=after_id)
     return success(data={"logs": logs})
 
 
@@ -200,23 +208,80 @@ def restart_task(task_id):
 @login_required
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
-    task_obj = task_manager.get_required_task_entity(task_id)
+    task_manager.get_required_task_entity(task_id)
 
     new_task_id = task_manager.create_restart_task(task_id)
 
-    if task_manager.start_task(new_task_id):
+    result = task_manager.start_task(new_task_id)
+    if result.started:
         return success(
             data={"new_task_id": new_task_id},
             message="重启任务创建并启动成功",
         )
-    start_error = task_manager.get_start_error(new_task_id)
-    if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
+    if result.queued:
         return success(
             data={"new_task_id": new_task_id, "queued": True},
-            message=start_error,
+            message=result.message,
         )
     return error(
-        f"重启任务创建成功，但启动失败: {start_error}",
+        f"重启任务创建成功，但启动失败: {result.message}",
         http_status=400,
-        data={"new_task_id": new_task_id, "start_error": start_error},
+        data={"new_task_id": new_task_id, "start_error": result.message},
     )
+
+
+@task_api_bp.route('/tasks/<task_id>/kline-snapshots', methods=['GET'])
+@login_required
+def list_task_kline_snapshots(task_id):
+    """任务维度随机K线快照分页列表（不含数组大字段）。"""
+    task_manager.get_required_task(task_id)
+    query = parse_query(KlineSnapshotPageQuery)
+    data = task_kline_snapshot_service.list_task_snapshots(
+        task_id,
+        page=query.page,
+        per_page=query.per_page,
+        stock_code=query.stock_code,
+        random_group=query.random_group,
+    )
+    return paginated(data["items"], data["total"], query.page, query.per_page)
+
+
+@task_api_bp.route('/tasks/<task_id>/kline-snapshots/export', methods=['GET'])
+@login_required
+def export_task_kline_snapshots(task_id):
+    """任务级随机K线快照合并 CSV（流式下载，含 vwap）。"""
+    task_manager.get_required_task(task_id)
+    filename, chunks = task_kline_snapshot_service.export_task_csv(task_id)
+    return csv_stream_response(filename, chunks)
+
+
+@task_api_bp.route('/tasks/<task_id>/kline-snapshots/<int:series_id>', methods=['GET'])
+@login_required
+def get_task_kline_snapshot(task_id, series_id):
+    """任务维度随机K线快照详情；format=csv 时下载完整行。"""
+    task_manager.get_required_task(task_id)
+    detail = task_kline_snapshot_service.get_series_detail(
+        series_id, task_id=task_id
+    )
+    if request.args.get('format', '').strip().lower() == 'csv':
+        filename, text = task_kline_snapshot_service.export_csv(detail)
+        return csv_response(filename, text)
+    return success(data=detail)
+
+
+@task_api_bp.route(
+    '/tasks/<task_id>/kline-snapshots/<int:series_id>/results',
+    methods=['GET'],
+)
+@login_required
+def list_task_kline_snapshot_results(task_id, series_id):
+    """随机K线序列被哪些任务结果使用（审计反查，分页）。"""
+    task_manager.get_required_task(task_id)
+    query = parse_query(KlineSnapshotPageQuery)
+    data = task_kline_snapshot_service.list_series_results(
+        series_id,
+        task_id=task_id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    return paginated(data["items"], data["total"], query.page, query.per_page)

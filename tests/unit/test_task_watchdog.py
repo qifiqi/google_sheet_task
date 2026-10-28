@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
 
 from app.extensions import db
+from app.exceptions import ConflictError
 from app.models import Task, TaskLog
 from app.services import task_watchdog as watchdog_module
+from app.services.task.runtime import TaskStartResult
 from app.services.task_watchdog import (
     REASON_LOG_TIMEOUT,
     REASON_RETRYABLE_NETWORK_ERROR,
@@ -14,11 +16,12 @@ from app.services.task_watchdog import (
 from app.utils.task_error_utils import NETWORK_ERROR_PREFIX, WATCHDOG_RESTART_PREFIX
 
 
-def _task(task_id, *, status, error_message=None, created_at=None, start_time=None):
+def _task(task_id, *, status, error_message=None, created_at=None, start_time=None,
+          task_type="google_sheet"):
     return Task(
         id=task_id,
         name=task_id,
-        task_type="google_sheet",
+        task_type=task_type,
         status=status,
         error_message=error_message,
         created_at=created_at or datetime.now(),
@@ -41,17 +44,22 @@ class _FakeTaskManager:
     def restart_task(self, task_id, resume_from_checkpoint=True):
         self.restarts.append((task_id, resume_from_checkpoint))
         # 与真实 TaskManager.restart_task 契约一致：重启前先把任务重置为 pending，
+        # 成功返回信息 dict（无 status 键），失败抛领域异常；
         # 看门狗随后通过 _mark_restart_running 将其同步为 running。
         task = db.session.get(Task, task_id)
         if task:
             task.status = "pending"
             task.error_message = None
             db.session.commit()
-        return {"status": "success"}
+        return {
+            "message": "任务重启成功",
+            "restart_from_step": 0,
+            "restart_reason": "任务执行出错",
+        }
 
     def start_task(self, task_id):
         self.started.append(task_id)
-        return True
+        return TaskStartResult(status="started")
 
     def get_start_error(self, task_id):
         return "start failed"
@@ -62,7 +70,7 @@ class _FakeTaskManager:
         self.task_stop_events.pop(task_id, None)
         return handle
 
-    def release_backtest_sheet_locks(self, task_id):
+    def release_sheet_execution_locks(self, task_id):
         pass
 
     def release_task_token_occupancy(self, task_id):
@@ -75,12 +83,33 @@ class _FakeTaskManager:
 class _FailingRestartTaskManager(_FakeTaskManager):
     def restart_task(self, task_id, resume_from_checkpoint=True):
         self.restarts.append((task_id, resume_from_checkpoint))
+        # 与真实契约一致：重启前先置 pending，随后抛领域异常表达失败。
         task = db.session.get(Task, task_id)
         if task:
             task.status = "pending"
             task.error_message = None
             db.session.commit()
-        return {"status": "error", "message": "queue full"}
+        raise ConflictError("任务重启失败: queue full")
+
+
+class _QueuedRestartTaskManager(_FakeTaskManager):
+    def restart_task(self, task_id, resume_from_checkpoint=True):
+        self.restarts.append((task_id, resume_from_checkpoint))
+        # 回测 sheet 被占的排队路径：任务保持 pending 等接力启动。
+        task = db.session.get(Task, task_id)
+        if task:
+            task.status = "pending"
+            task.error_message = None
+            db.session.commit()
+        return {
+            "message": "同一个 Google Sheet 已有回测任务正在运行，"
+                       f"当前任务保持待执行: other-task",
+            "start_error": "同一个 Google Sheet 已有回测任务正在运行，"
+                           "当前任务保持待执行: other-task",
+            "task_id": task_id,
+            "queued": True,
+            "restart_from_step": 3,
+        }
 
 
 def test_watchdog_fetches_only_recent_relevant_tasks(app_factory):
@@ -188,6 +217,72 @@ def test_watchdog_retryable_network_error_uses_checkpoint_restart(app_factory, m
         assert fake_manager.restarts == [("network", True)]
         assert db.session.get(Task, "network").status == "running"
         assert watchdog._read_cached_retry_attempts("network") == 1
+
+
+def test_watchdog_restart_success_publishes_running_without_failure_mark(app_factory, monkeypatch):
+    """回归（37f73ec9 事故）：重启成功不得被旧契约判断误标为失败。
+
+    真实 restart_task 契约：成功返回无 status 键的信息 dict，失败抛领域异常。
+    曾因 result.get("status") 恒为 None，成功重启被写回 error 并烧光重试次数，
+    最终把正在运行的任务标记为"已放弃"。
+    """
+    app = app_factory
+    fake_manager = _FakeTaskManager()
+    with app.app_context():
+        task = _task("network", status="error", error_message=f"{NETWORK_ERROR_PREFIX} timeout")
+        db.session.add(task)
+        db.session.commit()
+
+        watchdog = TaskWatchdog()
+        monkeypatch.setattr(watchdog_module, "task_manager", fake_manager)
+
+        watchdog._restart_error_task(
+            task,
+            REASON_RETRYABLE_NETWORK_ERROR,
+            max_attempts=3,
+        )
+
+        assert fake_manager.restarts == [("network", True)]
+        refreshed = db.session.get(Task, "network")
+        assert refreshed.status == "running"
+        assert "watchdog 自动重启失败" not in (refreshed.error_message or "")
+        assert WATCHDOG_ABANDON_PREFIX not in (refreshed.error_message or "")
+        assert all(
+            level != "error" for _, level, _ in fake_manager.logs
+        )
+        assert watchdog._read_cached_retry_attempts("network") == 1
+
+
+def test_watchdog_restart_queued_keeps_pending_for_relay(app_factory, monkeypatch):
+    """回测 sheet 被占时 restart_task 返回 queued：任务保持 pending 等接力启动，
+    不标 running、不记失败。"""
+    app = app_factory
+    fake_manager = _QueuedRestartTaskManager()
+    with app.app_context():
+        task = _task(
+            "backtest-err",
+            status="error",
+            error_message=f"{NETWORK_ERROR_PREFIX} timeout",
+            task_type="backtest_training",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        watchdog = TaskWatchdog()
+        monkeypatch.setattr(watchdog_module, "task_manager", fake_manager)
+
+        watchdog._restart_error_task(
+            task,
+            REASON_RETRYABLE_NETWORK_ERROR,
+            max_attempts=3,
+        )
+
+        assert fake_manager.restarts == [("backtest-err", True)]
+        refreshed = db.session.get(Task, "backtest-err")
+        assert refreshed.status == "pending"
+        assert "watchdog 自动重启失败" not in (refreshed.error_message or "")
+        assert "watchdog 已放弃自动重启" not in (refreshed.error_message or "")
+        assert watchdog._read_cached_retry_attempts("backtest-err") == 1
 
 
 def test_watchdog_plain_error_uses_checkpoint_restart(app_factory, monkeypatch):

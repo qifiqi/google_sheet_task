@@ -9,7 +9,9 @@
 - 所有业务数据一律放 data（键名不变），无顶层平铺机制、无迁移双轨；
 - code 与 http_status 分离：error 未显式传 code 时自动等于 http_status，业务码可显式覆盖。
 """
-from flask import jsonify
+from urllib.parse import quote
+
+from flask import Response, jsonify, stream_with_context
 
 
 def success(data=None, message="", http_status=200):
@@ -41,4 +43,34 @@ def paginated(items, total, page, per_page, message=""):
             "per_page": per_page,
         },
         message=message,
+    )
+
+
+def csv_response(filename, text):
+    """CSV 文件下载响应；HTTP 头仅放 ASCII 回退名，实际文件名走 RFC 5987。"""
+    encoded_name = quote(str(filename or "download.csv"), safe="")
+    return Response(
+        text,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="download.csv"; '
+                f"filename*=UTF-8''{encoded_name}"
+            ),
+        },
+    )
+
+
+def csv_stream_response(filename, chunks):
+    """流式 CSV 下载响应（任务级批量导出）；文件名头规则同 csv_response。"""
+    encoded_name = quote(str(filename or "download.csv"), safe="")
+    return Response(
+        stream_with_context(chunks),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="download.csv"; '
+                f"filename*=UTF-8''{encoded_name}"
+            ),
+        },
     )

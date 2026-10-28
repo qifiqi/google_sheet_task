@@ -2,7 +2,8 @@
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
 const STOCK_SEARCH_DEBOUNCE_MS = 1000;
-const DEFAULT_C3_COMMISSION = '0.0350%';
+// C3 默认佣金镜像后端（common/contract-constants.js，改契约两侧同批）。
+const DEFAULT_C3_COMMISSION = window.BizConstants.DEFAULT_C3_COMMISSION;
 const FIELD_MAP = {
     c7: [
         { key: 'xm', label: 'X Multiplier (xm)' },
@@ -1118,7 +1119,7 @@ async function createTask() {
             title: sheetTitle
         };
         if (resolveModelVersion(currentModelVersion) === 'c7') {
-            sheetConfig.c7_model_version = currentC7ModelVersion;
+            sheetConfig.model_version = currentC7ModelVersion;
         }
         if (selectedGoogleSheetId) {
             sheetConfig.google_sheet_id = selectedGoogleSheetId;

@@ -5,14 +5,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google_task:1.0.7
+    image: google_task:1.1.3
     restart: unless-stopped
     init: true
     # nginx 暂时停用：app 直接对外 8081。
     # 将来启用 nginx 时：改回 expose "5000" + 回环调试口 "127.0.0.1:8082:5000"，
     # 并整体放开下方 nginx 服务块，把 8081 让给 nginx。
     ports:
-      - "8081:5000"
+      - "80:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -21,6 +21,11 @@ services:
       FLASK_DEBUG: "false"
       MPLCONFIGDIR: /tmp/matplotlib
       HOME: /tmp
+      # 任务线程大块分配后，glibc 会为每个 arena 各留一份峰值（并发 N 个任务就留 N 份）；
+      # 限制 arena 数让并发任务复用同一批 heap，收尾再由 malloc_trim 归还（见 app/utils/process_memory.py）
+      MALLOC_ARENA_MAX: "2"
+      # 容器间时间统一上海（镜像内 Dockerfile 也设了 TZ，此处兜底）
+      TZ: Asia/Shanghai
     env_file:
       - .env.production
       - .env
@@ -64,7 +69,7 @@ services:
   #   build:
   #     context: ..
   #     dockerfile: dockers/Dockerfile.nginx
-  #   image: google_nginx:1.0.7
+  #   image: google_nginx:1.1.3
   #   restart: unless-stopped
   #   ports:
   #     - "8081:80"
@@ -109,14 +114,18 @@ services:
     ports:
       - "127.0.0.1:3306:3306"
     environment:
-      # 密码不入库：dockers/.env（样例见 .env.example）注入；缺失时 compose 直接报错，不落明文
+      # 密码不入库：dockers/.env（样例见 .env.example）注入；缺失时 compose 直接报错，不落明文。
+      # 应用侧 DATABASE_URL（.env.production，同样不入库）的密码须与其一致
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?请在 dockers/.env 设置 MYSQL_ROOT_PASSWORD}"
       # Navicat/SQL 文件恢复时数据进入该库
       MYSQL_DATABASE: googlesheet_validator
+      TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
       - --max-allowed-packet=64M
+      # 数据库时间统一上海（UTC+8）；已有 datetime 数据是字面值不受影响
+      - --default-time-zone=+08:00
     volumes:
       - /opt/google_task/mysqldata:/var/lib/mysql
     healthcheck:

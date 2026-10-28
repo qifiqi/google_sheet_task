@@ -463,3 +463,82 @@ def test_week_kline_is_native_for_dfcf_without_aggregation():
     # 原生源直传周K：条数不放大、kline_type 透传 102
     assert dfcf.calls[-1][2] == 5
     assert dfcf.calls[-1][3]["kline_type"] == "102"
+
+
+class _YahooApi:
+    def __init__(self, name=""):
+        self._name = name
+        self.name_calls = []
+
+    def get_kline_data(self, ticker, *args, **kwargs):
+        return _rows("2024-01-01", "2024-01-31")
+
+    def get_stock_name(self, ticker):
+        self.name_calls.append(ticker)
+        return self._name
+
+
+def _prepare_us_yahoo_service(service, yahoo_api):
+    service.yahoo_api = yahoo_api
+    # 美股不走内部K线库，显式隔离避免测试环境差异
+    service.read_internal_kline_data = lambda **_kwargs: []
+    service.write_internal_kline_data = lambda *args, **kwargs: None
+
+
+def _fetch_us_yahoo(service):
+    return service.get_kline_data(
+        "AAPL.US", "en", 100, data_source="yahoo",
+        start_date="2024-01-01", end_date="2024-01-31",
+    )
+
+
+def test_yahoo_source_resolves_stock_name_via_dfcf_search():
+    service = KlineService(dfcf_api=_DfcfApi())
+    _prepare_us_yahoo_service(service, _YahooApi())
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {"Apple"}
+
+
+def test_yahoo_source_falls_back_to_yahoo_long_name_when_search_fails():
+    dfcf = _DfcfApi()
+    dfcf.get_search_list_by_stock_code = lambda code, size: {"error": "上游不可用"}
+    service = KlineService(dfcf_api=dfcf)
+    _prepare_us_yahoo_service(service, _YahooApi(name="Invesco QQQ Trust"))
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {"Invesco QQQ Trust"}
+
+
+def test_yahoo_source_keeps_empty_name_when_all_resolvers_fail():
+    dfcf = _DfcfApi()
+    dfcf.get_search_list_by_stock_code = lambda code, size: {"error": "上游不可用"}
+    service = KlineService(dfcf_api=dfcf)
+    _prepare_us_yahoo_service(service, _YahooApi(name=""))
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {""}
+
+
+def test_stock_name_soft_resolver_caches_result_per_code_and_market():
+    dfcf = _DfcfApi()
+    search_calls = []
+
+    def _search(stock_code, page_size):
+        search_calls.append(stock_code)
+        return [{"code": stock_code, "market": "105", "shortName": "Apple"}]
+
+    dfcf.get_search_list_by_stock_code = _search
+    service = KlineService(dfcf_api=dfcf)
+
+    first = service._resolve_stock_name_soft("AAPL.US", "en")
+    second = service._resolve_stock_name_soft("AAPL.US", "en")
+
+    assert first == second == "Apple"
+    assert len(search_calls) == 1  # 第二次命中进程内缓存，不再发起搜索

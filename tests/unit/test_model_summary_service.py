@@ -15,6 +15,40 @@ from app.services.model_summary_service import (
 )
 
 
+def _metrics(metrics):
+    return {"metrics_payload": {"metrics": metrics}}
+
+
+def _flat_metrics(flat):
+    metrics = dict(flat)
+    annualized_diff = metrics.pop("annualized_return_diff", None)
+    if annualized_diff is not None and not metrics.get("excess_returns"):
+        metrics["excess_returns"] = [
+            {"year": "all", "annualized_return_diff": annualized_diff}
+        ]
+    for prefix in ("start", "index"):
+        sharpe = metrics.pop(f"{prefix}_sharpe_ratio", None)
+        monthly = metrics.pop(f"{prefix}_monthly_std_dev", None)
+        annual = metrics.pop(f"{prefix}_annual_std_dev", None)
+        values = {
+            key: value
+            for key, value in (
+                ("sharpe_ratio", sharpe),
+                ("monthly_std_dev", monthly),
+                ("annual_std_dev", annual),
+            )
+            if value is not None
+        }
+        if values:
+            metrics.setdefault(f"{prefix}_sharpe_ratios", {})["all"] = values
+    if "monthly_excess_return_percentage_last_return" in metrics:
+        value = metrics.pop("monthly_excess_return_percentage_last_return")
+        metrics["monthly_excess_return_percentage"] = [
+            {"year": "all", "excess_return": value}
+        ]
+    return _metrics(metrics)
+
+
 class _User:
     def get_permissions(self):
         return {"task:view", "google_sheet:c3", "google_sheet:c4", "google_sheet:c5", "backtest:view"}
@@ -122,13 +156,15 @@ def test_extract_c3_includes_saved_return_analysis_metrics():
         result={
             "I15": "1%",
             "I18": "0%",
-            "annualized_return_diff": "4%",
-            "monthly_excess_return_percentage_last_return": "55%",
-            "excess_sharpe": "0.88",
-            "start_profit_annual": "70%",
-            "index_profit_annual": "50%",
-            "start_maximum_number_of_backtest_repair_days": "33",
-            "excess_sortino": "0.77",
+            **_metrics({
+                "excess_returns": [{"year": "all", "annualized_return_diff": "4%"}],
+                "monthly_excess_return_percentage": [{"year": "all", "excess_return": "55%"}],
+                "excess_sharpe": "0.88",
+                "start_profit_annual": "70%",
+                "index_profit_annual": "50%",
+                "start_maximum_number_of_backtest_repair_days": "33",
+                "excess_sortino": "0.77",
+            }),
         },
     )
 
@@ -149,8 +185,7 @@ def test_extract_c3_includes_nested_flat_result_metrics():
         result={
             "I15": "1%",
             "I18": "0%",
-            "analyze_result": {"monthly_excess_returns": []},
-            "flat_result": {
+                        **_flat_metrics({
                 "annualized_return_diff": "4%",
                 "monthly_excess_return_percentage_last_return": "55%",
                 "excess_sharpe": "0.88",
@@ -158,7 +193,7 @@ def test_extract_c3_includes_nested_flat_result_metrics():
                 "index_profit_annual": "50%",
                 "start_maximum_number_of_backtest_repair_days": "33",
                 "excess_sortino": "0.77",
-            },
+            }),
         },
     )
 
@@ -176,13 +211,13 @@ def test_extract_c3_includes_nested_flat_result_metrics():
 def test_extract_c5_uses_returnbeats_with_fallback():
     task = _task(task_type="google_sheet_C5", name="普通 C5 任务")
     result = _result(
-        parameters={"stock_code": "AAPL", "A1": "1.8", "B1": "4", "year": "2025-2024"},
+        parameters={"stock_code": "AAPL", "A1": "1.8", "B1": "4", "kline_key": "2025-2024"},
         result={
             "sheet__model": {
                 "D2": "20%",
                 "D5": "8%",
                 "D11": "",
-                "start_return_xpl": {"sharpe_ratio": 2.1},
+                **_metrics({"start_sharpe_ratios": {"all": {"sharpe_ratio": 2.1}}}),
             }
         },
     )
@@ -199,20 +234,26 @@ def test_extract_c5_uses_returnbeats_with_fallback():
 def test_extract_c5_maps_nested_xpl_sharpe_ratios_to_summary_metrics():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "year": "2026-2023"},
+        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "kline_key": "2026-2023"},
         result={
             "sheet__C5.v20260105-回测-hlg-001": {
                 "D2": "22.93%",
                 "D5": "21.31%",
                 "D11": "0.47%",
-                "index_return_xpl": {
-                    "sharpe_ratio": "0.4041930158167997",
-                    "avg_monthly_return": "0.00693797342048926",
-                },
-                "start_return_xpl": {
-                    "sharpe_ratio": "0.5363163004510634",
-                    "avg_monthly_return": "0.006440432118344072",
-                },
+                **_metrics({
+                    "index_sharpe_ratios": {
+                        "all": {
+                            "sharpe_ratio": "0.4041930158167997",
+                            "avg_monthly_return": "0.00693797342048926",
+                        }
+                    },
+                    "start_sharpe_ratios": {
+                        "all": {
+                            "sharpe_ratio": "0.5363163004510634",
+                            "avg_monthly_return": "0.006440432118344072",
+                        }
+                    },
+                }),
             }
         },
     )
@@ -227,19 +268,18 @@ def test_extract_c5_maps_nested_xpl_sharpe_ratios_to_summary_metrics():
 def test_extract_c4_reads_nested_flat_result_metrics():
     task = _task(task_type="google_sheet_C4", name="C4-600776-东方通信")
     result = _result(
-        parameters={"stock_code": "600776", "year": "2026-2023"},
+        parameters={"stock_code": "600776", "kline_key": "2026-2023"},
         result={
             "sheet__C4.v20260105-回测-hlg-001": {
                 "D2": "22.93%",
                 "D5": "21.31%",
                 "D11": "0.47%",
-                "analyze_result": {"monthly_excess_returns": []},
-                "flat_result": {
+                                **_flat_metrics({
                     "annualized_return_diff": "4%",
                     "start_sharpe_ratio": "0.5363163004510634",
                     "index_sharpe_ratio": "0.4041930158167997",
                     "excess_sharpe": "0.88",
-                },
+                }),
             }
         },
     )
@@ -257,16 +297,16 @@ def test_extract_c4_reads_nested_flat_result_metrics():
 def test_extract_c5_keeps_flat_result_sharpe_without_xpl_payload():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "year": "2026-2023"},
+        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "kline_key": "2026-2023"},
         result={
             "sheet__C5.v20260105-回测-hlg-001": {
                 "D2": "22.93%",
                 "D5": "21.31%",
                 "D11": "0.47%",
-                "flat_result": {
+                **_flat_metrics({
                     "start_sharpe_ratio": "0.5363163004510634",
                     "index_sharpe_ratio": "0.4041930158167997",
-                },
+                }),
             }
         },
     )
@@ -305,7 +345,7 @@ def test_extract_c4_displays_model_key_containing_c4_as_c4():
 def test_extract_c4_maps_d2_to_d20_metric_cells():
     task = _task(task_type="google_sheet_C4", name="C4-600519-贵州茅台")
     result = _result(
-        parameters={"stock_code": "600519", "year": "2025-2024"},
+        parameters={"stock_code": "600519", "kline_key": "2025-2024"},
         result={
             "sheet__model": {
                 "D2": "1%",
@@ -345,17 +385,28 @@ def test_extract_c4_maps_d2_to_d20_metric_cells():
 def test_extract_c5_includes_saved_return_analysis_metrics():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+        parameters={"A1": "1.8", "B1": "4", "kline_key": "2025-2024"},
         result={
             "sheet__model": {
                 "D2": "20%",
                 "D11": "15%",
-                "annualized_return_diff": "6%",
-                "monthly_excess_return_percentage_last_return": "66%",
-                "excess_sharpe": "1.23",
-                "start_kama_ratio": "2.2",
-                "index_sortino_ratio": "1.1",
-                "max_drawdown": "-8%",
+                **_metrics({
+                    "excess_returns": [
+                        {"year": "all", "annualized_return_diff": "6%"},
+                        {"year": 2025, "annualized_return_diff": 0.01},
+                    ],
+                    "monthly_excess_return_percentage": [{"year": "all", "excess_return": "66%"}],
+                    "excess_sharpe": "1.23",
+                    "start_kama_ratio": [{"year": "all", "kama_ratio": "2.2"}],
+                    "index_sortino_ratio": [{"year": "all", "sortino_ratio": "1.1"}],
+                    "start_maximum_drawdown": {
+                        "total_maximum_drawdown": {"drawdown": "-8%"},
+                        "year_maximum_drawdown": [{"year": 2025, "drawdown": 0.02}],
+                    },
+                    "index_maximum_drawdown": {
+                        "year_maximum_drawdown": [{"year": 2025, "drawdown": 0.10}],
+                    },
+                }),
             }
         },
     )
@@ -370,17 +421,19 @@ def test_extract_c5_includes_saved_return_analysis_metrics():
     assert rows[0].metrics["max_drawdown_analysis"] == -0.08
 
 
-def test_extract_c5_upgrades_legacy_sortino_key_names():
+def test_extract_c5_reads_canonical_sortino_keys():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+        parameters={"A1": "1.8", "B1": "4", "kline_key": "2025-2024"},
         result={
             "sheet__model": {
                 "D11": "15%",
-                "excess_sharp": "1.73",
-                "excess_of_promissory_note": "6.75",
-                "start_sotino_ratio": "10.56",
-                "index_sotino_ratio": "0.77",
+                **_metrics({
+                    "excess_sharpe": "1.73",
+                    "excess_sortino": "6.75",
+                    "start_sortino_ratio": [{"year": "all", "sortino_ratio": "10.56"}],
+                    "index_sortino_ratio": [{"year": "all", "sortino_ratio": "0.77"}],
+                }),
             }
         },
     )
@@ -398,7 +451,7 @@ def test_extract_c5_upgrades_legacy_sortino_key_names():
 def test_extract_c5_falls_back_to_prefixed_task_name_when_stock_code_missing():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+        parameters={"A1": "1.8", "B1": "4", "kline_key": "2025-2024"},
         result={"sheet__model": {"D11": "15%"}},
     )
 
@@ -410,7 +463,7 @@ def test_extract_c5_falls_back_to_prefixed_task_name_when_stock_code_missing():
 def test_extract_c5_prefers_parameter_stock_code_before_task_name():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(
-        parameters={"stock_code": "qqq", "year": 2022, "A1": 3.5, "B1": 3},
+        parameters={"stock_code": "qqq", "kline_key": 2022, "A1": 3.5, "B1": 3},
         result={"sheet__model": {"D11": "15%"}},
     )
 
@@ -422,10 +475,10 @@ def test_extract_c5_prefers_parameter_stock_code_before_task_name():
 def test_extract_backtest_uses_global_preview_model_value_columns():
     task = _task(task_type="backtest_training", name="回测任务")
     result = _result(
-        parameters={"stock_code": "600519", "year": "2025-2024"},
+        parameters={"stock_code": "600519", "kline_key": "2025-2024"},
         result={
             "sheet": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [
                         {
                             "year": "all",
@@ -458,7 +511,7 @@ def test_extract_backtest_uses_global_preview_model_value_columns():
                     "start_sortino_ratio": [{"year": "all", "sortino_ratio": 1.7}],
                     "excess_sharpe": 0.88,
                     "excess_sortino": 0.77,
-                }
+                }}
             }
         },
     )
@@ -478,10 +531,10 @@ def test_extract_backtest_uses_global_preview_model_value_columns():
 def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_format_fails(monkeypatch):
     task = _task(task_type="backtest_training", name="C5-NVDA")
     result = _result(
-        parameters={"stock_code": "NVDA", "parameter": [3, 3.5], "year": 2026},
+        parameters={"stock_code": "NVDA", "parameter": [3, 3.5], "kline_key": 2026},
         result={
             "sheet": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [
                         {
                             "year": "all",
@@ -500,7 +553,7 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
                     "start_kama_ratio": [{"year": "all", "kama_ratio": 2.1}],
                     "start_sortino_ratio": [{"year": "all", "sortino_ratio": 1.9}],
                     "excess_sharpe": 1.2,
-                }
+                }}
             }
         },
     )
@@ -524,10 +577,10 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
 def test_extract_backtest_uses_parameter_stock_code_when_task_name_has_rerun_suffix():
     task = _task(task_type="backtest_training", name="威腾电气 (近5年重跑)")
     result = _result(
-        parameters={"stock_code": "688226", "parameter": ["5", "5"], "year": 2025},
+        parameters={"stock_code": "688226", "parameter": ["5", "5"], "kline_key": 2025},
         result={
             "sheet": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [
                         {
                             "year": "all",
@@ -537,7 +590,7 @@ def test_extract_backtest_uses_parameter_stock_code_when_task_name_has_rerun_suf
                             "annualized_return_diff": 0.04,
                         }
                     ]
-                }
+                }}
             }
         },
     )
@@ -550,10 +603,10 @@ def test_extract_backtest_uses_parameter_stock_code_when_task_name_has_rerun_suf
 def test_extract_backtest_strips_brackets_from_task_name_when_stock_code_missing():
     task = _task(task_type="backtest_training", name="威腾电气 [近5年重跑]")
     result = _result(
-        parameters={"parameter": ["5", "5"], "year": 2025},
+        parameters={"parameter": ["5", "5"], "kline_key": 2025},
         result={
             "sheet": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [
                         {
                             "year": "all",
@@ -563,7 +616,7 @@ def test_extract_backtest_strips_brackets_from_task_name_when_stock_code_missing
                             "annualized_return_diff": 0.04,
                         }
                     ]
-                }
+                }}
             }
         },
     )
@@ -657,7 +710,7 @@ def test_rebuild_prefers_explicit_c3_year_over_task_name_period(app_factory):
         db.session.add(_result(
             task_id="task-c3-explicit",
             result_id=123,
-            parameters={"year": 2026, "stock_code": "XME"},
+            parameters={"kline_key": 2026, "stock_code": "XME"},
             result={"I15": 0.2, "I18": 0.05},
         ))
         db.session.commit()
@@ -675,19 +728,19 @@ def test_rebuild_keeps_one_best_row_per_task_period(app_factory):
         db.session.add(_result(
             task_id="task-c5-periods",
             result_id=130,
-            parameters={"stock_code": "600776", "year": "2026-2025", "A1": 1, "B1": 2},
+            parameters={"stock_code": "600776", "kline_key": "2026-2025", "A1": 1, "B1": 2},
             result={"sheet__model-a": {"D11": "10%"}},
         ))
         db.session.add(_result(
             task_id="task-c5-periods",
             result_id=131,
-            parameters={"stock_code": "600776", "year": "2026-2025", "A1": 2, "B1": 2},
+            parameters={"stock_code": "600776", "kline_key": "2026-2025", "A1": 2, "B1": 2},
             result={"sheet__model-a": {"D11": "18%"}},
         ))
         db.session.add(_result(
             task_id="task-c5-periods",
             result_id=132,
-            parameters={"stock_code": "600776", "year": "2026-2023", "A1": 3, "B1": 2},
+            parameters={"stock_code": "600776", "kline_key": "2026-2023", "A1": 3, "B1": 2},
             result={"sheet__model-a": {"D11": "12%"}},
         ))
         db.session.commit()
@@ -718,13 +771,13 @@ def test_query_period_filter_matches_c3_fallback_and_c5_year(app_factory):
         db.session.add(_result(
             task_id="task-c5-1y",
             result_id=142,
-            parameters={"stock_code": "600776", "year": "2026-2025"},
+            parameters={"stock_code": "600776", "kline_key": "2026-2025"},
             result={"sheet__model-a": {"D11": "30%"}},
         ))
         db.session.add(_result(
             task_id="task-c5-3y",
             result_id=143,
-            parameters={"stock_code": "600519", "year": "2026-2023"},
+            parameters={"stock_code": "600519", "kline_key": "2026-2023"},
             result={"sheet__model-a": {"D11": "35%"}},
         ))
         db.session.commit()
@@ -751,13 +804,13 @@ def test_query_period_filter_matches_full_year(app_factory):
         db.session.add(_result(
             task_id="task-c5-full",
             result_id=144,
-            parameters={"stock_code": "600776", "year": 2026},
+            parameters={"stock_code": "600776", "kline_key": 2026},
             result={"sheet__model-a": {"D11": "30%"}},
         ))
         db.session.add(_result(
             task_id="task-c5-other",
             result_id=145,
-            parameters={"stock_code": "600519", "year": 2025},
+            parameters={"stock_code": "600519", "kline_key": 2025},
             result={"sheet__model-a": {"D11": "35%"}},
         ))
         db.session.commit()
@@ -780,13 +833,13 @@ def test_stock_summary_compares_across_periods_after_optional_period_filter(app_
         db.session.add(_result(
             task_id="task-600776",
             result_id=150,
-            parameters={"stock_code": "600776", "year": "2026-2025"},
+            parameters={"stock_code": "600776", "kline_key": "2026-2025"},
             result={"sheet__model-a": {"D11": "10%"}},
         ))
         db.session.add(_result(
             task_id="task-600776",
             result_id=151,
-            parameters={"stock_code": "600776", "year": "2026-2023"},
+            parameters={"stock_code": "600776", "kline_key": "2026-2023"},
             result={"sheet__model-a": {"D11": "40%"}},
         ))
         db.session.commit()
@@ -866,19 +919,19 @@ def test_query_all_results_fuzzy_matches_task_name_before_loading_results(app_fa
         db.session.add(_result(
             task_id="task-a",
             result_id=23,
-            parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+            parameters={"A1": "1.8", "B1": "4", "kline_key": "2025-2024"},
             result={"sheet__model-a": {"D11": "15%"}},
         ))
         db.session.add(_result(
             task_id="task-a",
             result_id=24,
-            parameters={"A1": "2.0", "B1": "4", "year": "2025-2024"},
+            parameters={"A1": "2.0", "B1": "4", "kline_key": "2025-2024"},
             result={"sheet__model-a": {"D11": "18%"}},
         ))
         db.session.add(_result(
             task_id="task-b",
             result_id=25,
-            parameters={"A1": "2.0", "B1": "4", "year": "2025-2024"},
+            parameters={"A1": "2.0", "B1": "4", "kline_key": "2025-2024"},
             result={"sheet__model-b": {"D11": "30%"}},
         ))
         db.session.commit()
@@ -1076,13 +1129,13 @@ def test_export_csv_applies_period_filter(app_factory):
         db.session.add(_result(
             task_id="task-c5",
             result_id=170,
-            parameters={"stock_code": "600776", "year": "2026-2025"},
+            parameters={"stock_code": "600776", "kline_key": "2026-2025"},
             result={"sheet__model-a": {"D11": "10%"}},
         ))
         db.session.add(_result(
             task_id="task-c5",
             result_id=171,
-            parameters={"stock_code": "600776", "year": "2026-2023"},
+            parameters={"stock_code": "600776", "kline_key": "2026-2023"},
             result={"sheet__model-a": {"D11": "40%"}},
         ))
         db.session.commit()
@@ -1191,7 +1244,7 @@ def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
         db.session.add(_result(
             task_id="task-c5",
             result_id=27,
-            parameters={"stock_code": "002916", "year": 2025, "A1": 11, "B1": 3},
+            parameters={"stock_code": "002916", "kline_key": 2025, "A1": 11, "B1": 3},
             result={"sheet__model": {"D11": "18%"}},
         ))
         db.session.commit()
@@ -1242,7 +1295,7 @@ def test_export_csv_preserves_backtest_display_metrics(app_factory):
             parameters={"stock_code": "000001"},
             result={
                 "sheet": {
-                    "calculate_metrics": {
+                    "metrics_payload": {"metrics": {
                         "excess_returns": [
                             {
                                 "year": "all",
@@ -1251,7 +1304,7 @@ def test_export_csv_preserves_backtest_display_metrics(app_factory):
                             }
                         ],
                         "start_profit_annual": 0.7,
-                    }
+                    }}
                 }
             },
         ))
@@ -1366,7 +1419,7 @@ def test_query_all_excludes_backtest_until_backtest_type_selected(app_factory):
             parameters={"stock_code": "000001"},
             result={
                 "sheet": {
-                    "calculate_metrics": {
+                    "metrics_payload": {"metrics": {
                         "excess_returns": [
                             {
                                 "year": "all",
@@ -1374,7 +1427,7 @@ def test_query_all_excludes_backtest_until_backtest_type_selected(app_factory):
                                 "annualized_return_diff": 0.04,
                             }
                         ]
-                    }
+                    }}
                 }
             },
         ))

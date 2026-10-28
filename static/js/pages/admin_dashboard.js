@@ -231,6 +231,6 @@
             const interval = (data && data.data.config && data.data.config.dashboard_refresh_interval)
                 ? data.data.config.dashboard_refresh_interval
                 : 30000;
-            dashboardRefreshTimer = setInterval(loadDashboard, interval);
+            dashboardRefreshTimer = setIntervalVisible(loadDashboard, interval);
         });
     });

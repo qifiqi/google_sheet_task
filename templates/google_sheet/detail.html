@@ -195,7 +195,7 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
-                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV(this)">
                         <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
                     </button>
                     <div class="btn-group" role="group">
@@ -250,12 +250,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="small text-muted mb-3" id="result-detail-meta"></div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered align-middle mb-0">
-                        <tbody id="result-detail-body"></tbody>
-                    </table>
-                </div>
+                <div id="result-detail-meta" class="mb-3"></div>
+                <div id="result-detail-body"></div>
             </div>
         </div>
     </div>
@@ -377,6 +373,7 @@
     <script src="/static/js/common/components/navbar.js"></script>
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
+    <script src="/static/js/common/business/task-polling.js"></script>
     <script src="/static/js/pages/google_sheet_detail.js"></script>
 </body>
 </html>

@@ -445,7 +445,14 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     def create(self, fields, commit: bool = True):
         return self.save(dump_row(fields, datetime_fields=self._DT_FIELDS))
 
-    def create_with_return(self, result_fields, return_fields=None, commit=True):
+    def create_with_return(
+        self,
+        result_fields,
+        return_fields=None,
+        commit=True,
+        *,
+        kline_series_id=None,
+    ):
         """TaskResult + TaskResultReturn 写入并回链 return_series_id。
 
         TODO(db-to-http): 远端无跨表事务，两表顺序独立提交，中途失败会留下
@@ -477,7 +484,22 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         result_fields = dict(result_fields)
         if return_series_id is not None:
             result_fields["return_series_id"] = return_series_id
-        return self.save(dump_row(result_fields, datetime_fields=self._DT_FIELDS))
+        saved = self.save(dump_row(result_fields, datetime_fields=self._DT_FIELDS))
+        # 随机K线结果关联固定本地表（远端无对应端点）；远端结果主键为本地链路外键。
+        if kline_series_id:
+            self._save_kline_link(saved, kline_series_id)
+        return saved
+
+    def _save_kline_link(self, saved_result, kline_series_id):
+        from app.extensions import db
+
+        link = self._kline_link_model()(
+            result_id=saved_result.get("id"),
+            task_id=saved_result.get("task_id"),
+            series_id=int(kline_series_id),
+        )
+        db.session.add(link)
+        db.session.commit()
 
     def delete(self, result_id, commit=True):
         row = self._get_raw(result_id)
@@ -573,3 +595,106 @@ class TaskResultHttpRepository(HttpRepositoryBase):
             except RemoteApiNotFoundError:
                 continue
         return deleted
+
+    # ---- 任务结果扩展读（dev_vue 合并引入；远端可表达的部分拼远端端点） ----
+
+    def get_entity_by_return_series_id(self, return_series_id):
+        """按收益序列 ID 反查所属结果实体（报告参数配置指标回读）。
+
+        远端 return 列表无 return_series_id 过滤：先按主键取 return 行获得
+        归属任务，再扫该任务结果行取最新匹配（同序列理论上只挂一条结果）。
+        """
+        return_raw = self._get_return_raw(return_series_id)
+        if not isinstance(return_raw, dict):
+            return None
+        task_id = return_raw.get("task_id")
+        if not task_id:
+            return None
+        rows = [
+            row
+            for row in self.iter_pages({"task_id": task_id})
+            if row.get("return_series_id") == return_series_id
+        ]
+        if not rows:
+            return None
+        rows.sort(key=lambda row: int(row.get("id") or 0))
+        return self.normalize_record(rows[-1])
+
+    def list_recent_entities_by_task(self, task_id, limit=30):
+        """任务最近 N 条结果实体（step desc/id desc 取尾；RemoteRecord 属性兼容）。"""
+        rows = list(self.iter_pages({"task_id": task_id}))
+        rows.sort(key=lambda row: (int(row.get("step_index") or 0), int(row.get("id") or 0)), reverse=True)
+        return [self.normalize_record(row) for row in rows[: max(1, int(limit))]]
+
+    def get_latest_return_series_id(self, task_id):
+        """任务最新一条非空 return_series_id（id desc 语义）；无则 None。"""
+        ids = self.list_return_series_ids_by_task(task_id)
+        return ids[-1] if ids else None
+
+    def list_recent_return_columns_by_task(self, task_id, limit=120):
+        """任务最近 N 条收益序列的 (stock_date, index_return, start_return) 投影
+        （stock_date desc 取尾，调用方自行反转为升序）。"""
+        rows = list(self.iter_pages({"task_id": task_id}, group=self._RETURN_GROUP))
+        rows.sort(key=lambda row: str(row.get("stock_date") or ""), reverse=True)
+        return [
+            {
+                "stock_date": row.get("stock_date"),
+                "index_return": row.get("index_return"),
+                "start_return": row.get("start_return"),
+            }
+            for row in rows[: max(1, int(limit))]
+        ]
+
+    # ---- 随机K线结果关联（TaskResultKlineLink 固定本地表，远端无对应端点；
+    # 与 sheet_lock / task_kline_snapshot 同一"固定本地绑定"策略） ----
+
+    @staticmethod
+    def _kline_link_model():
+        from app.models import TaskResultKlineLink
+
+        return TaskResultKlineLink
+
+    def count_by_kline_series(self, task_id: str, series_id: int) -> int:
+        return self._kline_link_model().query.filter_by(
+            task_id=task_id,
+            series_id=series_id,
+        ).count()
+
+    def list_by_kline_series(
+        self,
+        task_id: str,
+        series_id: int,
+        offset: int | None = None,
+        limit: int | None = None,
+    ):
+        """使用指定随机K线序列的结果列表（审计反查，按执行顺序）。
+
+        关联在本地链路表、结果行在远端：本地取 result_id 集合后远端按
+        task_id 拉取过滤（TODO(db-to-http): 远端补 result_ids 过滤端点）。
+        """
+        query = self._kline_link_model().query.filter_by(
+            task_id=task_id,
+            series_id=series_id,
+        )
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        wanted = {row.result_id for row in query.all()}
+        if not wanted:
+            return []
+        rows = [
+            row for row in self.iter_pages({"task_id": task_id})
+            if row.get("id") in wanted
+        ]
+        rows.sort(key=lambda row: (int(row.get("step_index") or 0), int(row.get("id") or 0)))
+        return [
+            {
+                "id": row.get("id"),
+                "step_index": row.get("step_index"),
+                "success": row.get("success"),
+                "timestamp": self._parse_dt(row.get("timestamp")),
+            }
+            for row in rows
+        ]
+

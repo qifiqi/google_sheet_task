@@ -12,7 +12,16 @@ from app.services.backtest_report_query_service import (
 from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
-from app.utils.task_types import normalize_task_type
+from app.utils.task_types import (
+    TYPE_BACKTEST_MULTI_PRODUCT,
+    TYPE_BACKTEST_TRAINING,
+    TYPE_GOOGLE_SHEET,
+    TYPE_GOOGLE_SHEET_C1_1,
+    TYPE_GOOGLE_SHEET_C4,
+    TYPE_GOOGLE_SHEET_C5,
+    TYPE_GOOGLE_SHEET_C7,
+    normalize_task_type,
+)
 
 
 gp_api_bp = Blueprint("global_preview_api", __name__)
@@ -21,14 +30,15 @@ gp_api_bp = Blueprint("global_preview_api", __name__)
 def _preview_status(task):
     task_type = normalize_task_type(task.get("task_type"))
     if task_type in {
-        "backtest_training",
-        "google_sheet",
-        "google_sheet_c4",
-        "google_sheet_c5",
-        "google_sheet_c7",
+        TYPE_BACKTEST_TRAINING,
+        TYPE_GOOGLE_SHEET,
+        TYPE_GOOGLE_SHEET_C4,
+        TYPE_GOOGLE_SHEET_C5,
+        TYPE_GOOGLE_SHEET_C7,
+        TYPE_GOOGLE_SHEET_C1_1,
     }:
         return {"supported": True, "message": "C 系列单品回测全局预览已就绪"}
-    if task_type == "backtest_multi_product":
+    if task_type == TYPE_BACKTEST_MULTI_PRODUCT:
         return {"supported": False, "message": "多品回测入口已预留，内容将在后续适配"}
     return {"supported": False, "message": "当前任务类型暂不支持全局预览"}
 

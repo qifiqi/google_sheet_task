@@ -31,7 +31,7 @@ def test_create_task_hydrates_stock_name_from_metadata(app_factory, monkeypatch)
         db.session.add(StockMetadata(stock_code="600519", stock_name="贵州茅台", market_type="cn"))
         db.session.commit()
         manager = TaskManager()
-        monkeypatch.setattr(manager, "validate_google_sheet_available_for_task", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(manager, "validate_c_series_sheet_models", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(manager, "ensure_google_sheet_occupancy", lambda *_args, **_kwargs: None)
 
         task_id = manager.create_task(

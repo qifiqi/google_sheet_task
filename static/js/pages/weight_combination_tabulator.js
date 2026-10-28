@@ -1169,7 +1169,8 @@
             ];
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, sheet, '权重组合');
-            XLSX.writeFile(workbook, `weight_combination_${Date.now()}.xlsx`, { compression: true });
+            // 页面无任务名/K线区间，按命名规范回落：类型默认词 + 导出时间。
+            XLSX.writeFile(workbook, buildExportFilename('权重组合'), { compression: true });
         } catch (error) {
             console.error('导出 Excel 失败:', error);
             alert('导出 Excel 失败: ' + error.message);

@@ -200,7 +200,7 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
-                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV(this)">
                         <i class="bi bi-file-earmark-spreadsheet"></i> 导出 CSV
                     </button>
                     <div class="btn-group" role="group">
@@ -242,21 +242,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div id="result-detail-meta" class="mb-3 small text-muted"></div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered mb-0">
-                        <thead>
-                            <tr>
-                                <th style="width: 130px;">字段</th>
-                                <th>值</th>
-                                <th style="width: 130px;">字段</th>
-                                <th>值</th>
-                            </tr>
-                        </thead>
-                        <tbody id="result-detail-body">
-                        </tbody>
-                    </table>
-                </div>
+                <div id="result-detail-meta" class="mb-3"></div>
+                <div id="result-detail-body"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>

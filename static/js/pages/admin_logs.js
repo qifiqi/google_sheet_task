@@ -16,7 +16,7 @@
             const interval = (data && data.data.config && data.data.config.log_polling_interval) ? 
                             data.data.config.log_polling_interval : 5000;
             
-            refreshInterval = setInterval(function() {
+            refreshInterval = setIntervalVisible(function() {
                 if (autoRefresh) {
                     loadLogs();
                 }
@@ -27,7 +27,7 @@
     // 页面卸载时清理定时器
     window.addEventListener('beforeunload', function() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
         stopRealtimeUpdate();
     });
@@ -50,19 +50,13 @@
         if (searchInput) params.append('search', searchInput);
         if (dateFilter) params.append('date', dateFilter);
         params.append('limit', '200'); // 获取更多日志
-        
-        // 调用真实的日志API
-        console.log('开始加载日志，API URL:', `/api/logs?${params.toString()}`);
-        
+
         ajaxRequest(`/api/logs?${params.toString()}`, 'GET', null, function(err, data) {
             hideLoadingState();
-            
-            console.log('日志API响应:', err, data);
-            
+
             if (!err && data && data.status === 'success') {
                 allLogs = (data.data && data.data.logs) || [];
                 filteredLogs = allLogs; // 服务端已经过滤，直接使用
-                console.log('加载到的日志数量:', allLogs.length);
                 renderLogs();
                 
                 // 更新最后更新时间
@@ -200,7 +194,7 @@
     // 开始实时更新
     function startRealtimeUpdate() {
         if (realtimeInterval) {
-            clearInterval(realtimeInterval);
+            realtimeInterval();
         }
         
         // 记录当前最新日志的时间戳
@@ -213,7 +207,7 @@
             const interval = (data && data.data.config && data.data.config.log_realtime_interval) ? 
                             data.data.config.log_realtime_interval : 3000;
             
-            realtimeInterval = setInterval(function() {
+            realtimeInterval = setIntervalVisible(function() {
                 fetchLatestLogs();
             }, interval);
         });
@@ -222,7 +216,7 @@
     // 停止实时更新
     function stopRealtimeUpdate() {
         if (realtimeInterval) {
-            clearInterval(realtimeInterval);
+            realtimeInterval();
             realtimeInterval = null;
         }
     }

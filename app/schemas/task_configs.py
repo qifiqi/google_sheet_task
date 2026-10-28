@@ -17,6 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.models import TaskType
+from app.utils.model_version import normalize_model_version
+
 TASK_SHEET_NAME_DEFAULT = "data"
 
 
@@ -32,7 +35,7 @@ class SheetRef(BaseModel):
     # 占用表主键可能以 int 直传，收口时统一保留原值
     google_sheet_id: str | int | None = None
     # C7 系列逐 sheet 版本标记（c7_0_2 / c7_0_3）
-    c7_model_version: str | None = None
+    model_version: str | None = None
 
     @field_validator("sheet_name", "title", mode="before")
     @classmethod
@@ -55,12 +58,15 @@ class SheetRef(BaseModel):
     def _default_sheet_name(cls, value: str) -> str:
         return value or TASK_SHEET_NAME_DEFAULT
 
-    @field_validator("c7_model_version")
+    @field_validator("model_version")
     @classmethod
-    def _normalize_c7_version(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            value = value.strip().lower()
-        return value or None
+    def _normalize_model_version(cls, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        normalized = normalize_model_version(value)
+        if not normalized:
+            raise ValueError(f"不支持的模型版本: {value}")
+        return normalized
 
 
 class TokenRefFields(BaseModel):
@@ -151,10 +157,19 @@ class C5TaskConfig(_CSeriesBase):
     exclude_recent_years: list[Any] = []
     random_price_range: str | None = None
     random_group_count: int | None = None
+    # 随机序列模式：per_window 各窗口独立随机（默认）/ full_truncate 全区间生成后按窗口截断
+    random_series_mode: str | None = None
 
 
 class C7TaskConfig(C5TaskConfig):
-    """C7 批量校验任务（版本标记在 sheets[].c7_model_version 上）。"""
+    """C7 批量校验任务（版本标记在 sheets[].model_version 上）。"""
+
+
+class C1_1TaskConfig(C5TaskConfig):
+    """C1.1 批量校验任务（无参数组合：F2:F26 模板预置，随机价 ext 列驱动）。"""
+
+    # 是否计算并写入 vwap 列；缺省 True，关闭后行情不派生 vwap、Sheet 不写 AF 列。
+    c1_1_vwap_enabled: bool | None = None
 
 
 class BacktestTrainingConfig(_SingleSheetMixin, _BaseTaskConfig):
@@ -207,14 +222,17 @@ class MultiProductConfig(_BaseTaskConfig):
 
 
 # task_type → 配置模型（google_sheet_C31 是拆分器标记，不落 Task 行，无独立模型）
+# task_type → 配置模型（键 = TaskType 枚举值派生；google_sheet_C3 是 C3 同义别名键，
+# google_sheet_C31 是拆分器标记，两者均无独立配置模型）
 TASK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
-    "google_sheet": C3TaskConfig,
+    TaskType.GOOGLE_SHEET.value: C3TaskConfig,
     "google_sheet_C3": C3TaskConfig,
-    "google_sheet_C4": C4TaskConfig,
-    "google_sheet_C5": C5TaskConfig,
-    "google_sheet_C7": C7TaskConfig,
-    "backtest_training": BacktestTrainingConfig,
-    "backtest_multi_product": MultiProductConfig,
+    TaskType.GOOGLE_SHEET_C4.value: C4TaskConfig,
+    TaskType.GOOGLE_SHEET_C5.value: C5TaskConfig,
+    TaskType.GOOGLE_SHEET_C7.value: C7TaskConfig,
+    TaskType.GOOGLE_SHEET_C1_1.value: C1_1TaskConfig,
+    TaskType.BACKTEST_TRAINING.value: BacktestTrainingConfig,
+    TaskType.BACKTEST_MULTI_PRODUCT.value: MultiProductConfig,
 }
 
 

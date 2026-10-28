@@ -6,8 +6,9 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import Task, TaskResult, TaskResultKlineLink, TaskResultReturn
 from app.repositories.base import BaseRepository
+from app.utils.formatting import to_beijing_iso
 
 # /api/results 列表的历史精简投影键（template_api load_only 语义），保持不变。
 _RESULT_SUMMARY_FIELDS = (
@@ -57,19 +58,67 @@ class TaskResultRepository(BaseRepository):
         return result.to_dict() if result else None
 
     def get_with_task_type(self, result_id):
-        """返回结果 dict 并附带 task_type 键；不存在返回 None。"""
+        """返回结果 dict 并附带 task_type / kline_series_id；不存在返回 None。"""
         row = (
-            db.session.query(TaskResult, Task.task_type)
+            db.session.query(TaskResult, Task.task_type, TaskResultKlineLink.series_id)
             .join(Task, Task.id == TaskResult.task_id)
+            .outerjoin(
+                TaskResultKlineLink,
+                TaskResultKlineLink.result_id == TaskResult.id,
+            )
             .filter(TaskResult.id == result_id)
             .first()
         )
         if row is None:
             return None
-        result, task_type = row
+        result, task_type, kline_series_id = row
         data = result.to_dict()
         data["task_type"] = task_type
+        data["kline_series_id"] = kline_series_id
         return data
+
+    def count_by_kline_series(self, task_id: str, series_id: int) -> int:
+        return TaskResultKlineLink.query.filter_by(
+            task_id=task_id,
+            series_id=series_id,
+        ).count()
+
+    def list_by_kline_series(
+        self,
+        task_id: str,
+        series_id: int,
+        offset: int | None = None,
+        limit: int | None = None,
+    ):
+        """使用指定随机K线序列的结果列表（审计反查，按执行顺序）。"""
+        query = (
+            db.session.query(
+                TaskResult.id,
+                TaskResult.step_index,
+                TaskResult.success,
+                TaskResult.timestamp,
+            )
+            .join(TaskResultKlineLink, TaskResultKlineLink.result_id == TaskResult.id)
+            .filter(
+                TaskResultKlineLink.task_id == task_id,
+                TaskResultKlineLink.series_id == series_id,
+            )
+            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+        )
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        rows = query.all()
+        return [
+            {
+                "id": row.id,
+                "step_index": row.step_index,
+                "success": row.success,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            }
+            for row in rows
+        ]
 
     def list_by_task(self, task_id):
         return [
@@ -113,7 +162,7 @@ class TaskResultRepository(BaseRepository):
                 elif name == "result":
                     item[name] = _json_dict(row.result)
                 elif name == "timestamp":
-                    item[name] = row.timestamp.isoformat() if row.timestamp else None
+                    item[name] = to_beijing_iso(row.timestamp)
                 else:
                     item[name] = getattr(row, name)
             items.append(item)
@@ -165,6 +214,9 @@ class TaskResultRepository(BaseRepository):
         3.1 的 paginate 不支持外传 total）。原先 paginate count + 成功/失败拆分
         共 3 条 count 且 service 层曾再重复一遍，结果表数十万行时是单页请求
         的主要耗时。
+
+        分页按 step_index 倒序返回：C 系列详情页执行结果要求最新步骤在前，
+        且跨页顺序必须全局倒序，故排序放在 SQL 层而非页面内反转。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
@@ -179,13 +231,35 @@ class TaskResultRepository(BaseRepository):
         )
         items = (
             TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
             .offset((current_page - 1) * size)
             .limit(size)
             .all()
         )
+        links = {}
+        if items:
+            links = {
+                result_id: series_id
+                for result_id, series_id in (
+                    db.session.query(
+                        TaskResultKlineLink.result_id,
+                        TaskResultKlineLink.series_id,
+                    )
+                    .filter(
+                        TaskResultKlineLink.result_id.in_(
+                            [item.id for item in items]
+                        )
+                    )
+                    .all()
+                )
+            }
+        result_items = []
+        for item in items:
+            data = item.to_dict()
+            data["kline_series_id"] = links.get(item.id)
+            result_items.append(data)
         return {
-            "items": [r.to_dict() for r in items],
+            "items": result_items,
             "total": counts.total,
             "pages": (counts.total + size - 1) // size,
             "current_page": current_page,
@@ -264,7 +338,7 @@ class TaskResultRepository(BaseRepository):
                 "success": row.success,
                 "parameters_preview": row.parameters_preview,
                 "error_preview": row.error_preview,
-                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                "timestamp": to_beijing_iso(row.timestamp),
             }
             for row in items
         ]
@@ -296,11 +370,23 @@ class TaskResultRepository(BaseRepository):
             .order_by(TaskResult.timestamp.desc())
             .first()
         )
-        return row.timestamp.isoformat() if row else None
+        return to_beijing_iso(row.timestamp) if row else None
 
     def get_return_entity(self, pk):
         """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
         return db.session.get(TaskResultReturn, pk)
+
+    def get_entity_by_return_series_id(self, return_series_id):
+        """按收益序列 ID 读取所属结果实体（报告参数配置指标回读）。
+
+        同一收益序列理论上只挂一条结果；存在历史重复时取最新一条。
+        """
+        return (
+            TaskResult.query
+            .filter_by(return_series_id=return_series_id)
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
 
     def list_return_entities(self, ids):
         """按主键批量取收益序列实体（预览补全 V1 指标用）。"""
@@ -410,7 +496,7 @@ class TaskResultRepository(BaseRepository):
                     "parameters": item.parameters,
                     "success": item.success,
                     "error_message": item.error_message,
-                    "timestamp": item.timestamp.isoformat() if item.timestamp else None,
+                    "timestamp": to_beijing_iso(item.timestamp),
                 }
                 for item in pagination.items
             ],
@@ -460,11 +546,19 @@ class TaskResultRepository(BaseRepository):
             db.session.rollback()
             raise
 
-    def create_with_return(self, result_fields, return_fields=None, commit=True):
-        """TaskResult + TaskResultReturn 原子写入（执行链 _save_task_result 出口）。
+    def create_with_return(
+        self,
+        result_fields,
+        return_fields=None,
+        commit=True,
+        *,
+        kline_series_id=None,
+    ):
+        """TaskResult + TaskResultReturn + 随机K线关联原子写入（执行链出口）。
 
         return_fields 提供时插入收益序列并回链 return_series_id；
-        两表同事务提交，异常 rollback 后原样 raise。
+        kline_series_id 提供时同事务写入结果与随机K线序列关联；
+        同事务提交，异常 rollback 后原样 raise。
         """
         try:
             result = TaskResult(**result_fields)
@@ -474,6 +568,13 @@ class TaskResultRepository(BaseRepository):
                 db.session.add(return_series)
                 self.flush()
                 result.return_series_id = return_series.id
+            if kline_series_id:
+                self.flush()
+                db.session.add(TaskResultKlineLink(
+                    result_id=result.id,
+                    task_id=result.task_id,
+                    series_id=int(kline_series_id),
+                ))
             if commit:
                 self._commit()
             return result.to_dict()
@@ -485,6 +586,9 @@ class TaskResultRepository(BaseRepository):
         result = db.session.get(TaskResult, result_id)
         if result is None:
             return False
+        TaskResultKlineLink.query.filter_by(result_id=result_id).delete(
+            synchronize_session=False
+        )
         db.session.delete(result)
         if commit:
             self._commit()
@@ -504,6 +608,39 @@ class TaskResultRepository(BaseRepository):
         return (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc())
+            .all()
+        )
+
+    def list_recent_entities_by_task(self, task_id, limit=30):
+        """任务最近 N 条结果实体（step desc/id desc 取尾；避免大结果表全量加载，调用方自行反转为升序）。"""
+        return (
+            TaskResult.query.filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_latest_return_series_id(self, task_id):
+        """任务最新一条非空 return_series_id（id desc 点查）；无则 None。"""
+        row = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .filter(TaskResult.return_series_id.isnot(None))
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
+        return row.return_series_id if row else None
+
+    def list_recent_return_columns_by_task(self, task_id, limit=120):
+        """任务最近 N 条收益序列的 (stock_date, index_return, start_return) 投影（stock_date desc 取尾，调用方自行反转为升序）。"""
+        return (
+            TaskResultReturn.query.filter_by(task_id=task_id)
+            .with_entities(
+                TaskResultReturn.stock_date,
+                TaskResultReturn.index_return,
+                TaskResultReturn.start_return,
+            )
+            .order_by(TaskResultReturn.stock_date.desc())
+            .limit(limit)
             .all()
         )
 

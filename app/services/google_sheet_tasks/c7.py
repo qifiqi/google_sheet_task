@@ -1,8 +1,13 @@
 from app.utils.json_utils import dumps
-import re
 from typing import Dict, Any
 
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    build_execute_task_alert,
+    calculate_index_returns_from_closes,
+    parse_range_start,
+    should_alert_execute_task_result,
+)
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.dfcf_api import DFCJStockApi
@@ -11,6 +16,7 @@ from app.services.task.error_handling import format_task_error_message, record_t
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.kline_validation import require_kline_rows
+from app.utils.model_version import normalize_model_version
 from app.services.google_sheet_tasks.check_policy import C7_INVALID, normalize_check_values
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_stock_param_metric_fields
 from app.services.kline_service import KlineService
@@ -62,6 +68,7 @@ class C7Service(BaseGoogleSheetService):
             batch["adjust_type"],
             random_price_range=batch["random_price_range"],
             random_group_count=batch["random_group_count"],
+            random_series_mode=batch["random_series_mode"],
             data_source=batch["data_source"],
         )
 
@@ -81,7 +88,7 @@ class C7Service(BaseGoogleSheetService):
         )
 
     def _stamp_combination(self, combination: dict, batch: dict) -> None:
-        combination['c7_model_version'] = self._get_c7_model_version(
+        combination['model_version'] = self._get_model_version(
             batch["_config_data"],
             self.google_sheets[0],
         )
@@ -94,7 +101,7 @@ class C7Service(BaseGoogleSheetService):
         """C7 随机价分组参与去重签名（同组同K线视为重复）。"""
         return (
             str(combination.get('random_group', '')),
-            str(combination.get('Kline_key', '')) if combination.get('random_group') else '',
+            str(combination.get('kline_key', '')) if combination.get('random_group') else '',
         )
 
     """Google Sheet服务 - C7"""
@@ -109,28 +116,18 @@ class C7Service(BaseGoogleSheetService):
 
     @staticmethod
 
-    def _get_c7_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
-        """读取单表 C7 版本，旧任务和缺省配置统一按 C7.0.2 处理。"""
+    def _get_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
+        """读取单表 C7 版本；运行时只读已落库的 sheets[].model_version。"""
         spreadsheet_id = getattr(google_sheet, "spreadsheet_id", None)
-        sheet_title = str(getattr(google_sheet, "title", "") or "").strip().upper()
         for sheet_config in config_data.get("sheets") or []:
             if spreadsheet_id and sheet_config.get("spreadsheet_id") == spreadsheet_id:
-                version = str(sheet_config.get("c7_model_version") or "").strip().lower()
-                if version in ("c7_0_2", "c7_0_3"):
-                    return version
-                if "C7.0.3" in sheet_title or "C7_0_3" in sheet_title:
-                    return "c7_0_3"
-                return "c7_0_2"
-
-        if "C7.0.3" in sheet_title or "C7_0_3" in sheet_title:
-            return "c7_0_3"
-        version = str(config_data.get("c7_model_version") or "c7_0_2").strip().lower()
-        return version if version in ("c7_0_2", "c7_0_3") else "c7_0_2"
+                return normalize_model_version(sheet_config.get("model_version")) or "c7_0_2"
+        return normalize_model_version(config_data.get("model_version")) or "c7_0_2"
 
     @classmethod
     def _get_c7_layout(cls, config_data: Dict[str, Any], google_sheet=None) -> Dict[str, Any]:
         """根据模型版本构建单表输入和结果布局。"""
-        version = cls._get_c7_model_version(config_data, google_sheet)
+        version = cls._get_model_version(config_data, google_sheet)
         parameter_positions = config_data.get("c7_parameter_positions") or ["A1", "B1"]
         check_positions = config_data.get("c7_check_positions") or ["G1", "H1"]
 
@@ -184,10 +181,7 @@ class C7Service(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_range_start(range_a1: str) -> tuple[str, int]:
-        match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
-        if not match:
-            raise ValueError(f"无效的 C7 结果范围: {range_a1}")
-        return match.group(1), int(match.group(2))
+        return parse_range_start(range_a1)
 
     @staticmethod
     def _validate_c7_ohlc_rows(rows):
@@ -199,22 +193,7 @@ class C7Service(BaseGoogleSheetService):
     @staticmethod
     def _calculate_c7_0_3_index_returns(kline_rows):
         """以 C7.0.3 OHLC 收盘价计算相对首日的累计指数收益。"""
-        base_close = None
-        index_returns = []
-
-        for index, row in enumerate(kline_rows, start=1):
-            try:
-                close_price = float(row["close"])
-            except (KeyError, TypeError, ValueError) as error:
-                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价无效") from error
-            if close_price <= 0:
-                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价必须大于 0")
-
-            if base_close is None:
-                base_close = close_price
-            index_returns.append(close_price / base_close - 1)
-
-        return index_returns
+        return calculate_index_returns_from_closes(kline_rows)
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -240,10 +219,10 @@ class C7Service(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
-        model_version = combination.get("c7_model_version", "c7_0_2")
+        model_version = combination.get("model_version", "c7_0_2")
         if model_version != "c7_0_3":
             result = normalize_c7_result_metrics(result)
-        analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+        analyze_result = (result.get('metrics_payload') or {}).get('metrics', {})
 
         def metric_value(c5_cell: str) -> Any:
             """C7.0.2 使用偏移结果区，C7.0.3 与 C5 使用同一结果区。"""
@@ -276,25 +255,25 @@ class C7Service(BaseGoogleSheetService):
                 parameter_positions[0]: c7_parameter_1,
                 parameter_positions[1]: c7_parameter_2,
             }
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
-                kline_data_map.get(Kline_key),
-                context=f"K线区间 {Kline_key}",
+                kline_data_map.get(kline_key),
+                context=f"K线区间 {kline_key}",
             )
             if any(layout["version"] == "c7_0_3" for layout in sheet_layouts.values()):
                 self._validate_c7_ohlc_rows(current_kline)
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 cache_stock_code = str(_combination.get('stock_code') or '').strip()
                 current_stock_code = str(combination.get('stock_code') or '').strip()
                 kline = current_kline
                 kline_changed = (
-                    Kline_key != cache_Kline_key
+                    kline_key != cache_kline_key
                     or current_stock_code != cache_stock_code
                     or initial_result_sleep is not None
                 )
@@ -390,7 +369,7 @@ class C7Service(BaseGoogleSheetService):
                 f"股票名称={combination.get('stock_name', '')}，"
                 f"参数A1={combination.get('A1', '')}，"
                 f"参数B1={combination.get('B1', '')}，"
-                f"Kline_key={Kline_key}，"
+                f"kline_key={kline_key}，"
                 f"K线行数={len(kline)}，"
                 f"日期范围={first_kline.get('stock_date', '')}~{last_kline.get('stock_date', '')}，"
                 f"首条K线={first_kline}，末条K线={last_kline}"
@@ -463,9 +442,8 @@ class C7Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{output_column_l}{i + 2}"]
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
-                        _result["flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
@@ -545,7 +523,7 @@ class C7Service(BaseGoogleSheetService):
             "custom",
             rows,
             context="自定义K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field="stock_val",
         )
         if ohlc_columns:
@@ -555,7 +533,7 @@ class C7Service(BaseGoogleSheetService):
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=False)
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare"):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare", random_series_mode="per_window"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。"""
         return self._expand_auto_year_parameters(
             parameter,
@@ -573,4 +551,5 @@ class C7Service(BaseGoogleSheetService):
             include_ohlc=True,
             random_price_range=random_price_range,
             random_group_count=random_group_count,
+            random_series_mode=random_series_mode,
         )

@@ -35,15 +35,19 @@ def test_c3_result_summary_sanitize_survives_nan_payload():
 
 def test_c3_return_analysis_summary_sanitize_survives_inf_payload():
     summary_json = _bare(C3Service)._summarize_return_analysis_for_log(
-        {"index_annualized_return": float("inf"), "start_annualized_return": 0.12},
-        {},
+        {
+            "metrics": {
+                "index_annualized_return": float("inf"),
+                "start_annualized_return": 0.12,
+            }
+        },
         row_count=3,
         read_elapsed=0.5,
         performance_analysis_elapsed=0.25,
     )
     data = json.loads(summary_json)
-    assert data["flat_result"]["index_annualized_return"] is None
-    assert data["flat_result"]["start_annualized_return"] == 0.12
+    assert data["metrics"]["index_annualized_return"] is None
+    assert data["metrics"]["start_annualized_return"] == 0.12
 
 
 def test_multi_product_fixed_product_cache_write_sanitize(monkeypatch):
@@ -146,15 +150,20 @@ def test_masked_echo_detection_scope():
     assert not _is_masked_echo("ding_secret", "real-secret-value")
 
 
-def test_preview_metrics_recalc_none_does_not_override_legacy(monkeypatch):
-    """重算出的 None（V1 出口已 NaN→None）不得覆盖历史有限指标。
+def test_ding_talk_error_redacts_credentials():
+    from app.utils.ding_talk_notifier import _redact_credentials
 
-    resolve_preview_metrics 的守卫只挡 float 非有限值时，None 会覆盖
-    历史值（如 legacy excess_sharp 升级来的 excess_sharpe=3.92）。
-    """
+    text = "请求失败: https://oapi.dingtalk.com/robot/send?access_token=abc123&timestamp=1&sign=xyz789 失败"
+    redacted = _redact_credentials(text)
+    assert "abc123" not in redacted
+    assert "xyz789" not in redacted
+    assert "access_token=***" in redacted
+    assert "sign=***" in redacted
+
+
+def test_preview_metrics_recalc_handles_none(monkeypatch):
+    """重算出的 None（V1 出口已 NaN→None）保持为 None，不写回非法值。"""
     from app.services.performance_analysis import historical_metrics
-
-    legacy_core = {"calculate_metrics": {"excess_sharp": 3.92}}
 
     def fake_recalc(_rows):
         return SimpleNamespace(metrics={"excess_sharpe": None, "excess_sortino": 33.44})
@@ -163,12 +172,12 @@ def test_preview_metrics_recalc_none_does_not_override_legacy(monkeypatch):
         "app.services.performance_analysis.facade.calculate_v1_metrics", fake_recalc
     )
     merged = historical_metrics.resolve_preview_metrics(
-        legacy_core,
+        {},
         return_rows=[
             {"date": "2025-01-01", "index_return": 0.0, "start_return": 0.0},
             {"date": "2025-01-02", "index_return": -0.02, "start_return": -0.01},
         ],
     )
 
-    assert merged["excess_sharpe"] == 3.92
+    assert merged.get("excess_sharpe") is None
     assert merged["excess_sortino"] == 33.44

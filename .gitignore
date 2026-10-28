@@ -179,3 +179,17 @@ frontend_source_backup_*.zip
 # 本地联调临时凭据（禁止入库）
 .run_service_token
 .run_app.log
+# PDF 转换手工验证样例与运行期日志（勿入库）
+data/pdf_test/
+logs/*
+
+# 线上库同步/清理 SQL 与本地数据产物（勿入库）
+导入线上.sql.gz
+导入补*.sql*
+删除线上结果.sql
+results_*.csv
+return_*.csv
+return导出.csv
+清洗后.csv
+task_ids.txt
+样例导出/

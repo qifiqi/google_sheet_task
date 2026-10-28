@@ -14,16 +14,16 @@ from app.services.performance_analysis.portfolio_combiner import (
 )
 
 from app.extensions import db
+from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
 from app.models import (
     BacktestProductResultCache,
-    BacktestSheetRunLock,
-    Permission,
+    SheetExecutionLock,
     Task,
     TaskResult,
     TaskResultReturn,
 )
 from app.services.backtest_report_query_service import _build_zip_member_name
-from app.services.export_service import GeneratedFile, export_service
+from app.services.export_service import GeneratedFile
 from app.routes.backtest_api import _build_excel_download_name
 from app.services.task.runtime_state import get_runtime_state_store
 from app.services.backtest_multi_product_preview import (
@@ -357,7 +357,7 @@ def test_multi_product_kline_source_requires_same_stock_and_signature():
     ]
     signature = service._build_kline_signature(kline)
     current = {
-        "Kline_key": "2024-01-01~2024-01-03",
+        "kline_key": "2024-01-01~2024-01-03",
         "stock_code": "QQQ",
         "kline_signature": signature,
     }
@@ -404,6 +404,10 @@ def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory)
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.commit()
 
@@ -425,6 +429,10 @@ def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.add(TaskResultReturn(task_id=target.id, stock_date="2024-01-01", index_return=1, start_return=1))
         db.session.commit()
@@ -494,9 +502,9 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             parameters="{}",
             result=json.dumps({
                 "sheet__title": {
-                    "calculate_metrics": {
+                    "metrics_payload": {"metrics": {
                         "excess_returns": []
-                    },
+                    }},
                     "D2": "1",
                 }
             }),
@@ -528,7 +536,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             name="multi-c7-result-units",
             task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             status="completed",
-            config=json.dumps({"products": [{"sheet": {"title": "C7 model"}}]}),
+            config=json.dumps({"products": [{"sheet": {"title": "C7 model", "model_version": "c7_0_2"}}]}),
             created_at=datetime.now(),
         )
         db.session.add(task)
@@ -537,7 +545,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             step_index=0,
             parameters=json.dumps({"product_index": 0}),
             result=json.dumps({"sheet__title": {
-                "calculate_metrics": {"excess_returns": []},
+                "metrics_payload": {"metrics": {"excess_returns": []}},
                 "D10": "-0.14",
                 "D18": "0.01",
                 "D22": "122.95%",
@@ -670,33 +678,34 @@ def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
     app = app_factory
     with app.app_context():
         manager = TaskManager()
+        lock_service = get_sheet_execution_lock_service()
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-1",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is True
         assert locked_task_id is None
         assert acquired_ids == ["shared-sheet"]
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-2",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is False
         assert locked_task_id == "task-1"
         assert acquired_ids == []
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-2")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        lock_service.release_sheets(["shared-sheet"], "task-2")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-1")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
+        lock_service.release_sheets(["shared-sheet"], "task-1")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
 
 
 def test_fixed_product_cache_key_ignores_ratio_and_changes_for_inputs(app_factory):
@@ -818,7 +827,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         assert len(fixed_results) == 2
         assert fixed_results[0]["parameters"]["ratio"] == "25"
         assert fixed_results[0]["return_series_id"] is not None
-        assert fixed_results[0]["result"]["sheet__title"]["weighted_calculate_metrics"]
+        assert fixed_results[0]["result"]["sheet__title"]["metrics_payload"]["weighted_metrics"]
 
 
 def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_factory, monkeypatch):
@@ -919,7 +928,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 
         manager = TaskManager()
 
-        assert manager._extract_backtest_spreadsheet_ids_to_lock(
+        assert manager._extract_sheets_to_lock(
             BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             config,
         ) == ["sheet-2"]
@@ -928,7 +937,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 def _task_result_payload(index_return, start_return):
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [{
                     "year": "all",
                     "index_annualized_return": index_return,
@@ -941,7 +950,7 @@ def _task_result_payload(index_return, start_return):
                 "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
                 "index_sharpe_ratios": {"all": {"avg_monthly_return": index_return, "sharpe_ratio": 2}},
                 "start_sharpe_ratios": {"all": {"avg_monthly_return": start_return, "sharpe_ratio": 3}},
-            }
+            }}
         }
     }
 
@@ -949,7 +958,7 @@ def _task_result_payload(index_return, start_return):
 def _task_result_payload_with_year_drawdowns():
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [
                     {
                         "year": "2024",
@@ -979,7 +988,7 @@ def _task_result_payload_with_year_drawdowns():
                 "year_index_yearly_max_repair_days": {"2024": 5},
                 "year_start_yearly_max_repair_days": {"2024": 9},
                 "excess_drawdown_winning_rate": 0.75,
-            }
+            }}
         }
     }
 
@@ -992,7 +1001,7 @@ def _task_result_payload_with_returns(index_return, start_return, returns):
 
 def _task_result_payload_with_returns_and_weighted(index_return, start_return, weighted_start, returns):
     payload = _task_result_payload_with_returns(index_return, start_return, returns)
-    payload["sheet__title"]["weighted_calculate_metrics"] = {
+    payload["sheet__title"]["metrics_payload"]["weighted_metrics"] = {
         "excess_returns": [{
             "year": "all",
             "index_annualized_return": weighted_start,

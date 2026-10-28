@@ -54,6 +54,18 @@ class TaskLogHttpRepository(HttpRepositoryBase):
         )
         return list(reversed(page["items"]))
 
+    def list_by_task_after(self, task_id, after_id, limit=500):
+        """id > after_id 的增量日志（详情页轮询游标；id asc）。
+
+        远端无 id 游标过滤：取最近窗口后本地过滤；窗口外（日志量超 limit）
+        时返回空列表，前端以全量刷新兜底。
+        """
+        rows = self.list_by_task(task_id, limit=limit)
+        return [
+            row for row in rows
+            if int(row.get("id") or 0) > int(after_id)
+        ]
+
     def list_by_task_paginated(self, task_id, page, per_page, level=None):
         payload: dict[str, Any] = {"task_id": task_id}
         if level:

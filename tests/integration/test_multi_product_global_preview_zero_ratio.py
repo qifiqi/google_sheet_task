@@ -84,7 +84,7 @@ def _seed_zero_ratio_task(app, task_id):
         ]
         payload = {
             "sheet__title": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [{
                         "year": "all",
                         "index_annualized_return": ir,
@@ -97,7 +97,7 @@ def _seed_zero_ratio_task(app, task_id):
                     "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
                     "index_sharpe_ratios": {"all": {"avg_monthly_return": ir, "sharpe_ratio": 2}},
                     "start_sharpe_ratios": {"all": {"avg_monthly_return": sr, "sharpe_ratio": 3}},
-                },
+                }},
                 "return_date": returns,
             }
         }

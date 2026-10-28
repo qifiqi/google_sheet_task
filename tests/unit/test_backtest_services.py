@@ -50,6 +50,16 @@ def _product(index, *, parameters=None, is_fixed=False):
     }
 
 
+class _FakeConfigManager:
+    """只响应 min_kline_rows 的 ConfigManager 替身。"""
+
+    def __init__(self, value):
+        self.value = value
+
+    def get_config(self, key, default=None):
+        return self.value if key == 'min_kline_rows' else default
+
+
 class _RecordingKlineService:
     """记录 get_kline_data 调用并可选禁止证券解析的 KlineService 替身。"""
 
@@ -120,8 +130,7 @@ def test_backtest_training_full_range_uses_configured_end_date(monkeypatch):
     assert combinations == [{
         "parameter": ["param-a"],
         "stock_code": "600000",
-        "year": "2022-2024",
-        "Kline_key": "2022-2024",
+        "kline_key": "2022-2024",
     }]
     assert kline_map["2022-2024"][-1]["stock_date"] == "2024-06-30"
 
@@ -151,6 +160,67 @@ def test_multi_product_kline_limit_covers_interval_from_start_to_current_date(mo
     assert recorder.calls[0][2] == 1548
 
 
+def test_min_kline_rows_config_overrides_default(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(50),
+    )
+
+    assert service._get_min_kline_rows() == 50
+    assert service._get_min_kline_rows(100) == 50
+
+
+@pytest.mark.parametrize("configured", [None, "", "abc", 0, -1, True])
+def test_min_kline_rows_invalid_config_falls_back(monkeypatch, configured):
+    service = BacktestTrainingService({}, "task-id")
+    service._log_warning = lambda *_args, **_kwargs: None
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(configured),
+    )
+
+    assert service._get_min_kline_rows(100) == 100
+    assert service._get_min_kline_rows() == 30
+
+
+def test_multi_product_kline_threshold_uses_unified_config(monkeypatch):
+    service = BacktestMultiProductService({}, "task-id")
+    service.kline_service = _RecordingKlineService(_kline_rows("2024-01-01", "2024-03-31"))
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(40),
+    )
+
+    kline = service._get_kline_by_date_range(
+        "SOXX.US",
+        "en",
+        "2024-01-01",
+        "2024-03-31",
+        price_mode="sp_price",
+    )
+
+    assert len(kline) == 91
+
+
+def test_multi_product_kline_threshold_keeps_100_when_unconfigured(monkeypatch):
+    service = BacktestMultiProductService({}, "task-id")
+    service.kline_service = _RecordingKlineService(_kline_rows("2024-01-01", "2024-03-31"))
+    monkeypatch.setattr(
+        "app.services.google_sheet_tasks.base.get_config_manager",
+        lambda: _FakeConfigManager(None),
+    )
+
+    with pytest.raises(ValueError, match="至少需要 100 条"):
+        service._get_kline_by_date_range(
+            "SOXX.US",
+            "en",
+            "2024-01-01",
+            "2024-03-31",
+            price_mode="sp_price",
+        )
+
+
 def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(
@@ -166,7 +236,7 @@ def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeyp
         end_date="2025-06-30",
     )
 
-    assert combinations[0]["Kline_key"] == "2025-2020"
+    assert combinations[0]["kline_key"] == "2025-2020"
     assert kline_map["2025-2020"][0]["stock_date"] == "2023-06-01"
 
 
@@ -271,7 +341,7 @@ def test_backtest_sheet_config_supports_c7():
 
 def test_backtest_sheet_config_supports_c7_0_3():
     config = {
-        "sheets": [{"title": "C7.0.3 回测", "c7_model_version": "c7_0_3"}],
+        "sheets": [{"title": "C7.0.3 回测", "model_version": "c7_0_3"}],
     }
 
     assert BacktestTrainingService._c3_to_c5_get_config(config) == (
@@ -359,9 +429,9 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
     ]
     success, _result, return_date = service._execute_parameter_combination(
         10,
-        {"parameter": ["2.3", "3"], "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"parameter": ["2.3", "3"], "stock_code": "600000", "kline_key": "2026-2025"},
         {"combination": {}},
-        {"sheets": [{"title": sheet.title, "c7_model_version": "c7_0_3"}]},
+        {"sheets": [{"title": sheet.title, "model_version": "c7_0_3"}]},
         {"2026-2025": kline},
     )
 
@@ -416,7 +486,7 @@ def test_c7_summary_excess_return_uses_shifted_c5_cells():
 def test_c7_0_3_summary_uses_c5_result_cells():
     column = {
         "model_name": "C7",
-        "c7_model_version": "c7_0_3",
+        "model_version": "c7_0_3",
         "raw_metrics": {
             "D2": "32.47%",
             "D5": "21.14%",
@@ -550,3 +620,45 @@ def test_multi_product_portfolio_combination_skips_zero_ratio_products():
 
     assert len(returns) == 2
     assert returns[0]["start_return"] == pytest.approx(0.02)
+
+
+def test_xpl_c1_1_sheet_reads_h_layout_and_strike_index(monkeypatch):
+    rows = [
+        [43102 + i, 10 + i, 0.01, 0.02, 0.02 + i / 1000]
+        for i in range(12)
+    ]
+    rows.append(["-", "-", "-", "-", "-"])  # 表尾公式残留行
+
+    class C11Sheet:
+        title = "C1.1.0-v20261018-回测-sharable-manual"
+
+        def get_last_row(self, column):
+            assert column == "H"
+            return len(rows) + 1
+
+        def get_range_2d(self, range_a1, _render_option):
+            blocks = {
+                # H=日期(序列号)、I=Strike（模型取价列，底层=AG 原始随机价）、
+                # J=Day%、K=P/L%、L=P/L%-Cum%
+                f"H2:L{len(rows) + 1}": rows,
+                "E2:F26": [
+                    ["Start date", "2018/01/02"],
+                    ["Total Return:", "2.71%"],
+                ],
+            }
+            return blocks[range_a1]
+
+    analyzer = PerformanceAnalyzer()
+    monkeypatch.setattr(analyzer, "_init_google_sheet", lambda *_args: C11Sheet())
+
+    data, result, sheet_df = analyzer.get_google_sheet_data("sheet-id", "control")
+
+    assert len(data) == 12  # 尾部 '-' 残留行被剔除
+    assert str(data[0]["date"])[:10] == "2018-01-02"
+    assert data[1]["index_return"] == pytest.approx(11 / 10 - 1)  # I 列 Strike 累计口径
+    assert data[1]["start_return"] == pytest.approx(0.02)  # 固定取 K 列（P/L%，策略累计）
+    assert result["Total Return:"] == "2.71%"
+    assert list(sheet_df.columns) == [
+        "date", "close", "day_pct", "pl_pct", "pl_cum_pct",
+        "index_return", "start_return",
+    ]

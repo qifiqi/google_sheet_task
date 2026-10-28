@@ -227,9 +227,11 @@ class QQStockApi:
         while remaining > 0:
             batch_size = min(remaining, self.MAX_BATCH_SIZE)
             if is_minute:
+                # mkline 的日期游标在 start 位（与 fqkline 相反）：start 有值时返回早于该时间的一段。
                 param = f"{qq_symbol},{qq_kline_type},{cursor_date},,{batch_size}"
             else:
-                param = f"{qq_symbol},{qq_kline_type},{cursor_date},,{batch_size},{qq_adjust}"
+                # fqkline 在 end 为空时会忽略 start 恒返回最新一段，向前翻页必须把游标放进 end 位（闭区间）。
+                param = f"{qq_symbol},{qq_kline_type},,{cursor_date},{batch_size},{qq_adjust}"
 
             self.logger.debug("腾讯K线请求: param=%s", param)
             try:

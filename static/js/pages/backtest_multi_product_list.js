@@ -301,14 +301,12 @@ function clearBatchExportSelection() {
 
 async function exportSelectedBatchTasks() {
     const button = document.getElementById('confirmBatchExportBtn');
-    const originalHtml = button.innerHTML;
     const taskIds = [...selectedBatchExportTaskIds];
     if (!taskIds.length) {
         return;
     }
 
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+    setButtonBusy(button, true, '导出中…');
     try {
         const response = await Api.endpoints.export.globalPreviewsBatch(taskIds);
         if (!response.ok) {
@@ -340,7 +338,7 @@ async function exportSelectedBatchTasks() {
     } catch (error) {
         alert(error.message || '导出失败');
     } finally {
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
         updateBatchExportSummary();
     }
 }
@@ -617,5 +615,5 @@ const initialListPagination = getInitialListPaginationState();
 paginationState.page = initialListPagination.page;
 paginationState.per_page = initialListPagination.per_page;
 loadTasks();
-// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐）。
-setInterval(loadTasks, 60 * 1000);
+// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐，仅页面可见时）。
+setIntervalVisible(loadTasks, 60 * 1000);

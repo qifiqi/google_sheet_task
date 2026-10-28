@@ -1,13 +1,20 @@
 from app.utils.json_utils import loads, JSONDecodeError
 from datetime import datetime, timedelta
+import random
 from typing import Dict, Any
 
 from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
+from app.models import TaskStatus
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    MIN_KLINE_ROWS_CONFIG_KEY,
+    build_execute_task_alert,
+    should_alert_execute_task_result,
+)
 from app.services.config_manager import get_config_manager
 from app.utils.backtest_report_metadata import is_c7_0_3_config
 from app.utils.backtest_parameter_utils import normalize_backtest_training_config
@@ -78,6 +85,54 @@ class BacktestTrainingService(BaseGoogleSheetService):
             if first_close is None:
                 first_close = close_price
             index_returns.append(close_price / first_close - 1)
+        return index_returns
+
+    @staticmethod
+    def _is_c1_1(config_data):
+        sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
+        return 'C1.1' in str(sheet.get('title') or config_data.get('title') or '').upper()
+
+    @staticmethod
+    def _get_c1_1_sheet_config(config_data):
+        """C1.1 布局（与执行侧 c1_1.py 的 _get_c1_1_layout 同源默认值）。"""
+        def get_value(key, default):
+            value = config_data.get(key)
+            return default if value is None else value
+
+        vwap_enabled = get_value('c1_1_vwap_enabled', True)
+        if isinstance(vwap_enabled, str):
+            vwap_enabled = vwap_enabled.strip().lower() not in ('false', '0', 'none', '')
+        return {
+            'date_column': str(get_value('c1_1_kline_date_column', 'AA')).upper(),
+            'open_column': str(get_value('c1_1_kline_open_column', 'AB')).upper(),
+            'high_column': str(get_value('c1_1_kline_high_column', 'AC')).upper(),
+            'low_column': str(get_value('c1_1_kline_low_column', 'AD')).upper(),
+            'close_column': str(get_value('c1_1_kline_close_column', 'AE')).upper(),
+            'vwap_column': str(get_value('c1_1_kline_vwap_column', 'AF')).upper(),
+            'ext_column': str(get_value('c1_1_kline_ext_column', 'AG')).upper(),
+            'output_range_1': get_value('c1_1_output_range', 'E2:F26'),
+            'output_range_2': get_value('c1_1_output_range', 'E2:F26'),
+            'output_column_start': str(get_value('c1_1_output_column_k', 'K')).upper(),
+            # 完成信号取结果块 Total Return/MAX DD（行偏移 3/5，与执行侧一致）
+            'check_positions': get_value('c1_1_check_positions', ['F4', 'F6']),
+            'vwap_enabled': bool(vwap_enabled),
+        }
+
+    @staticmethod
+    def _calculate_c1_1_index_returns(kline):
+        """指数序列统一取 AG 列随机价（kline 行内 stock_val）的累计口径，与表内 Index Return 同源。"""
+        first_val = None
+        index_returns = []
+        for index, item in enumerate(kline, start=1):
+            try:
+                ext_price = float(item['stock_val'])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(f'C1.1 第 {index} 条K线 ext 随机价无效') from error
+            if ext_price <= 0:
+                raise ValueError(f'C1.1 第 {index} 条K线 ext 随机价必须大于 0')
+            if first_val is None:
+                first_val = ext_price
+            index_returns.append(ext_price / first_val - 1)
         return index_returns
 
     @staticmethod
@@ -158,7 +213,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     return 'error'
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -187,7 +242,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 # 获取参数列表
                 parameters = config_data.get('parameters', [])
-                if not parameters:
+                if not parameters and not self._is_c1_1(config_data):
                     self._log_error("没有参数配置")
                     return 'error'
 
@@ -195,7 +250,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self.task_name = name
 
                 # 检查任务是否已被取消
-                if task.status == 'cancelled':
+                if task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
                 if self._is_cancel_requested():
@@ -229,7 +284,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             try:
                 task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
+                if task and task.status == TaskStatus.CANCELLED.value:
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程
@@ -253,6 +308,20 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
         title = str(sheet.get('title') or '').upper()
+        if BacktestTrainingService._is_c1_1(config_data):
+            # C1.1 无参数单元格；指数由 AG 随机价本地计算（output_column_index 传 None）
+            c1_1_config = BacktestTrainingService._get_c1_1_sheet_config(config_data)
+            return (
+                c1_1_config['date_column'],
+                c1_1_config['ext_column'],
+                c1_1_config['output_range_1'],
+                c1_1_config['output_range_2'],
+                None,
+                c1_1_config['output_column_start'],
+                [],
+                c1_1_config['check_positions'],
+                c1_1_config['date_column'],
+            )
         if BacktestTrainingService._is_c7_0_3(config_data):
             c7_0_3_config = BacktestTrainingService._get_c7_0_3_sheet_config(config_data)
             return (
@@ -333,6 +402,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
             price_mode = config_data.get('price_mode', 'vwap_price')
             is_c7_0_3 = self._is_c7_0_3(config_data)
             c7_0_3_config = self._get_c7_0_3_sheet_config(config_data) if is_c7_0_3 else None
+            # C1.1 模板由 AG 列随机价驱动（与执行侧一致）：强制随机价 + 携带 OHLC 写入
+            is_c1_1 = self._is_c1_1(config_data)
+            c1_1_config = self._get_c1_1_sheet_config(config_data) if is_c1_1 else None
+            if is_c1_1:
+                price_mode = 'random_price'
+                # C1.1 无参数组合输入：占位单参数让年份窗口仍各生成一个组合
+                if not parameters:
+                    parameters = [[None]]
             if is_c7_0_3:
                 price_mode = 'ohlc_price'
             adjust_type = config_data.get('kline_adjustment')
@@ -352,7 +429,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 exchange_market=exchange_market,
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
-                include_ohlc=is_c7_0_3,
+                include_ohlc=is_c7_0_3 or is_c1_1,
+                random_price_range=(
+                    config_data.get('random_price_range', 'high_low') if is_c1_1 else None
+                ),
                 data_source=config_data.get("kline_data_source", "akshare"),
             )
             total_combinations = len(combinations)
@@ -389,8 +469,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 )
                 self.google_sheet.clear_range(clear_range)
 
-            self._log_info('所有表格均已清空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            settle_seconds = self._get_sheet_settle_seconds()
+            self._log_info(f'所有表格均已清空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 return success_count, failed_count, 'cancelled'
 
             processed_index = 0  # 已处理的组合数量
@@ -447,7 +528,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             return success_count, failed_count, 'error'
 
                         cache_parameters['combination'] = combination
-                        kline = kline_data_map.get(combination['Kline_key'], None)
+                        kline = kline_data_map.get(combination['kline_key'], None)
                         # 结果与参数使用同一个 step_index 保存，保证重启时能准确识别已完成组合。
                         self._save_task_result(current_step - 1, {
                             **combination,
@@ -524,26 +605,34 @@ class BacktestTrainingService(BaseGoogleSheetService):
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_c7_0_3 = self._is_c7_0_3(config_data)
             c7_0_3_config = self._get_c7_0_3_sheet_config(config_data) if is_c7_0_3 else None
+            is_c1_1 = self._is_c1_1(config_data)
+            c1_1_config = self._get_c1_1_sheet_config(config_data) if is_c1_1 else None
             kline = self._require_kline_data(
                 combination.get('stock_code', ''),
-                Kline_key,
-                kline_data_map.get(Kline_key),
+                kline_key,
+                kline_data_map.get(kline_key),
             )
             if is_c7_0_3:
                 self._validate_c7_0_3_kline(kline)
-            parameter[0] = str(parameter[0]).replace('"', '').replace("'","")
-            parameter[1] = str(parameter[1]).replace('"', '').replace("'","")
-            if len(parameter) == 2:
-                c5_parameter_1 = f"xm:{parameter[0]}"
-                c5_parameter_2 = f"ml:{parameter[1]}"
-                cell_updates[parameter_positions[0]] = c5_parameter_1
-                cell_updates[parameter_positions[1]] = c5_parameter_2
-            else:
-                for i, param in enumerate(parameter):
-                    cell_updates[parameter_positions[i]] = param
+            if is_c1_1:
+                # AG 列随机价是模板唯一驱动输入，缺失会导致指数序列与表内口径不一致
+                for index, item in enumerate(kline, start=1):
+                    if item.get('stock_val') in (None, ''):
+                        raise ValueError(f'C1.1 K线第 {index} 条缺少 ext 随机价 stock_val')
+            if not is_c1_1:
+                parameter[0] = str(parameter[0]).replace('"', '').replace("'","")
+                parameter[1] = str(parameter[1]).replace('"', '').replace("'","")
+                if len(parameter) == 2:
+                    c5_parameter_1 = f"xm:{parameter[0]}"
+                    c5_parameter_2 = f"ml:{parameter[1]}"
+                    cell_updates[parameter_positions[0]] = c5_parameter_1
+                    cell_updates[parameter_positions[1]] = c5_parameter_2
+                else:
+                    for i, param in enumerate(parameter):
+                        cell_updates[parameter_positions[i]] = param
 
             is_c7 = is_c7_0_3 or 'C7' in str(
                 config_data.get('sheet', {}).get('title') or config_data.get('title') or ''
@@ -553,10 +642,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 仅当 K 线来源变化（或首次执行）时重写行情列；同源组合只改参数，减少 Sheet IO。
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 _kline_len = len(kline)
 
-                if Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                if kline_key != cache_kline_key or initial_result_sleep is not None:
                     A_num = column_A_length
                     clear_range = f"{input_column_d}2:{input_column_v}{A_num + 2}"
                     if is_c7_0_3:
@@ -570,8 +659,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             f'预留末行: {A_num + 2}, 实际行数: {_kline_len}, 清空范围: {clear_range}'
                         )
                     self.google_sheet.clear_range(clear_range)
-                    self._log_info('输入数据已清空，等待20秒，开始执行后续逻辑')
-                    if not self._interruptible_sleep(20):
+                    settle_seconds = self._get_sheet_settle_seconds()
+                    self._log_info(f'输入数据已清空，等待{settle_seconds}秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(settle_seconds):
                         raise RuntimeError("task cancelled")
 
                     # 准备要更新的单元格
@@ -587,6 +677,16 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             cell_updates[f"{c7_0_3_config['high_column']}{cell_num}"] = item.get('high')
                             cell_updates[f"{c7_0_3_config['low_column']}{cell_num}"] = item.get('low')
                             cell_updates[f"{c7_0_3_config['close_column']}{cell_num}"] = item.get('close')
+                        elif is_c1_1:
+                            cell_updates[f"{c1_1_config['date_column']}{cell_num}"] = stock_date
+                            cell_updates[f"{c1_1_config['open_column']}{cell_num}"] = item.get('open')
+                            cell_updates[f"{c1_1_config['high_column']}{cell_num}"] = item.get('high')
+                            cell_updates[f"{c1_1_config['low_column']}{cell_num}"] = item.get('low')
+                            cell_updates[f"{c1_1_config['close_column']}{cell_num}"] = item.get('close')
+                            if c1_1_config['vwap_enabled']:
+                                cell_updates[f"{c1_1_config['vwap_column']}{cell_num}"] = item.get('vwap') or ""
+                            # AG 列随机价（stock_val）是模板驱动输入，无论是否重写 OHLC 都要刷新
+                            cell_updates[f"{c1_1_config['ext_column']}{cell_num}"] = item.get('stock_val', "")
                         else:
                             cell_updates[f"{input_column_d}{cell_num}"] = stock_date
                             cell_updates[f"{input_column_v}{cell_num}"] = item.get('stock_val', "")
@@ -605,16 +705,28 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 )
 
                 self._log_info(f"向Google Sheet写入参数: {self.google_sheet.title} 长度：{len(cell_updates)}")
-                self.google_sheet.update_jumped_cells(cell_updates)
+                if is_c1_1:
+                    # C1.1 的 AA 列日期需按 UI 规则解析为日期值（RAW 会写成文本，模板无法识别）
+                    self.google_sheet.update_jumped_cells(cell_updates, value_input_option='USER_ENTERED')
+                else:
+                    self.google_sheet.update_jumped_cells(cell_updates)
 
             # 先写入参数并触发模型计算，再读取结果区域和收益序列。
             set_googl_val()
 
             merged_return_range_a1 = (
                 f"L2:L{len(kline) + 1}"
-                if is_c7_0_3 else f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
+                if is_c7_0_3
+                else (
+                    f"{output_column_start}2:{output_column_start}{len(kline) + 1}"
+                    if is_c1_1
+                    else f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
+                )
             )
-            output_cell_list = [output_range_2,merged_return_range_a1] if len(parameter) == 2 else [merged_return_range_a1]
+            if is_c1_1:
+                output_cell_list = [output_range_2, merged_return_range_a1]
+            else:
+                output_cell_list = [output_range_2,merged_return_range_a1] if len(parameter) == 2 else [merged_return_range_a1]
 
             def check_result(check_values):
                 _check_values = {}
@@ -683,6 +795,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         if str(merged_return_range.get(first_return_position, '')).strip() == '#DIV/0!':
                             merged_return_range[first_return_position] = 0
                         _start_return = check_result(merged_return_range)
+                    elif is_c1_1:
+                        # 指数统一取 AG 列随机价（stock_val），与表内 Index Return 汇总同源
+                        _index_return = self._calculate_c1_1_index_returns(kline)
+                        _start_return = check_result({
+                            position: value
+                            for position, value in merged_return_range.items()
+                            if position.startswith(output_column_start)
+                        })
                     else:
                         _index_return = check_result({
                             position: value
@@ -703,17 +823,19 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _return_date = []
                 for i in range(len(kline)):
+                    if is_c7_0_3:
+                        index_value = _index_return[i]
+                        start_value = _start_return[f"L{i + 2}"]
+                    elif is_c1_1:
+                        index_value = _index_return[i]
+                        start_value = _start_return[f"{output_column_start}{i + 2}"]
+                    else:
+                        index_value = _index_return[f"{output_column_index}{i + 2}"]
+                        start_value = _start_return[f"{output_column_start}{i + 2}"]
                     _return_date.append({
                         'date': kline[i].get('stock_date'),
-                        'index_return': round(
-                            _index_return[i] if is_c7_0_3 else _index_return[f"{output_column_index}{i + 2}"],
-                            6,
-                        ),
-                        'start_return': round(
-                            _start_return[f"L{i + 2}"] if is_c7_0_3 else _start_return[f"{output_column_start}{i + 2}"],
-                            6,
-                        )
-
+                        'index_return': round(index_value, 6),
+                        'start_return': round(start_value, 6),
                     })
                 from app.services.performance_analysis.facade import calculate_v1_metrics
 
@@ -763,6 +885,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         include_full_year_range=False,
         end_date=None,
         include_ohlc=False,
+        random_price_range=None,
         data_source="akshare",
 
     ):
@@ -838,11 +961,23 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 raise Exception(
                     f"股票{stock_code} 设定区间 [{start_date}, {effective_end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 30:
-            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于30条，无法在模型正确产生数据，或者联系开发")
+        min_rows = self._get_min_kline_rows()
+        if len(klines) < min_rows:
+            raise Exception(
+                f"股票{stock_code} 数据量不足，K线数据量 {len(klines)} 条，"
+                f"至少需要 {min_rows} 条（系统配置 {MIN_KLINE_ROWS_CONFIG_KEY}），"
+                f"无法在模型正确产生数据，或者联系开发"
+            )
+
+        # random_price 模式按 task_id+股票+窗口键播种，重试/断点恢复复现同一随机序列。
+        def _random_generator(seed_key):
+            if price_mode != 'random_price':
+                return None
+            return random.Random(f"{self.task_id}:{stock_code}:{seed_key}")
 
         all_kline = self.kline_service.build_price_rows(
-            klines, price_mode, start_date=start_date, end_date=effective_end_date, include_ohlc=include_ohlc
+            klines, price_mode, start_date=start_date, end_date=effective_end_date, include_ohlc=include_ohlc,
+            random_price_range=random_price_range, random_generator=_random_generator('all'),
         )
         data = []
 
@@ -853,17 +988,18 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _end_data = effective_end_date
                 _start_data = f"{int(effective_end_date[:4]) - year}{effective_end_date[4:]}"
-                Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 if _start_data < data_start_date:
                     _start_data = data_start_date
                 kline = self.kline_service.build_price_rows(
-                    klines, price_mode, start_date=_start_data, end_date=_end_data, include_ohlc=include_ohlc
+                    klines, price_mode, start_date=_start_data, end_date=_end_data, include_ohlc=include_ohlc,
+                    random_price_range=random_price_range, random_generator=_random_generator(kline_key),
                 )
-                self._require_kline_data(stock_code, Kline_key, kline)
+                self._require_kline_data(stock_code, kline_key, kline)
                 for item in parameters:
-                    d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = kline
+                    d = {"parameter": item, 'stock_code': stock_code, 'kline_key': kline_key}
+                    if kline_key not in kline_data_map:
+                        kline_data_map[kline_key] = kline
                     data.append(d)
 
         if include_full_year_range:
@@ -880,25 +1016,28 @@ class BacktestTrainingService(BaseGoogleSheetService):
             kline = self.kline_service.build_price_rows(
                 klines, price_mode, start_date=range_start_date, end_date=effective_end_date,
                 include_ohlc=include_ohlc,
+                random_price_range=random_price_range, random_generator=_random_generator(range_start_year),
             )
-            Kline_key = f'{range_start_year}-{range_end_year}'
-            self._require_kline_data(stock_code, Kline_key, kline)
+            kline_key = f'{range_start_year}-{range_end_year}'
+            self._require_kline_data(stock_code, kline_key, kline)
             for item in parameters:
-                d = {"parameter": item,  'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                if Kline_key not in kline_data_map:
-                    kline_data_map[Kline_key] = kline
+                d = {"parameter": item,  'stock_code': stock_code, 'kline_key': kline_key}
+                if kline_key not in kline_data_map:
+                    kline_data_map[kline_key] = kline
                 data.append(d)
         elif full_years:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
             for year in full_years:
-                kline = self.kline_service.build_price_rows(_all_kline, price_mode, year=year, include_ohlc=include_ohlc)
-                Kline_key = year
-                self._require_kline_data(stock_code, Kline_key, kline)
+                kline = self.kline_service.build_price_rows(_all_kline, price_mode, year=year, include_ohlc=include_ohlc,
+                                                             random_price_range=random_price_range,
+                                                             random_generator=_random_generator(year))
+                kline_key = year
+                self._require_kline_data(stock_code, kline_key, kline)
 
                 for item in parameters:
-                    d = {"parameter": item,  'stock_code': stock_code, 'year': year,'Kline_key':Kline_key}
-                    if Kline_key not in kline_data_map:
-                        kline_data_map[Kline_key] = kline
+                    d = {"parameter": item,  'stock_code': stock_code, 'kline_key': kline_key}
+                    if kline_key not in kline_data_map:
+                        kline_data_map[kline_key] = kline
 
                     data.append(d)
 

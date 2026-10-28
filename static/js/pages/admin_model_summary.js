@@ -396,10 +396,8 @@
         const params = collectParams();
         if (filename) params.set("filename", filename);
 
-        exportButton.disabled = true;
-        exportButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
-        confirmButton.disabled = true;
-        confirmButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
+        setButtonBusy(exportButton, true, '导出中…');
+        setButtonBusy(confirmButton, true, '导出中…');
         document.getElementById("statusText").textContent = "正在生成 CSV...";
         try {
             const response = await Api.endpoints.export.modelSummaryCsv(params.toString(), {
@@ -421,10 +419,8 @@
             bootstrap.Modal.getOrCreateInstance(document.getElementById("exportCsvModal")).hide();
             document.getElementById("statusText").textContent = "CSV 已开始下载";
         } finally {
-            exportButton.disabled = false;
-            exportButton.innerHTML = `<i class="bi bi-file-earmark-spreadsheet"></i>导出 CSV`;
-            confirmButton.disabled = false;
-            confirmButton.innerHTML = `<i class="bi bi-file-earmark-spreadsheet me-1"></i>确认导出`;
+            setButtonBusy(exportButton, false);
+            setButtonBusy(confirmButton, false);
         }
     }
 

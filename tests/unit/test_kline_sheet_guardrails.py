@@ -24,6 +24,14 @@ def _kline_rows(start_date, end_date):
     return rows
 
 
+class _FakeConfigManager:
+    def __init__(self, value):
+        self.value = value
+
+    def get_config(self, key, default=None):
+        return self.value if key == 'min_kline_rows' else default
+
+
 class _FakeSheet:
     title = "fake-sheet"
 
@@ -112,6 +120,24 @@ def test_c3_rejects_end_date_after_latest_kline_without_writing_sheet(app_factor
 
         assert service.google_sheet.updates == []
 
+def test_c3_raw_kline_min_rows_uses_unified_config(app_factory, monkeypatch):
+    with app_factory.app_context():
+        service = C3GoogleSheetService({}, "task-id")
+        service.google_sheet = _FakeSheet()
+        service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: _search_result("1")
+        service.dfcf_api.get_stock_kline_data = (
+            lambda *_args, **_kwargs: _kline_rows("2023-04-24", "2024-05-10")
+        )
+        monkeypatch.setattr(
+            "app.services.google_sheet_tasks.base.get_config_manager",
+            lambda: _FakeConfigManager(1000),
+        )
+
+        with pytest.raises(ValueError, match="至少需要 1000 条"):
+            service.cell_kline_data(_c3_config("2024-04-23"))
+
+        assert service.google_sheet.updates == []
+
 def test_c3_empty_kline_does_not_write_sheet(app_factory):
     with app_factory.app_context():
         service = C3GoogleSheetService({}, "task-id")
@@ -153,7 +179,7 @@ def test_c4_execute_parameter_combination_reraises_sheet_errors():
 def test_c5_recent_mode_keeps_full_range_group_when_recent_spans_excluded(app_factory):
     """N+1+近年：近年窗口全被排除时不再空跑报错，由全区间组合（N+1 的"+1"）兜底。
 
-    同年配置下近半年窗口与全区间的 Kline_key 标签相同（如 2024-2024），
+    同年配置下近半年窗口与全区间的 kline_key 标签相同（如 2024-2024），
     kline_data_map 按键只能存一份，近半年窗口应让位并记录日志，不得错选取数窗口。
     """
     with app_factory.app_context():
@@ -177,7 +203,7 @@ def test_c5_recent_mode_keeps_full_range_group_when_recent_spans_excluded(app_fa
         )
 
     assert len(combinations) == 1
-    assert combinations[0]["Kline_key"] == "2024-2024"
+    assert combinations[0]["kline_key"] == "2024-2024"
     full_range = kline_data_map["2024-2024"]
     assert full_range[0]["stock_date"] == "2024-01-01"
     assert full_range[-1]["stock_date"] == "2024-12-31"

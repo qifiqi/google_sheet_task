@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from io import BytesIO
 from zipfile import ZipFile
+import re
 
 import pytest
 from openpyxl import load_workbook
@@ -40,11 +41,15 @@ def test_c7_export_reads_shifted_metric_cells():
                     "D21": "unused",
                     "D23": "1.23%",
                     "D26": "2.34%",
-                    "flat_result": {
-                        "start_monthly_std_dev": 0.1111,
-                        "index_monthly_std_dev": 0.2222,
-                        "index_sharpe_ratio": 1.5,
-                        "start_sharpe_ratio": 2.5,
+                    "metrics_payload": {
+                        "metrics": {
+                            "start_sharpe_ratios": {
+                                "all": {"monthly_std_dev": 0.1111, "sharpe_ratio": 2.5}
+                            },
+                            "index_sharpe_ratios": {
+                                "all": {"monthly_std_dev": 0.2222, "sharpe_ratio": 1.5}
+                            },
+                        }
                     },
                 },
             },
@@ -60,7 +65,7 @@ def test_c7_export_reads_shifted_metric_cells():
         0.03, 0.01, 0.03, 0.04, -0.01,
         0.1, 0.11, -0.05, 0.07, 0.08, -0.06,
     ])
-    assert row[13:] == pytest.approx([
+    assert row[13:19] == pytest.approx([
         0.0123,
         0.0234,
         0.1111,
@@ -68,36 +73,52 @@ def test_c7_export_reads_shifted_metric_cells():
         1.5,
         2.5,
     ])
+    # 列尾：股票代码 + 结果ID
+    assert row[19:] == ["600000", 1]
 
 
 def test_c7_stock_code_export_archive_keeps_workbooks_separate():
     task = SimpleNamespace(id="task-c7", name="C7 导出", task_type="google_sheet_C7")
     results = [
         {
+            "id": 11,
             "task_id": "task-c7",
             "success": True,
-            "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "c7_model_version": "c7_0_3"},
+            "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "model_version": "c7_0_3"},
             "result": {"模型A": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
         },
         {
+            "id": 22,
             "task_id": "task-c7",
             "success": True,
-            "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "c7_model_version": "c7_0_3"},
+            "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "model_version": "c7_0_3"},
             "result": {"模型A": {"D2": "20%", "D3": "21%", "D4": "-4%", "D5": "17%", "D6": "18%", "D7": "-7%"}},
         },
     ]
 
     archive = build_c7_stock_code_export_archive(task, results)
 
-    assert archive.filename == "C7 导出_按股票代码导出.zip"
+    # 统一命名规范：{基名}-{模型版本}-{K线起}-{K线止}-{导出时间}；本例无 kline 区间段
+    assert re.fullmatch(r"C7 导出_按股票代码导出-C7.0.3-\d{8}_\d{6}\.zip", archive.filename)
     with ZipFile(archive.buffer) as zip_file:
-        assert zip_file.namelist() == ["C7 导出_600001.xlsx", "C7 导出_600000.xlsx"]
+        member_names = zip_file.namelist()
+        # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳）
+        assert member_names == [
+            "C7.0.3-600001.xlsx",
+            "C7.0.3-600000.xlsx",
+        ]
 
-        first_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600001.xlsx")), data_only=True)
-        second_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600000.xlsx")), data_only=True)
+        first_workbook = load_workbook(BytesIO(zip_file.read(member_names[0])), data_only=True)
+        second_workbook = load_workbook(BytesIO(zip_file.read(member_names[1])), data_only=True)
 
     assert first_workbook.active["A2"].value == 2
     assert second_workbook.active["A2"].value == 1
+    # 按股票代码导出：列尾只加结果ID（股票代码已在文件名里）
+    header = [cell.value for cell in first_workbook.active[1]]
+    assert header[-1] == "结果ID"
+    assert "股票代码" not in header
+    assert first_workbook.active.cell(row=2, column=len(header)).value == 22
+    assert second_workbook.active.cell(row=2, column=len(header)).value == 11
 
 
 def test_c5_export_uses_sheet_calculated_beats():

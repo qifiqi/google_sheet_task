@@ -182,7 +182,7 @@
         if (Number.isNaN(date.getTime())) {
             return "-";
         }
-        return date.toLocaleString("zh-CN");
+        return date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
     }
 
     function getStatusText(status) {

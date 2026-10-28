@@ -1,9 +1,17 @@
 """内部命令端点：共享密钥鉴权 + 委托 Web TaskManager。"""
+import tempfile
+from pathlib import Path
+
 from app import create_app
 
 
 def _app(monkeypatch, secret):
     monkeypatch.setenv("INTERNAL_COMMAND_SECRET", secret)
+    # SQLite 本地回退已移除（config 重构）：测试显式给临时库地址。
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"sqlite:///{Path(tempfile.mkdtemp()) / 'test_internal_cmd.db'}",
+    )
     app = create_app()
     app.config.update(TESTING=True)
     return app

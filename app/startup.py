@@ -10,22 +10,25 @@ import os
 from sqlalchemy import Boolean, String, Text, cast, case, func, inspect, text, update
 from werkzeug.security import generate_password_hash
 
-from app.config import PERMISSIONS, SSO_DEFAULT_PERMISSION_CODES, SSO_ROLE, init_config
+from app.config import init_config
 from app.extensions import db
+from app.seeds.rbac_seeds import PERMISSIONS, SSO_DEFAULT_PERMISSION_CODES, SSO_ROLE
+from app.utils.task_error_utils import SHEET_QUEUED_PREFIX
 from app.models import (
     BacktestProductResultCache,
-    BacktestSheetRunLock,
     GoogleSheetToken,
     NavigationMenuItem,
     Permission,
     Role,
     ScheduledTask,
+    SheetExecutionLock,
     StockMetadata,
     SystemConfig,
     Task,
     TaskLog,
     TaskResult,
     TaskResultSummaryIndex,
+    TaskStatus,
     User,
 )
 from app.navigation import (
@@ -229,7 +232,7 @@ def ensure_backtest_runtime_schema():
     if 'backtest_product_result_cache' not in table_names:
         BacktestProductResultCache.__table__.create(db.engine, checkfirst=True)
     if 'backtest_sheet_run_locks' not in table_names:
-        BacktestSheetRunLock.__table__.create(db.engine, checkfirst=True)
+        SheetExecutionLock.__table__.create(db.engine, checkfirst=True)
 
 
 def ensure_task_result_return_schema():
@@ -249,6 +252,7 @@ def ensure_task_result_return_schema():
         "start_return_date": "DATE",
         "end_return_date": "DATE",
         "return_length": "INTEGER",
+        "created_at": "TIMESTAMP NULL",
     }
     changed = False
     for name, definition in definitions.items():
@@ -257,6 +261,23 @@ def ensure_task_result_return_schema():
             changed = True
     if changed:
         db.session.commit()
+
+
+def ensure_rbac_timestamp_schema():
+    """role/permission 建表时无 created_at，启动期补列（存量行留空）。"""
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    for short_name in ("role", "permission"):
+        table_name = next(
+            (name for name in (f"t_param_{short_name}", short_name) if name in table_names),
+            None,
+        )
+        if not table_name:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if "created_at" not in columns:
+            _add_column(table_name, "created_at", "TIMESTAMP NULL")
+            db.session.commit()
 
 
 def ensure_task_log_schema():
@@ -378,17 +399,18 @@ def reset_google_sheet_occupancy():
     google_sheet_repository.clear_all_occupancy()
 
 
-def cleanup_stale_backtest_sheet_run_locks():
-    """启动期清理陈旧 per-sheet 运行锁（经仓储写真实库，同上）。"""
-    from app.repositories import backtest_repository, task_repository
-
-    def _task_running(task_id):
-        if not task_id:
-            return False
-        task = task_repository.get(task_id)
-        return bool(task) and task.get("status") == "running"
-
-    backtest_repository.delete_stale_run_locks(_task_running)
+def cleanup_stale_sheet_execution_locks():
+    """清理上一进程遗留的 Sheet 执行锁（全任务类型统一，键 spreadsheet_id）。"""
+    stale_locks = (
+        SheetExecutionLock.query.outerjoin(Task, SheetExecutionLock.task_id == Task.id)
+        .filter((Task.id.is_(None)) | (Task.status != TaskStatus.RUNNING.value))
+        .all()
+    )
+    if not stale_locks:
+        return
+    for lock in stale_locks:
+        db.session.delete(lock)
+    db.session.commit()
 
 
 def register_shell_context(app):
@@ -404,7 +426,7 @@ def register_shell_context(app):
             'ScheduledTask': ScheduledTask,
             'GoogleSheetToken': GoogleSheetToken,
             'BacktestProductResultCache': BacktestProductResultCache,
-            'BacktestSheetRunLock': BacktestSheetRunLock,
+            'SheetExecutionLock': SheetExecutionLock,
         }
 
 
@@ -758,6 +780,7 @@ def _initialize_database_schema():
         ensure_task_schema,
         ensure_task_result_schema,
         ensure_scheduled_task_schema,
+        ensure_rbac_timestamp_schema,
         ensure_task_result_return_schema,
         ensure_task_log_schema,
         ensure_task_result_payload_schema,
@@ -770,9 +793,11 @@ def _initialize_database_schema():
 
 
 def _recover_runtime_resources():
-    """清理上一个进程遗留的 token、Sheet 占用和回测锁。
+    """清理上一个进程遗留的 token 与 Sheet 占用镜像。
 
     这些字段代表进程内执行状态，不是应被永久保留的业务数据。
+    Sheet 执行锁不在此处清理：必须等 check_and_cleanup_dead_tasks 把崩溃
+    遗留的 running 任务置回 pending 后，其锁行才满足陈旧判定（见 bootstrap_app）。
     """
     reset_google_sheet_token_occupancy()
     reset_google_sheet_occupancy()
@@ -793,6 +818,47 @@ def _recover_runtime_resources():
     # 未配置时为直通 no-op；多副本共库经 REDIS_NAMESPACE 隔离互不影响。
     from app.adjudication import get_arbiter
     get_arbiter().namespace_reset()
+
+
+
+
+def resume_pending_queued_tasks(app):
+    """启动期排队补跑：清锁后按 FIFO 尝试启动带 [SHEET_QUEUED] 标记的任务。
+
+    排队任务脱离看门狗视野，进程重启后若不补跑会永远等不到接力事件（黑洞）。
+    start_task 内部自会裁决占用：仍被占/并发满的任务保持 pending，无副作用。
+    仅扫 [SHEET_QUEUED] 标记任务——崩溃中断被 check_and_cleanup_dead_tasks
+    置回 pending 的任务不在此列，保持人工/调度启动语义。
+    """
+    from app.repositories import task_repository
+    from app.services.task import task_manager
+
+    logger = get_logger('startup')
+    with app.app_context():
+        try:
+            queued_tasks = task_repository.list_pending_queued_entities(SHEET_QUEUED_PREFIX)
+            if not queued_tasks:
+                return
+            started_ids = []
+            for queued_task in queued_tasks:
+                result = task_manager.start_task(queued_task.id)
+                if result.started:
+                    started_ids.append(queued_task.id)
+                elif result.status == "rejected":
+                    # 补跑被拒（如并发满）时 start_task 不写 error_message，任务会
+                    # 残留旧排队原因。这里保留 [SHEET_QUEUED] 前缀刷新说明：
+                    # 页面提示与真实原因一致，下一轮启动补跑仍能扫到本任务。
+                    task_repository.update_fields(
+                        queued_task.id,
+                        error_message=f"{SHEET_QUEUED_PREFIX} {result.message}",
+                    )
+            logger.info(
+                '启动期排队补跑完成: 排队任务=%s, 补跑启动=%s',
+                len(queued_tasks),
+                len(started_ids),
+            )
+        except Exception as exc:
+            logger.error(f'启动期排队补跑失败: {exc}')
 
 
 def _start_background_components(app):
@@ -824,4 +890,10 @@ def bootstrap_app(app):
         init_config()
 
     check_and_cleanup_dead_tasks(app)
+    with app.app_context():
+        # 锁清理必须晚于死任务清理：崩溃遗留的 running 任务先被置回 pending，
+        # 其执行锁才满足陈旧判定。顺序颠倒会让崩溃任务的锁无释放者，
+        # 等同一 Sheet 的 [SHEET_QUEUED] 排队任务永远等不到接力（黑洞）。
+        cleanup_stale_sheet_execution_locks()
+    resume_pending_queued_tasks(app)
     _start_background_components(app)

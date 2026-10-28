@@ -156,3 +156,28 @@ def test_results_endpoints_envelope(auth_client):
     resp = client.delete(f"/api/results/{result_id}", headers=headers)
     assert resp.status_code == 404
     assert resp.get_json()["message"] == "结果不存在"
+
+
+def test_task_results_paginated_desc_by_step(auth_client):
+    """C 系列详情页执行结果：分页按 step_index 倒序，跨页保持全局倒序。"""
+    client, headers = auth_client
+
+    with client.application.app_context():
+        db.session.add(Task(id="t-r-desc", name="desc task", status="completed"))
+        db.session.commit()
+        db.session.add_all([
+            TaskResult(task_id="t-r-desc", step_index=step, success=True)
+            for step in range(3)
+        ])
+        db.session.commit()
+
+    first = client.get(
+        "/api/tasks/t-r-desc/results?page=1&per_page=2", headers=headers
+    ).get_json()["data"]
+    assert [item["step_index"] for item in first["items"]] == [2, 1]
+    assert first["total"] == 3
+
+    second = client.get(
+        "/api/tasks/t-r-desc/results?page=2&per_page=2", headers=headers
+    ).get_json()["data"]
+    assert [item["step_index"] for item in second["items"]] == [0]

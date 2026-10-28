@@ -15,6 +15,7 @@ def _patch_bootstrap_stages(monkeypatch, calls):
         '_recover_runtime_resources',
         'init_config',
         'check_and_cleanup_dead_tasks',
+        'cleanup_stale_sheet_execution_locks',
         '_start_background_components',
     ):
         monkeypatch.setattr(
@@ -36,6 +37,9 @@ def test_bootstrap_runs_startup_stages_in_order(monkeypatch):
         '_recover_runtime_resources',
         'init_config',
         'check_and_cleanup_dead_tasks',
+        # 锁清理晚于死任务清理：崩溃遗留的 running 任务先置回 pending，
+        # 其执行锁才满足陈旧判定，否则排队任务会因锁无释放者而黑洞。
+        'cleanup_stale_sheet_execution_locks',
         '_start_background_components',
     ]
 

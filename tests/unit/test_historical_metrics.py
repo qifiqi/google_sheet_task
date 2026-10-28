@@ -4,13 +4,15 @@ from app.services.performance_analysis.historical_metrics import (
 )
 
 
-def test_extract_core_metrics_upgrades_legacy_aliases():
+def test_extract_core_metrics_reads_canonical_payload():
     metrics = extract_core_metrics({
-        "calculate_metrics": {
-            "index_sotino_ratio": [{"year": "all", "sotino_ratio": 1.2}],
-            "start_sotino_ratio": [{"year": "all", "sotino_ratio": 2.3}],
-            "excess_sharp": 3.4,
-            "excess_of_promissory_note": 5.6,
+        "metrics_payload": {
+            "metrics": {
+                "index_sortino_ratio": [{"year": "all", "sortino_ratio": 1.2}],
+                "start_sortino_ratio": [{"year": "all", "sortino_ratio": 2.3}],
+                "excess_sharpe": 3.4,
+                "excess_sortino": 5.6,
+            }
         }
     })
 
@@ -21,7 +23,7 @@ def test_extract_core_metrics_upgrades_legacy_aliases():
 
 
 def test_resolve_preview_metrics_preserves_history_without_returns():
-    core = {"calculate_metrics": {"excess_sharp": 3.4}}
+    core = {"metrics_payload": {"metrics": {"excess_sharpe": 3.4}}}
 
     metrics = resolve_preview_metrics(core)
 
@@ -47,7 +49,7 @@ def test_resolve_preview_metrics_recalculates_missing_preview_metrics(monkeypatc
     )
 
     metrics = resolve_preview_metrics(
-        {"calculate_metrics": {"excess_sharp": 1.0}},
+        {},
         return_rows=[
             {"date": "2025-01-01", "index_return": 0.0, "start_return": 0.0},
             {"date": "2025-01-02", "index_return": 0.01, "start_return": 0.02},

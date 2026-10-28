@@ -8,7 +8,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, DEFAULT_C3_MIN_KLINE_ROWS, POLL_ATTEMPT_LIMIT
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -33,6 +33,8 @@ logger = get_logger(__name__)
 
 class C3Service(BaseGoogleSheetService):
     """Google Sheet服务"""
+
+    _model_version = "c3"
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
@@ -64,10 +66,11 @@ class C3Service(BaseGoogleSheetService):
             if key in result
         }
 
-        flat_result = result.get("flat_result")
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        metrics_payload = result.get("metrics_payload")
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else None
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -76,10 +79,8 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
-
-        metrics_payload = result.get("metrics_payload")
         if isinstance(metrics_payload, dict):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
@@ -91,21 +92,21 @@ class C3Service(BaseGoogleSheetService):
 
     def _summarize_return_analysis_for_log(
         self,
-        flat_result: Dict[str, Any],
-        analyze_result: Dict[str, Any],
+        metrics_payload: Dict[str, Any],
         row_count: int,
         read_elapsed: float,
         performance_analysis_elapsed: float,
     ) -> str:
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else {}
         summary = {
             "rows": row_count,
             "read": self._format_elapsed(read_elapsed),
             "performance_analysis": self._format_elapsed(performance_analysis_elapsed),
-            "analyze_result_keys": len(analyze_result) if isinstance(analyze_result, dict) else 0,
+            "metric_keys": len(metrics) if isinstance(metrics, dict) else 0,
         }
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -114,7 +115,7 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
         return dumps(
             sanitize_json_value(summary),
@@ -141,8 +142,9 @@ class C3Service(BaseGoogleSheetService):
             self.google_sheet.update_jumped_cells(cell_updates)
             return
 
+        settle_seconds = self._get_sheet_settle_seconds()
         self._log_info(
-            "模型可能卡死，直接清空参数，等待20s后重新写入参数，请稍等..."
+            f"模型可能卡死，直接清空参数，等待{settle_seconds}秒后重新写入参数，请稍等..."
         )
 
         if attempt >= 10 and not self.klines_map:
@@ -152,8 +154,8 @@ class C3Service(BaseGoogleSheetService):
             self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
             self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
 
-            self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 raise RuntimeError("task cancelled")
 
             for i in range(self.len_kline):
@@ -169,7 +171,7 @@ class C3Service(BaseGoogleSheetService):
             return
 
         self.google_sheet.clear_jumped_cells(cell_updates.keys())
-        if not self._interruptible_sleep(20):
+        if not self._interruptible_sleep(settle_seconds):
             raise RuntimeError("task cancelled")
 
         self.google_sheet.update_jumped_cells(cell_updates)
@@ -364,10 +366,9 @@ class C3Service(BaseGoogleSheetService):
                 return {}
 
             performance_analysis_started = time.perf_counter()
-            flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
+            metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
             performance_analysis_elapsed = time.perf_counter() - performance_analysis_started
             analysis_summary = self._summarize_return_analysis_for_log(
-                flat_result,
                 metrics_payload,
                 len(return_data),
                 read_elapsed,
@@ -379,7 +380,6 @@ class C3Service(BaseGoogleSheetService):
             )
             return {
                 "metrics_payload": metrics_payload,
-                "flat_result": flat_result,
                 "_return_date": return_data,
             }
         except SheetCheckError:
@@ -396,7 +396,7 @@ class C3Service(BaseGoogleSheetService):
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
         payload = self._build_stock_param_result_base_payload(task_name, task_index, config_data)
-        return_analysis = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else result
+        return_analysis = (result.get("metrics_payload") or {}).get("metrics", {})
         payload.update({
             "multiplier": result.get("B6", 0),
             "danbian": result.get("B7", 0),
@@ -483,7 +483,7 @@ class C3Service(BaseGoogleSheetService):
             market_type,
             klines,
             context="原始K线",
-            min_rows=100,
+            min_rows=self._get_min_kline_rows(DEFAULT_C3_MIN_KLINE_ROWS),
             price_field=get_kline_price_field(price_mode),
         )
 
@@ -574,8 +574,9 @@ class C3Service(BaseGoogleSheetService):
                     self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
                     self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
 
-                    self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
-                    if not self._interruptible_sleep(20):
+                    settle_seconds = self._get_sheet_settle_seconds()
+                    self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(settle_seconds):
                         return success_count, failed_count, 'cancelled'
 
                 self.cell_kline_data(config_data)
@@ -718,8 +719,12 @@ class C3Service(BaseGoogleSheetService):
             batch_error_count = 0
             max_batch_error_count = 3
             delay_min, delay_max = self._get_execution_poll_delay_bounds()
-            for attempt in range(60):
-                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+            refresh_interval, refresh_attempts = self._get_poll_refresh_settings()
+            for attempt in range(POLL_ATTEMPT_LIMIT):
+                if attempt != 0 and (
+                    (refresh_interval > 0 and attempt % refresh_interval == 0)
+                    or attempt in refresh_attempts
+                ):
                     self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
                     self._write_parameter_cells(cell_updates, attempt)
 
