@@ -21,6 +21,9 @@ services:
       FLASK_DEBUG: "false"
       MPLCONFIGDIR: /tmp/matplotlib
       HOME: /tmp
+      # 任务线程大块分配后，glibc 会为每个 arena 各留一份峰值（并发 N 个任务就留 N 份）；
+      # 限制 arena 数让并发任务复用同一批 heap，收尾再由 malloc_trim 归还（见 app/utils/process_memory.py）
+      MALLOC_ARENA_MAX: "2"
       # 容器间时间统一上海（镜像内 Dockerfile 也设了 TZ，此处兜底）
       TZ: Asia/Shanghai
     env_file:
