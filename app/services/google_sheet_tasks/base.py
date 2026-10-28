@@ -14,6 +14,7 @@ from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.repositories import task_log_repository, task_repository, task_result_repository
+from app.services.sheet_execution_lock_service import sheet_execution_lock_service
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet, build_google_credentials
 from app.services.google_sheet_token_service import get_google_sheet_token_service
@@ -243,6 +244,11 @@ class BaseGoogleSheetService:
             return None
 
     def _interruptible_sleep(self, seconds: float) -> bool:
+        # 执行链每次可中断等待顺带给 Sheet 执行锁续租（Redis TTL 兜底，防长任务被抢锁）。
+        try:
+            sheet_execution_lock_service.renew_for_task(self.task_id)
+        except Exception:
+            pass
         if seconds <= 0:
             return not self._is_cancel_requested()
         if self.stop_event:

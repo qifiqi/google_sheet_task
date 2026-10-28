@@ -14,10 +14,17 @@ from app.services.performance_analysis.portfolio_combiner import (
 )
 
 from app.extensions import db
-from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
+from app.services.sheet_execution_lock_service import _MemoryBackend, sheet_execution_lock_service
+
+
+@pytest.fixture(autouse=True)
+def _isolated_sheet_lock_backend():
+    """全局锁服务用独立内存后端，用例间互不残留。"""
+    sheet_execution_lock_service._backend = _MemoryBackend()
+    yield
+    sheet_execution_lock_service._backend = None
 from app.models import (
     BacktestProductResultCache,
-    SheetExecutionLock,
     Task,
     TaskResult,
     TaskResultReturn,
@@ -404,10 +411,9 @@ def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory)
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id="shared-sheet", task_id="running-task",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "running-task", BACKTEST_MULTI_PRODUCT_TASK_TYPE, ["shared-sheet"]
+        )
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.commit()
 
@@ -429,10 +435,9 @@ def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id="shared-sheet", task_id="running-task",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "running-task", BACKTEST_MULTI_PRODUCT_TASK_TYPE, ["shared-sheet"]
+        )
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.add(TaskResultReturn(task_id=target.id, stock_date="2024-01-01", index_return=1, start_return=1))
         db.session.commit()
@@ -674,11 +679,15 @@ def test_multi_product_resets_kline_cache_once_per_product(app_factory, monkeypa
         ]
 
 
-def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
+def test_backtest_sheet_run_lock_semantics(app_factory):
     app = app_factory
     with app.app_context():
+        from app.services.sheet_execution_lock_service import SheetExecutionLockService
+
         manager = TaskManager()
-        lock_service = get_sheet_execution_lock_service()
+        # 独立服务实例（独立内存后端），与本文件其他用例互不污染
+        lock_service = SheetExecutionLockService()
+        lock_service._backend = _MemoryBackend()
 
         acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-1",
@@ -689,7 +698,7 @@ def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
         assert acquired is True
         assert locked_task_id is None
         assert acquired_ids == ["shared-sheet"]
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        assert lock_service.find_conflict(["shared-sheet"]) == "task-1"
 
         acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-2",
@@ -702,10 +711,10 @@ def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
         assert acquired_ids == []
 
         lock_service.release_sheets(["shared-sheet"], "task-2")
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        assert lock_service.find_conflict(["shared-sheet"]) == "task-1"
 
         lock_service.release_sheets(["shared-sheet"], "task-1")
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
+        assert lock_service.find_conflict(["shared-sheet"]) is None
 
 
 def test_fixed_product_cache_key_ignores_ratio_and_changes_for_inputs(app_factory):

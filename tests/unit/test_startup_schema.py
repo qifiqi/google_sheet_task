@@ -1,13 +1,27 @@
+import pytest
+
 from sqlalchemy import inspect, text
 
 from app.extensions import db
-from app.models import SheetExecutionLock, GoogleSheet, ScheduledTask, Task
+from app.models import GoogleSheet, ScheduledTask, Task
+from app.services.sheet_execution_lock_service import (
+    _MemoryBackend,
+    sheet_execution_lock_service,
+)
 from app.startup import (
     cleanup_stale_sheet_execution_locks,
     ensure_google_sheet_registry_schema,
     ensure_scheduled_task_schema,
     ensure_task_result_summary_index_schema,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_sheet_lock_backend():
+    """全局锁服务用独立内存后端，用例间互不残留。"""
+    sheet_execution_lock_service._backend = _MemoryBackend()
+    yield
+    sheet_execution_lock_service._backend = None
 
 
 def test_ensure_google_sheet_registry_schema_is_portable(app_factory):
@@ -74,32 +88,16 @@ def test_cleanup_stale_sheet_execution_locks_keeps_running_task_locks(app_factor
     running_task = Task(id="running-lock-task", name="running", task_type="backtest_training", status="running")
     completed_task = Task(id="completed-lock-task", name="completed", task_type="backtest_training", status="completed")
     db.session.add_all([running_task, completed_task])
-    db.session.add_all([
-        SheetExecutionLock(
-            spreadsheet_id="running-sheet",
-            task_id="running-lock-task",
-            task_type="backtest_training",
-        ),
-        SheetExecutionLock(
-            spreadsheet_id="completed-sheet",
-            task_id="completed-lock-task",
-            task_type="backtest_training",
-        ),
-        SheetExecutionLock(
-            spreadsheet_id="missing-sheet",
-            task_id="missing-task",
-            task_type="backtest_training",
-        ),
-    ])
+    sheet_execution_lock_service.acquire_for_task("running-lock-task", "backtest_training", ["running-sheet"])
+    sheet_execution_lock_service.acquire_for_task("completed-lock-task", "backtest_training", ["completed-sheet"])
+    sheet_execution_lock_service.acquire_for_task("missing-task", "backtest_training", ["missing-sheet"])
     db.session.commit()
 
     cleanup_stale_sheet_execution_locks()
 
-    locks = {
-        lock.spreadsheet_id
-        for lock in SheetExecutionLock.query.order_by(SheetExecutionLock.spreadsheet_id.asc()).all()
-    }
-    assert locks == {"running-sheet"}
+    assert sheet_execution_lock_service.find_conflict(["running-sheet"]) == "running-lock-task"
+    assert sheet_execution_lock_service.find_conflict(["completed-sheet"]) is None
+    assert sheet_execution_lock_service.find_conflict(["missing-sheet"]) is None
 
 
 def test_ensure_task_result_summary_index_schema_adds_period_key_to_legacy_table(app_factory):

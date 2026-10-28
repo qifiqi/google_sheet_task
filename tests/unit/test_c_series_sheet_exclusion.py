@@ -14,7 +14,11 @@ import pytest
 
 from app.exceptions import ValidationError
 from app.extensions import db
-from app.models import GoogleSheet, SheetExecutionLock, Task
+from app.models import GoogleSheet, Task
+from app.services.sheet_execution_lock_service import (
+    _MemoryBackend,
+    sheet_execution_lock_service,
+)
 from app.services.task import TaskManager
 
 
@@ -125,11 +129,9 @@ def test_start_c_series_queues_when_execution_lock_held_by_other(app_factory, mo
         manager = TaskManager()
         task_id = _create_c5(manager, "taken-sheet")
 
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id=sheet.spreadsheet_id,
-            task_id="other-task",
-            task_type="google_sheet_C7",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "other-task", "google_sheet_C7", [sheet.spreadsheet_id]
+        )
         db.session.commit()
 
         result = manager.start_task(task_id)
@@ -146,11 +148,9 @@ def test_c31_batch_with_busy_sheet_creates_queued_children(app_factory, monkeypa
         sheet = _add_sheet("batch-busy", "c3")
         _patch_token_service(monkeypatch)
         manager = TaskManager()
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id=sheet.spreadsheet_id,
-            task_id="other-task",
-            task_type="google_sheet",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "other-task", "google_sheet", [sheet.spreadsheet_id]
+        )
         db.session.commit()
 
         result = manager.batch_create_and_start_task(
@@ -186,11 +186,9 @@ def test_relay_starts_pending_c_series_waiting_on_released_sheet(app_factory, mo
         manager = TaskManager()
         finished_task_id = _create_c5(manager, "relay-sheet")
         waiting_task_id = _create_c5(manager, "relay-sheet")
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id=sheet.spreadsheet_id,
-            task_id=finished_task_id,
-            task_type="google_sheet_C5",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            finished_task_id, "google_sheet_C5", [sheet.spreadsheet_id]
+        )
         db.session.commit()
 
         started_calls = []

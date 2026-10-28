@@ -20,7 +20,6 @@ from app.repositories import (
     navigation_repository,
     auth_repository,
     scheduled_task_repository,
-    sheet_lock_repository,
     stock_metadata_repository,
     system_config_repository,
     task_log_repository,
@@ -381,41 +380,66 @@ class TestStockMetadataRepository:
         assert stock_metadata_repository.get("600000.SH", "us") is None
 
 
-# ==================== sheet_lock_repository（统一 Sheet 执行锁） ====================
+# ==================== Sheet 执行锁服务（Redis，内存后端） ====================
 
 
-class TestSheetLockRepository:
-    def test_lock_acquire_idempotent_and_conflict(self, app_factory):
-        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+class TestSheetExecutionLockService:
+    @pytest.fixture()
+    def lock_service(self):
+        from app.services import sheet_execution_lock_service as mod
+
+        service = mod.SheetExecutionLockService()
+        # 直接注入独立内存后端，用例间互不污染
+        service._backend = mod._MemoryBackend()
+        return service
+
+    def test_lock_acquire_idempotent_and_conflict(self, lock_service):
+        ok, holder, _ = lock_service.acquire_for_task("t-1", "backtest_training", ["ss1"])
         assert (ok, holder) == (True, None)
-        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        ok, holder, _ = lock_service.acquire_for_task("t-1", "backtest_training", ["ss1"])
         assert (ok, holder) == (True, None)  # 同任务幂等
-        ok, holder = sheet_lock_repository.acquire("ss1", "t-2", "backtest_training")
+        ok, holder, _ = lock_service.acquire_for_task("t-2", "backtest_training", ["ss1"])
         assert (ok, holder) == (False, "t-1")  # 他任务冲突
 
-    def test_lock_acquire_all_rolls_back_on_conflict(self, app_factory):
-        sheet_lock_repository.acquire("ss0", "t-0", "backtest_training")
-        ok, holder, acquired = sheet_lock_repository.acquire_all(
-            ["ss1", "ss0"], "t-1", "backtest_training"
+    def test_lock_acquire_all_rolls_back_on_conflict(self, lock_service):
+        lock_service.acquire_for_task("t-0", "backtest_training", ["ss0"])
+        ok, holder, acquired = lock_service.acquire_for_task(
+            "t-1", "backtest_training", ["ss1", "ss0"]
         )
         assert (ok, holder) == (False, "t-0")
-        assert acquired == ["ss1"]  # 全拿全放：冲突时先拿的也要回滚
-        assert sheet_lock_repository.get("ss1") is None
+        assert acquired == []  # 全拿全放：冲突时先拿的也要回滚
+        assert lock_service.find_conflict(["ss1"]) is None
+        assert lock_service.find_conflict(["ss0"]) == "t-0"
 
-    def test_lock_release_guards_owner(self, app_factory):
-        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
-        assert sheet_lock_repository.release("ss1", "t-2") is False
-        assert sheet_lock_repository.release("ss1", "t-1") is True
-        assert sheet_lock_repository.get("ss1") is None
-        assert sheet_lock_repository.release("ss1", "t-1") is False
+    def test_release_guards_owner(self, lock_service):
+        lock_service.acquire_for_task("t-1", "backtest_training", ["ss1"])
+        lock_service.release_sheets(["ss1"], "t-2")
+        assert lock_service.find_conflict(["ss1"]) == "t-1"  # 他人不可释放
+        lock_service.release_sheets(["ss1"], "t-1")
+        assert lock_service.find_conflict(["ss1"]) is None
 
-    def test_find_conflict_excludes_self(self, app_factory):
-        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
-        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-1") is None
-        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-2") == "t-1"
-        assert sheet_lock_repository.find_conflict(["ss-none"]) is None
+    def test_find_conflict_excludes_self(self, lock_service):
+        lock_service.acquire_for_task("t-1", "backtest_training", ["ss1"])
+        assert lock_service.find_conflict(["ss1"], exclude_task_id="t-1") is None
+        assert lock_service.find_conflict(["ss1"], exclude_task_id="t-2") == "t-1"
+        assert lock_service.find_conflict(["ss-none"]) is None
 
-    def test_release_all_by_task(self, app_factory):
-        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
-        sheet_lock_repository.acquire("ss2", "t-1", "backtest_training")
-        assert sheet_lock_repository.release_all_by_task("t-1") == 2
+    def test_release_for_task_and_held_list(self, lock_service):
+        lock_service.acquire_for_task("t-1", "backtest_training", ["ss1", "ss2"])
+        assert sorted(lock_service.list_held_spreadsheet_ids("t-1")) == ["ss1", "ss2"]
+        assert lock_service.release_for_task("t-1") == 2
+        assert lock_service.list_held_spreadsheet_ids("t-1") == []
+        assert lock_service.find_conflict(["ss1", "ss2"]) is None
+
+    def test_renew_keeps_lock(self, lock_service):
+        lock_service.acquire_for_task("t-1", "backtest_training", ["ss1"])
+        lock_service.renew_for_task("t-1")
+        assert lock_service.find_conflict(["ss1"]) == "t-1"
+
+    def test_cleanup_stale_locks(self, lock_service):
+        lock_service.acquire_for_task("t-dead", "backtest_training", ["ss1"])
+        lock_service.acquire_for_task("t-live", "backtest_training", ["ss2"])
+        cleaned = lock_service.cleanup_stale_locks({"t-live"}.__contains__)
+        assert cleaned == 1
+        assert lock_service.find_conflict(["ss1"]) is None
+        assert lock_service.find_conflict(["ss2"]) == "t-live"

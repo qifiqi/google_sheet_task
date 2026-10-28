@@ -7,7 +7,11 @@ import pytest
 
 from app.exceptions import BadRequestError, ConflictError, ValidationError
 from app.extensions import db
-from app.models import SheetExecutionLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.services.sheet_execution_lock_service import (
+    _MemoryBackend,
+    sheet_execution_lock_service,
+)
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.task import (
@@ -19,6 +23,14 @@ from app.services.task import (
 from app.services.task_watchdog import TaskWatchdog
 from app import create_app
 from app.utils import auth as auth_module
+
+@pytest.fixture(autouse=True)
+def _isolated_sheet_lock_backend():
+    """全局锁服务用独立内存后端，用例间互不残留。"""
+    sheet_execution_lock_service._backend = _MemoryBackend()
+    yield
+    sheet_execution_lock_service._backend = None
+
 
 
 def _create_task(task_id: str = "task-1", status: str = "pending") -> Task:
@@ -337,11 +349,9 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             start_time=datetime.now(),
         )
         db.session.add_all([sheet, running_task])
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id="spreadsheet-queue",
-            task_id="running-backtest",
-            task_type="backtest_training",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "running-backtest", "backtest_training", ["spreadsheet-queue"]
+        )
         db.session.commit()
 
         manager = TaskManager()
@@ -381,11 +391,9 @@ def test_backtest_start_task_queues_on_lock_even_if_holder_row_stale(app_factory
             created_at=datetime.now(),
         )
         db.session.add_all([stale_holder, queued_task])
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id=spreadsheet_id,
-            task_id="stale-holder",
-            task_type="backtest_training",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "stale-holder", "backtest_training", [spreadsheet_id]
+        )
         db.session.commit()
         queued_task_id = queued_task.id
 
@@ -416,12 +424,8 @@ def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory
         task_id = task.id
 
         manager = TaskManager()
-        db.session.add(
-            SheetExecutionLock(
-                spreadsheet_id=spreadsheet_id,
-                task_id="locked-backtest",
-                task_type="backtest_training",
-            )
+        sheet_execution_lock_service.acquire_for_task(
+            "locked-backtest", "backtest_training", [spreadsheet_id]
         )
         db.session.commit()
 
@@ -466,7 +470,7 @@ def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
         refreshed = db.session.get(Task, task_id)
         assert not result.started and result.status == "rejected"
         assert refreshed.status == "pending"
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id=spreadsheet_id).count() == 0
+        assert sheet_execution_lock_service.find_conflict([spreadsheet_id]) is None
 
 
 def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory, tmp_path):
@@ -577,12 +581,8 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
         task_id = task.id
 
         manager = TaskManager()
-        db.session.add(
-            SheetExecutionLock(
-                spreadsheet_id=spreadsheet_id,
-                task_id="other-running-lock",
-                task_type="backtest_training",
-            )
+        sheet_execution_lock_service.acquire_for_task(
+            "other-running-lock", "backtest_training", [spreadsheet_id]
         )
         db.session.commit()
 
@@ -609,11 +609,9 @@ def test_backtest_checkpoint_restart_queues_via_start_task_lock_check(monkeypatc
             created_at=datetime.now(),
         )
         db.session.add(restart_task)
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id=spreadsheet_id,
-            task_id="running-backtest-restart-conflict",
-            task_type="backtest_training",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "running-backtest-restart-conflict", "backtest_training", [spreadsheet_id]
+        )
         db.session.commit()
         restart_task_id = restart_task.id
 
@@ -648,12 +646,8 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
         task_id = task.id
 
         manager = TaskManager()
-        db.session.add(
-            SheetExecutionLock(
-                spreadsheet_id=spreadsheet_id,
-                task_id="running-from-lock",
-                task_type="backtest_training",
-            )
+        sheet_execution_lock_service.acquire_for_task(
+            "running-from-lock", "backtest_training", [spreadsheet_id]
         )
         db.session.commit()
 
@@ -849,10 +843,7 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
         next_logs = [log.message for log in TaskLog.query.filter_by(task_id=next_task_id).all()]
         assert started_task_ids == ["next-backtest"]
         assert refreshed_next.status == "running"
-        assert SheetExecutionLock.query.filter_by(
-            spreadsheet_id="spreadsheet-next",
-            task_id="next-backtest",
-        ).count() == 1
+        assert sheet_execution_lock_service.find_conflict(["spreadsheet-next"]) == "next-backtest"
         assert transition_message in finished_logs
         assert transition_message in next_logs
 

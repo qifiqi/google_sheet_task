@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from app.repositories import (
     backtest_repository,
-    sheet_lock_repository,
     task_kline_snapshot_repository,
     task_log_repository,
     task_result_repository,
 )
+from app.services.sheet_execution_lock_service import sheet_execution_lock_service
 
 
 def _delete_legacy_performance_analysis_jobs(*, task_id: str | None = None, result_ids: list[int] | None = None, return_series_ids: list[int] | None = None) -> None:
@@ -47,6 +47,7 @@ def clear_task_execution_data(task_id: str, *, include_logs: bool = False) -> No
     task_result_repository.delete_by_task(task_id, commit=False)
     task_result_repository.delete_returns_by_task(task_id, commit=False)
     task_kline_snapshot_repository.delete_by_task(task_id, commit=False)
-    sheet_lock_repository.release_all_by_task(task_id, commit=False)
+    # 执行锁在 Redis：清理链路直接按任务释放（无事务概念）。
+    sheet_execution_lock_service.release_for_task(task_id)
     if include_logs:
         task_log_repository.delete_by_task(task_id, commit=False)

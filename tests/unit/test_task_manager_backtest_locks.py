@@ -1,10 +1,34 @@
 import json
+
+import pytest
 from datetime import datetime
 
 from app.extensions import db
-from app.models import BacktestProductResultCache, SheetExecutionLock, Task
-from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
+from app.models import BacktestProductResultCache, Task
+from app.services.sheet_execution_lock_service import (
+    _MemoryBackend,
+    sheet_execution_lock_service,
+)
+from app.services.sheet_execution_lock_service import (
+    _MemoryBackend,
+    sheet_execution_lock_service,
+)
 from app.services.task.facade import TaskManager
+
+
+@pytest.fixture(autouse=True)
+def _isolated_sheet_lock_backend():
+    """全局锁服务用独立内存后端，用例间互不残留。"""
+    sheet_execution_lock_service._backend = _MemoryBackend()
+    yield
+    sheet_execution_lock_service._backend = None
+
+
+def pytest_configure(config):
+    pass
+
+
+from app.services.sheet_execution_lock_service import _MemoryBackend  # noqa: E402
 
 
 def _backtest_task(task_id, *, status="pending", task_type="backtest_training", sheet_id="sheet-1", products=None):
@@ -28,7 +52,7 @@ def test_sheet_lock_acquire_conflict_and_release(app_factory):
     app = app_factory
     with app.app_context():
         manager = TaskManager()
-        service = get_sheet_execution_lock_service()
+        service = sheet_execution_lock_service
 
         acquired, holder, acquired_ids = service.acquire_for_task(
             "task-1", "backtest_training", ["sheet-1"]
@@ -44,10 +68,10 @@ def test_sheet_lock_acquire_conflict_and_release(app_factory):
 
         # 仅持锁者可释放：task-2 释放不动 task-1 的锁。
         service.release_sheets(["sheet-1"], "task-2")
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id="sheet-1").count() == 1
+        assert service.find_conflict(["sheet-1"]) == "task-1"  # 仅持锁者可释放
 
         service.release_sheets(["sheet-1"], "task-1")
-        assert SheetExecutionLock.query.filter_by(spreadsheet_id="sheet-1").count() == 0
+        assert service.find_conflict(["sheet-1"]) is None
 
         assert manager  # facade 仍可实例化（统一入口承载）
 
@@ -106,9 +130,9 @@ def test_start_task_queues_when_same_sheet_lock_held(app_factory):
         holder = _backtest_task("holder", status="running", sheet_id="sheet-1")
         pending = _backtest_task("pending", status="pending", sheet_id="sheet-1")
         db.session.add_all([holder, pending])
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id="sheet-1", task_id="holder", task_type="backtest_training",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "holder", "backtest_training", ["sheet-1"]
+        )
         db.session.commit()
 
         manager = TaskManager()
@@ -125,9 +149,9 @@ def test_start_task_acquires_lock_cross_task_type(app_factory):
     """锁键只认 spreadsheet_id：C 系任务与回测任务互斥同一 sheet。"""
     app = app_factory
     with app.app_context():
-        db.session.add(SheetExecutionLock(
-            spreadsheet_id="sheet-1", task_id="c3-holder", task_type="google_sheet",
-        ))
+        sheet_execution_lock_service.acquire_for_task(
+            "c3-holder", "google_sheet", ["sheet-1"]
+        )
         pending = _backtest_task("bt-pending", status="pending", sheet_id="sheet-1")
         db.session.add(pending)
         db.session.commit()

@@ -21,7 +21,6 @@ from app.models import (
     Permission,
     Role,
     ScheduledTask,
-    SheetExecutionLock,
     StockMetadata,
     SystemConfig,
     Task,
@@ -231,8 +230,6 @@ def ensure_backtest_runtime_schema():
     table_names = set(inspector.get_table_names())
     if 'backtest_product_result_cache' not in table_names:
         BacktestProductResultCache.__table__.create(db.engine, checkfirst=True)
-    if 'backtest_sheet_run_locks' not in table_names:
-        SheetExecutionLock.__table__.create(db.engine, checkfirst=True)
 
 
 def ensure_task_result_return_schema():
@@ -400,17 +397,21 @@ def reset_google_sheet_occupancy():
 
 
 def cleanup_stale_sheet_execution_locks():
-    """清理上一进程遗留的 Sheet 执行锁（全任务类型统一，键 spreadsheet_id）。"""
-    stale_locks = (
-        SheetExecutionLock.query.outerjoin(Task, SheetExecutionLock.task_id == Task.id)
-        .filter((Task.id.is_(None)) | (Task.status != TaskStatus.RUNNING.value))
-        .all()
-    )
-    if not stale_locks:
-        return
-    for lock in stale_locks:
-        db.session.delete(lock)
-    db.session.commit()
+    """清理上一进程遗留的 Sheet 执行锁（Redis 键，按持有任务判活）。"""
+    from app.repositories import task_repository
+    from app.services.sheet_execution_lock_service import sheet_execution_lock_service
+
+    running_ids = {
+        row.get("id") if isinstance(row, dict) else row.id
+        for row in task_repository.list_running_task_entities()
+    }
+
+    def _task_running(task_id):
+        return task_id in running_ids
+
+    cleaned = sheet_execution_lock_service.cleanup_stale_locks(_task_running)
+    if cleaned:
+        get_logger('startup').info(f"启动期清理陈旧 Sheet 执行锁 {cleaned} 把")
 
 
 def register_shell_context(app):
@@ -426,7 +427,6 @@ def register_shell_context(app):
             'ScheduledTask': ScheduledTask,
             'GoogleSheetToken': GoogleSheetToken,
             'BacktestProductResultCache': BacktestProductResultCache,
-            'SheetExecutionLock': SheetExecutionLock,
         }
 
 

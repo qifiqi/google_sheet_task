@@ -1,7 +1,7 @@
 """任务资源占用管理。
 
 职责边界（统一 Sheet 执行锁语义）：
-- 执行互斥唯一权威是 Sheet 执行锁（sheet_lock_repository，键 spreadsheet_id）；
+- 执行互斥唯一权威是 Sheet 执行锁服务（Redis，键 spreadsheet_id）；
 - 本模块的 registry 占用（is_in_use/current_task_id）只是展示镜像，不拦截启动；
 - validate_* 系列只做合法性校验（存在/启用/C 系模型注册），不再判占用。
 """

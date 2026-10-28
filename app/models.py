@@ -543,43 +543,6 @@ class BacktestProductResultCache(db.Model):
         }
 
 
-class SheetExecutionLock(db.Model):
-    """Database-backed per-spreadsheet execution lock (all task types).
-
-    统一 Sheet 执行锁：键为 spreadsheet_id，与任务类型无关；表名与唯一约束名
-    沿用历史 backtest 命名（零迁移），task_type 仅作持锁方展示信息。
-    """
-
-    __tablename__ = "t_param_backtest_sheet_run_locks"
-    __table_args__ = (
-        db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
-        {"comment": "Google Sheet 执行锁表（全任务类型统一，键为 spreadsheet_id）"},
-    )
-
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    spreadsheet_id = db.Column(db.String(255), nullable=False, comment="Google Sheet 表ID")
-    task_id = db.Column(db.String(36), nullable=False, index=True, comment="持锁任务ID")
-    task_type = db.Column(db.String(50), nullable=False, comment="任务类型")
-    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
-    updated_at = db.Column(
-        db.DateTime,
-        default=datetime.now,
-        onupdate=datetime.now,
-        nullable=False,
-        comment="更新时间",
-    )
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "spreadsheet_id": self.spreadsheet_id,
-            "task_id": self.task_id,
-            "task_type": self.task_type,
-            "created_at": to_beijing_iso(self.created_at),
-            "updated_at": to_beijing_iso(self.updated_at),
-        }
-
-
 class TaskResultSummaryIndex(db.Model):
     """任务结果汇总查询索引表。"""
 

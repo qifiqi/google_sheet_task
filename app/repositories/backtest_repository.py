@@ -2,7 +2,7 @@
 （契约见 docs/design/data-layer-refactor/02 §2.12）。
 
 Sheet 执行锁（原 BacktestSheetRunLock）已泛化为全任务类型统一锁，
-ORM 操作迁至 sheet_lock_repository，本文件不再承担锁职责。
+执行锁已改走 Redis（sheet_execution_lock_service），本文件不再承担锁职责。
 """
 from sqlalchemy import MetaData, Table, func, inspect, or_
 from sqlalchemy.exc import IntegrityError

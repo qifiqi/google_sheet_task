@@ -96,7 +96,7 @@ class GoogleSheetRegistryService:
         google_sheet_repository.delete(int(sheet_id))
 
     # acquire_for_task / release_for_task 已随统一 Sheet 执行锁改造移除：
-    # 执行互斥唯一权威是 sheet_lock_repository，registry 占用镜像由
+    # 执行互斥唯一权威是 Sheet 执行锁服务（Redis），registry 占用镜像由
     # TaskOccupancyMixin.ensure/release_google_sheet_occupancy 直接读写仓储。
 
 

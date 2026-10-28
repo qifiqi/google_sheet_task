@@ -6,7 +6,6 @@ from sqlalchemy import inspect, text
 
 from app.extensions import db
 from app.models import (
-    SheetExecutionLock,
     Permission,
     Role,
     Task,
@@ -109,7 +108,6 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
             "ix_backtest_product_result_cache_created_at",
             "ix_backtest_product_result_cache_source_task_id",
         },
-        "t_param_backtest_sheet_run_locks": {"ix_backtest_sheet_run_locks_spreadsheet_id"},
         "t_param_task_result_summary_index": {
             "ix_task_result_summary_index_task_id",
             "ix_task_result_summary_index_task_result_id",
@@ -159,7 +157,9 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
         """))
         task, result, series = _create_task_records("task-delete")
         task_id = task.id
-        db.session.add(SheetExecutionLock(spreadsheet_id="sheet-1", task_id=task_id, task_type=task.task_type))
+        from app.services.sheet_execution_lock_service import sheet_execution_lock_service
+
+        sheet_execution_lock_service.acquire_for_task(task_id, task.task_type, ["sheet-1"])
         db.session.execute(text("""
             INSERT INTO xpl_analysis_jobs (task_id, task_result_id, return_series_id)
             VALUES (:task_id, :result_id, :series_id)
@@ -175,7 +175,9 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
         assert TaskResult.query.filter_by(task_id=task_id).count() == 0
         assert TaskResultReturn.query.filter_by(task_id=task_id).count() == 0
         assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 0
-        assert SheetExecutionLock.query.filter_by(task_id=task_id).count() == 0
+        from app.services.sheet_execution_lock_service import sheet_execution_lock_service
+
+        assert sheet_execution_lock_service.find_conflict(["sheet-1"]) is None
         assert db.session.execute(text("SELECT COUNT(*) FROM xpl_analysis_jobs")).scalar() == 0
 
 
