@@ -35,12 +35,12 @@ def cleanup_old_logs(params):
 
         total_deleted = 0
         while True:
-            batch_ids = task_log_repository.list_ids_older_than(cutoff_date, batch_size)
+            batch_rows = task_log_repository.list_rows_older_than(cutoff_date, batch_size)
 
-            if not batch_ids:
+            if not batch_rows:
                 break
 
-            deleted_count = task_log_repository.delete_by_ids(batch_ids)
+            deleted_count = task_log_repository.delete_rows(batch_rows)
 
             total_deleted += deleted_count
             logger.info(f"已清理 {deleted_count} 条日志，总计: {total_deleted}")
@@ -67,13 +67,23 @@ def cleanup_old_results(params):
 
         total_deleted = 0
         while True:
-            batch_ids = task_result_repository.list_ids_older_than(cutoff_date, batch_size)
+            batch_rows = task_result_repository.list_rows_older_than(cutoff_date, batch_size)
 
-            if not batch_ids:
+            if not batch_rows:
                 break
 
-            delete_task_result_dependencies(batch_ids)
-            deleted_count = task_result_repository.delete_by_ids(batch_ids)
+            # 远端 Delete 为任务级整删：同任务未入批行会被一并删除，
+            # 依赖清理须覆盖任务全量结果行，避免汇总索引/快照链接变孤儿。
+            # 行可能是 dict（http）或 ORM 实体（db），按类型取 task_id。
+            dependency_ids = []
+            seen_tasks = set()
+            for row in batch_rows:
+                tid = row.get("task_id") if isinstance(row, dict) else row.task_id
+                if tid and tid not in seen_tasks:
+                    seen_tasks.add(tid)
+                    dependency_ids.extend(task_result_repository.list_ids_by_task(tid))
+            delete_task_result_dependencies(dependency_ids)
+            deleted_count = task_result_repository.delete_rows(batch_rows)
 
             total_deleted += deleted_count
             logger.info(f"已清理 {deleted_count} 条结果，总计: {total_deleted}")

@@ -582,14 +582,20 @@ class TaskRuntimeMixin:
             start_time=datetime.now(),
         )
         if rows == 0:
-            duplicate_message = (
-                self._build_duplicate_start_message(task.task_type)
-                if task.status == "running"
-                else f"任务状态为 {task.status}，拒绝启动"
-            )
-            task_logger.warning(duplicate_message)
-            self.add_task_log(task_id, "warn", duplicate_message, app)
-            return None
+            if task.status == "running" and self._is_active_generation(task_id):
+                # start_task 已在持 Sheet 锁后预标记 running（CAS 已提交），
+                # 线程侧 CAS 落空属同代幂等情形，继续执行；
+                # 仅异代线程（看门狗接管/并发重复启动）在此拦截退出。
+                pass
+            else:
+                duplicate_message = (
+                    self._build_duplicate_start_message(task.task_type)
+                    if task.status == "running"
+                    else f"任务状态为 {task.status}，拒绝启动"
+                )
+                task_logger.warning(duplicate_message)
+                self.add_task_log(task_id, "warn", duplicate_message, app)
+                return None
         task = task_repository.get_entity(task_id)
 
         # 方案 B：运行期中间态进 Redis 运行态存储（进度/日志/取消/心跳载体）；
@@ -617,6 +623,14 @@ class TaskRuntimeMixin:
         }
         return duplicate_map.get(task_type, "任务已在运行，拒绝并发启动")
 
+    def _is_active_generation(self, task_id: str) -> bool:
+        """本线程是否仍是该任务的活跃执行代（watchdog 接管后老线程为 False）。"""
+        handle = self.running_tasks.get(task_id)
+        if handle is None or handle.future.done():
+            return False
+        worker_id = self._active_worker_ids.get(task_id)
+        return worker_id is None or worker_id == threading.get_ident()
+
     def _execute_service_task(
         self,
         task_id: str,
@@ -630,15 +644,6 @@ class TaskRuntimeMixin:
     ) -> None:
         """统一执行后台任务服务。"""
         task_logger = get_task_logger(task_id, logger_name)
-
-        def _is_active_generation() -> bool:
-            # Why: watchdog 强制重启会把本线程踢出 running_tasks 并起新线程接管。
-            # 老线程若在网络 IO 解开后醒来，不应再覆盖任务状态或释放新一代占用。
-            handle = self.running_tasks.get(task_id)
-            if handle is None or handle.future.done():
-                return False
-            worker_id = self._active_worker_ids.get(task_id)
-            return worker_id is None or worker_id == threading.get_ident()
 
         try:
             with app.app_context():
@@ -660,7 +665,7 @@ class TaskRuntimeMixin:
                 )
                 task_logger.info(business_message)
                 task_result = service.execute_task()
-                if not _is_active_generation():
+                if not self._is_active_generation(task_id):
                     task_logger.warning(
                         "本线程已被 watchdog 强制重启替换，跳过状态收尾"
                     )
@@ -669,7 +674,7 @@ class TaskRuntimeMixin:
         except Exception as exc:
             root = unwrap_exception(exc) or exc
             task_logger.exception("%s: %s", failure_label, root)
-            if _is_active_generation():
+            if self._is_active_generation(task_id):
                 try:
                     self._record_task_exception(task_id, exc, app)
                 except Exception as update_error:
@@ -679,7 +684,7 @@ class TaskRuntimeMixin:
                     "本线程已被 watchdog 强制重启替换，跳过异常态写入"
                 )
         finally:
-            if not _is_active_generation():
+            if not self._is_active_generation(task_id):
                 task_logger.warning(
                     "本线程已被替换，跳过 finally 清理以保护新一代任务"
                 )

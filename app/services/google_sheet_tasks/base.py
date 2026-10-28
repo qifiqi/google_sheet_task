@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.models import TaskStatus
 from app.repositories import task_log_repository, task_repository, task_result_repository
 from app.services.sheet_execution_lock_service import sheet_execution_lock_service
 from app.services.config_manager import get_config_manager

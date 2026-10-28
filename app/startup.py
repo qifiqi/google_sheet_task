@@ -414,6 +414,27 @@ def cleanup_stale_sheet_execution_locks():
         get_logger('startup').info(f"启动期清理陈旧 Sheet 执行锁 {cleaned} 把")
 
 
+def cleanup_stale_backtest_sheet_run_locks():
+    """启动期清理陈旧 per-sheet 运行锁（经仓储写真实库，同上）。
+
+    仅 http 后端存在远端锁行（t_param_backtest_sheet_run_locks）；db 模式
+    锁已并入 Redis 统一锁（sheet_execution_lock_service），无本地锁行可清。
+    """
+    from app.repositories import backtest_repository, task_repository
+
+    delete_stale_run_locks = getattr(backtest_repository, "delete_stale_run_locks", None)
+    if delete_stale_run_locks is None:
+        return
+
+    def _task_running(task_id):
+        if not task_id:
+            return False
+        task = task_repository.get(task_id)
+        return bool(task) and task.get("status") == "running"
+
+    delete_stale_run_locks(_task_running)
+
+
 def register_shell_context(app):
     """注册 ``flask shell`` 的快捷对象；不会访问数据库或启动后台线程。"""
     @app.shell_context_processor

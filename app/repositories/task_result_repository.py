@@ -684,21 +684,20 @@ class TaskResultRepository(BaseRepository):
         rows = db.session.query(TaskResultReturn.id).filter_by(task_id=task_id).all()
         return [row[0] for row in rows]
 
-    def list_ids_older_than(self, cutoff, limit):
-        """到期结果 id 分批读取（调度清理的批量语义）。"""
-        rows = (
+    def list_rows_older_than(self, cutoff, limit):
+        """到期结果行分批读取（调度清理的批量语义）。"""
+        return (
             TaskResult.query.filter(TaskResult.timestamp < cutoff)
             .limit(limit)
             .all()
         )
-        return [row.id for row in rows]
 
-    def delete_by_ids(self, ids, commit=True):
-        """按 id 集合删除；返回删除行数。"""
-        if not ids:
+    def delete_rows(self, rows, commit=True):
+        """按行删除；返回删除行数。"""
+        if not rows:
             return 0
         deleted = (
-            TaskResult.query.filter(TaskResult.id.in_(ids))
+            TaskResult.query.filter(TaskResult.id.in_([row.id for row in rows]))
             .delete(synchronize_session=False)
         )
         if commit:

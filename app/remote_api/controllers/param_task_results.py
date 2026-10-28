@@ -18,19 +18,27 @@ class ParamTaskResultsApi(ControllerApi):
 
     def delete(self, payload: Mapping[str, Any] | None = None) -> Any:
         """
-        按主键删除任务结果
+        按 task_id 整任务删除结果行
+
+        远端实际契约与 Swagger 文档不符（2026-10-28 线上实测）：Swagger 只标注
+        ``ParamTaskIdRequestDto {task_id}``，实测为**删除该 task_id 的全部行**——
+        载荷里的 id 字段被忽略；task_id 与行内存储形式精确匹配（本仓写入
+        即应用原生形式，不做归一化）；0 行匹配报 ret_code=400"操作失败"。
 
             curl -X 'POST' \
               'http://stockapi.jaspil.cn/api/ParamTaskResults/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
-              -d '{"id": 1}'
+              -d '{"task_id": "<任务id（与行内存储一致）>"}'
         """
         return self._make_request('POST', '/api/ParamTaskResults/Delete', payload)
 
     def get_data_by_page_list(self, payload: Mapping[str, Any] | None = None) -> tuple[Any, int | None]:
         """
-        分页查询任务结果（支持 task_ids[]/success 过滤）
+        分页查询任务结果（仅支持 task_ids[] 数组/success 过滤）
+
+        注意：单数字段 ``task_id`` 会被远端静默忽略（返回不过滤的全表），
+        任务过滤必须用 ``task_ids`` 数组（2026-10-28 线上实测）。
 
             curl -X 'POST' \
               'http://stockapi.jaspil.cn/api/ParamTaskResults/GetDataByPageList' \

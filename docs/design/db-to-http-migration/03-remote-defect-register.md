@@ -81,3 +81,47 @@ POST /api/ParamTasks/ModifyOrAdd
 "id 不存在 → Add" 分支的数据库写入异常。
 
 修复验证：执行上方步骤 3 返回 `ret_code=200` 即为修复完成。
+
+---
+
+# 缺陷 2：ParamTask 系 Delete/分页过滤契约与 Swagger 不符（2026-10-28）
+
+> **线上（stockapi.jaspil.cn）实测**。Swagger 的 `ParamTaskIdRequestDto {task_id}`
+> 与实际行为差距大，本仓消费侧已按实测契约改造（task_result/task_log http 仓储）。
+
+## 实测契约（三表同款：ParamTaskResults / ParamTaskResultsReturn / ParamTaskLogs）
+
+1. **Delete 按 task_id 整任务删除，id 字段被忽略**：
+   - `{"id": 1}` → 400 `"task_id 不能为空"`（id 在 Dto 里根本不存在，缺 task_id 即校验失败）；
+   - `{"id": 1, "task_id": "X"}` → 删除 **task_id=X 的全部行**（与 id 无关，
+     ret_count=受影响行数；实测 2 行任务传 1 个 id 删了 2 行）；
+   - `{"task_id": "X"}` 0 行匹配 → 400 `"操作失败"`（**删除零行是报错不是 200**，
+     调用方必须先确认行存在再调 Delete）；
+   - task_id 与行内存储形式**精确字符串匹配**：ModifyOrAdd 写入什么就存什么
+     （连字符 uuid 原样存储，不做归一化），Delete/过滤必须用同一形式。
+2. **ParamTaskResults/GetDataByPageList 只认 `task_ids[]` 数组**：
+   单数 `task_id` 字段被静默忽略，返回不过滤的全表（ret_count 为全表行数）。
+   `ParamTaskLogs` / `ParamTaskResultsReturn` 的分页过滤恰好相反，只认单数
+   `task_id`——三表契约互不一致。
+3. **ModifyOrAdd 数值主键表**（Results/ResultsReturn/Logs）：插入不携带 `id`
+   （`id:null` 直接 400 类型错误），新行主键经 `ret_count` 回带（不是 `ret_obj`）。
+4. 行级删除端点不存在（swagger 全部端点仅 Delete/GetDataByPageList/GetInfoById/
+   ModifyOrAdd 四个）：单行删除无法表达，消费侧单结果删除仅当该结果是任务
+   唯一结果时等价可删，否则报错（见 `task_result_repository.delete`）。
+
+## 对本仓的影响与处置
+
+- `task_result_repository` / `task_log_repository`（http 侧）：删除改为按 task_id
+  整任务调用（先经过滤确认行存在）；Results 全部任务过滤改 `task_ids[]`；
+  定期清理（scheduled_task_worker）语义由行级改为任务级（同任务未到期行会被
+  一并删除，依赖清理相应覆盖任务全量结果行）。
+- `t-1` / `task-id` / `bt-save-task` 等测试夹具行残留在共享 ParamTaskResults 表
+  （来源疑为历史单测直连远端，未清）；已顺手核验契约时清理
+  `insert-probe-20261028-e2e`、探针行与 'task-id' 夹具行，'t-1'×8、
+  'bt-save-task'×2 仍在，可由远端择机清理。
+
+## 需要远端回报/改进
+
+- 三个 Delete 的真实行为与 Swagger Dto 注解对齐（或补按行删除端点）；
+- ParamTaskResults 分页过滤补单数 `task_id`（或三表统一 `task_ids[]`）；
+- Delete 0 行匹配建议返回 200+ret_count=0 而非 400，便于幂等删除。

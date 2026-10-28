@@ -18,13 +18,16 @@ class ParamTaskLogsApi(ControllerApi):
 
     def delete(self, payload: Mapping[str, Any] | None = None) -> Any:
         """
-        按主键删除任务日志
+        按 task_id 整任务删除日志行
+
+        契约同 ``ParamTaskResults/Delete``（2026-10-28 线上实测）：删除该
+        task_id 的全部行，id 字段被忽略，0 行匹配报 ret_code=400"操作失败"。
 
             curl -X 'POST' \
               'http://stockapi.jaspil.cn/api/ParamTaskLogs/Delete' \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
-              -d '{"id": 1}'
+              -d '{"task_id": "<任务id（与行内存储一致）>"}'
         """
         return self._make_request('POST', '/api/ParamTaskLogs/Delete', payload)
 

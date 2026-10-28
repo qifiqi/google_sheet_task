@@ -18,7 +18,7 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.remote_api import RemoteApiNotFoundError
+from app.remote_api import RemoteApiNotFoundError, RemoteApiOperationError
 
 # /api/results 列表的历史精简投影键（本地 _RESULT_SUMMARY_FIELDS 语义）。
 _RESULT_SUMMARY_KEYS = ("id", "task_id", "step_index", "success", "timestamp")
@@ -351,7 +351,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
 
     def list_preview_entities(self, task_id, result_ids=None, success_only=False):
         """全局预览结果实体（RemoteRecord 属性兼容消费）。"""
-        payload: dict[str, Any] = {"task_id": task_id}
+        payload: dict[str, Any] = {"task_ids": [task_id]}
         if success_only:
             payload["success"] = True
         rows = list(self.iter_pages(payload))
@@ -375,7 +375,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         NOTE(db-to-http): 远端无列投影，整行返回（含 result 大字段），
         网络放大待远端投影端点收敛。
         """
-        rows = list(self.iter_pages({"task_id": task_id}))
+        rows = list(self.iter_pages({"task_ids": [task_id]}))
         rows.sort(key=lambda row: (int(row.get("step_index") or 0), int(row.get("id") or 0)))
         return [
             {
@@ -392,7 +392,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         current_page = max(page or 1, 1)
         size = max(min(per_page or 10, 100), 1)
         rows = [
-            row for row in self.iter_pages({"task_id": task_id})
+            row for row in self.iter_pages({"task_ids": [task_id]})
         ]
         rows.sort(key=lambda row: (
             int(row.get("step_index") or 0),
@@ -502,29 +502,42 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         db.session.commit()
 
     def delete(self, result_id, commit=True):
+        """删除单条结果；不存在返回 False。
+
+        远端 ``ParamTaskResults/Delete`` 实为按 task_id 整任务删除（id 字段
+        被忽略，2026-10-28 实测），行级删除无法表达：仅当目标结果是该任务
+        唯一结果时等价可删，多结果任务显式报错（不做"删一条变删全部"的
+        静默放大）。
+        """
         row = self._get_raw(result_id)
         if row is None:
             return False
-        try:
-            self.api.param_task_results.delete({"id": self.normalize_id(result_id)})
-        except RemoteApiNotFoundError:
-            return False
+        task_id = row.get("task_id")
+        siblings = list(self.iter_pages({"task_ids": [task_id]})) if task_id else []
+        if len(siblings) > 1:
+            raise RemoteApiOperationError(
+                "远端仅支持按任务删除结果（ParamTaskResults/Delete 按 task_id 整删），"
+                f"该任务还有 {len(siblings) - 1} 条其他结果，单条删除无法表达",
+                code=400,
+            )
+        self.api.param_task_results.delete({"task_id": task_id})
         return True
 
     def delete_by_task(self, task_id, commit=True):
-        """TODO(db-to-http): 远端无按条件删除，逐 id 删除（非原子）。"""
-        deleted = 0
-        for row in list(self.iter_pages({"task_id": task_id})):
-            try:
-                self.api.param_task_results.delete({"id": self.normalize_id(row["id"])})
-                deleted += 1
-            except RemoteApiNotFoundError:
-                continue
-        return deleted
+        """按任务删除全部结果；远端 Delete 按 task_id 整任务删除（单调用原子）。
+
+        task_id 须与行内存储形式一致（本仓写入即应用原生形式）；
+        行不存在时不调用远端（远端 0 行匹配报"操作失败"）。
+        """
+        rows = list(self.iter_pages({"task_ids": [task_id]}))
+        if not rows:
+            return 0
+        self.api.param_task_results.delete({"task_id": task_id})
+        return len(rows)
 
     def list_entities_by_task_ordered(self, task_id):
         """任务结果实体（step asc）。"""
-        rows = list(self.iter_pages({"task_id": task_id}))
+        rows = list(self.iter_pages({"task_ids": [task_id]}))
         rows.sort(key=lambda row: int(row.get("step_index") or 0))
         return [self.normalize_record(row) for row in rows]
 
@@ -537,16 +550,16 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     def list_step_indexes_by_task(self, task_id):
         return [
             int(row["step_index"])
-            for row in self.iter_pages({"task_id": task_id})
+            for row in self.iter_pages({"task_ids": [task_id]})
             if row.get("step_index") is not None and int(row["step_index"]) >= 0
         ]
 
     def list_ids_by_task(self, task_id):
-        return [row["id"] for row in self.iter_pages({"task_id": task_id})]
+        return [row["id"] for row in self.iter_pages({"task_ids": [task_id]})]
 
     def list_return_series_ids_by_task(self, task_id):
         """任务全部非空 return_series_id（按 id asc）。"""
-        rows = [row for row in self.iter_pages({"task_id": task_id}) if row.get("return_series_id") is not None]
+        rows = [row for row in self.iter_pages({"task_ids": [task_id]}) if row.get("return_series_id") is not None]
         rows.sort(key=lambda row: int(row.get("id") or 0))
         return [row["return_series_id"] for row in rows]
 
@@ -556,45 +569,48 @@ class TaskResultHttpRepository(HttpRepositoryBase):
             for row in self.iter_pages({"task_id": task_id}, group=self._RETURN_GROUP)
         ]
 
-    def list_ids_older_than(self, cutoff, limit):
-        """到期结果 id 分批读取；远端无时间过滤，全量扫描本地筛选。
+    def list_rows_older_than(self, cutoff, limit):
+        """到期结果行分批读取（行内含 task_id，供 Delete 校验）；全量扫描本地筛选。
 
-        TODO(db-to-http): results 表持续增长，清理窗口建议远端补时间过滤。
+        TODO(db-to-http): 远端无时间过滤，results 表持续增长，清理窗口建议
+        远端补时间过滤与按任务批量删除端点。
         """
-        ids: list[Any] = []
+        rows: list[dict[str, Any]] = []
         for row in self.iter_pages({}, order_field="timestamp", order_type="asc"):
             ts = self._parse_dt(row.get("timestamp"))
             if ts is None or ts >= cutoff:
                 break
-            ids.append(row["id"])
-            if len(ids) >= limit:
+            rows.append(row)
+            if len(rows) >= limit:
                 break
-        return ids
+        return rows
 
-    def delete_by_ids(self, ids, commit=True):
-        """按 id 集合删除；返回删除行数（逐行非原子，TODO 同上）。"""
-        if not ids:
+    def delete_rows(self, rows, commit=True):
+        """按行集合删除；远端无行级端点，按行归属任务去重后整任务删除。
+
+        同任务未入批的其余行会被一并删除（远端 Delete 语义即任务级）；
+        返回提交删除的批次行数。
+        """
+        if not rows:
             return 0
-        deleted = 0
-        for record_id in ids:
-            try:
-                self.api.param_task_results.delete({"id": self.normalize_id(record_id)})
-                deleted += 1
-            except RemoteApiNotFoundError:
-                continue
-        return deleted
+        task_ids: list[Any] = []
+        seen: set[Any] = set()
+        for row in rows:
+            tid = row.get("task_id")
+            if tid and tid not in seen:
+                seen.add(tid)
+                task_ids.append(tid)
+        for tid in task_ids:
+            self.api.param_task_results.delete({"task_id": tid})
+        return len(rows)
 
     def delete_returns_by_task(self, task_id, commit=True):
-        deleted = 0
-        for row in list(self.iter_pages({"task_id": task_id}, group=self._RETURN_GROUP)):
-            try:
-                self.api.param_task_results_return.delete(
-                    {"id": self.normalize_id(row["id"])}
-                )
-                deleted += 1
-            except RemoteApiNotFoundError:
-                continue
-        return deleted
+        """按任务删除全部收益序列；远端 Delete 按 task_id 整任务删除。"""
+        rows = list(self.iter_pages({"task_id": task_id}, group=self._RETURN_GROUP))
+        if not rows:
+            return 0
+        self.api.param_task_results_return.delete({"task_id": task_id})
+        return len(rows)
 
     # ---- 任务结果扩展读（dev_vue 合并引入；远端可表达的部分拼远端端点） ----
 
@@ -612,7 +628,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
             return None
         rows = [
             row
-            for row in self.iter_pages({"task_id": task_id})
+            for row in self.iter_pages({"task_ids": [task_id]})
             if row.get("return_series_id") == return_series_id
         ]
         if not rows:
@@ -622,7 +638,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
 
     def list_recent_entities_by_task(self, task_id, limit=30):
         """任务最近 N 条结果实体（step desc/id desc 取尾；RemoteRecord 属性兼容）。"""
-        rows = list(self.iter_pages({"task_id": task_id}))
+        rows = list(self.iter_pages({"task_ids": [task_id]}))
         rows.sort(key=lambda row: (int(row.get("step_index") or 0), int(row.get("id") or 0)), reverse=True)
         return [self.normalize_record(row) for row in rows[: max(1, int(limit))]]
 

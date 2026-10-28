@@ -161,58 +161,72 @@ class TaskLogHttpRepository(HttpRepositoryBase):
         return created
 
     def delete_by_task(self, task_id, commit=True):
-        """按任务删除全部日志；远端无按条件删除端点，逐 id 删除。
+        """按任务删除全部日志；远端 Delete 按 task_id 整任务删除（单调用原子）。
 
-        TODO(db-to-http): 建议远端提供按 task_id 批量删除端点（迁移文档
-        无法接入清单）；删除为逐行非原子操作。
+        task_id 须与行内存储形式一致；行不存在时不调用远端
+        （远端 0 行匹配报"操作失败"）。
         """
-        deleted = 0
-        for row in list(self.iter_pages({"task_id": task_id})):
-            try:
-                super().delete(row["id"])
-                deleted += 1
-            except RemoteApiNotFoundError:
-                continue
-        return deleted
+        rows = list(self.iter_pages({"task_id": task_id}))
+        if not rows:
+            return 0
+        self.api.param_task_logs.delete({"task_id": task_id})
+        return len(rows)
 
     def delete_older_than(self, cutoff, commit=True):
-        """清理窗口条件：timestamp 升序扫描（老日志排前），越界即停。"""
-        deleted = 0
+        """清理窗口条件：timestamp 升序扫描（老日志排前），越界即停。
+
+        远端无行级删除（Delete 按 task_id 整任务删除）：批内行按任务去重后
+        逐任务整删，同任务较新日志会被一并删除（远端语义即任务级）。
+        """
+        task_ids: list[Any] = []
+        seen: set[Any] = set()
         for row in self.iter_pages({}, order_field="timestamp", order_type="asc"):
             ts = self._parse_dt(row.get("timestamp"))
             if ts is None or ts >= cutoff:
                 break
+            tid = row.get("task_id")
+            if tid and tid not in seen:
+                seen.add(tid)
+                task_ids.append(tid)
+        deleted = 0
+        for tid in task_ids:
             try:
-                super().delete(row["id"])
+                self.api.param_task_logs.delete({"task_id": tid})
                 deleted += 1
             except RemoteApiNotFoundError:
                 continue
         return deleted
 
-    def list_ids_older_than(self, cutoff, limit):
-        """到期日志 id 分批读取（调度清理的批量语义）。"""
-        ids: list[Any] = []
+    def list_rows_older_than(self, cutoff, limit):
+        """到期日志行分批读取（调度清理的批量语义）。"""
+        rows: list[dict[str, Any]] = []
         for row in self.iter_pages({}, order_field="timestamp", order_type="asc"):
             ts = self._parse_dt(row.get("timestamp"))
             if ts is None or ts >= cutoff:
                 break
-            ids.append(row["id"])
-            if len(ids) >= limit:
+            rows.append(row)
+            if len(rows) >= limit:
                 break
-        return ids
+        return rows
 
-    def delete_by_ids(self, ids, commit=True):
-        """按 id 集合删除；返回删除行数。"""
-        if not ids:
+    def delete_rows(self, rows, commit=True):
+        """按行集合删除；远端无行级端点，按行归属任务去重后整任务删除。
+
+        同任务未入批的其余日志会被一并删除（远端 Delete 语义即任务级）；
+        返回提交删除的批次行数。
+        """
+        if not rows:
             return 0
-        deleted = 0
-        for record_id in ids:
-            try:
-                super().delete(record_id)
-                deleted += 1
-            except RemoteApiNotFoundError:
-                continue
-        return deleted
+        task_ids: list[Any] = []
+        seen: set[Any] = set()
+        for row in rows:
+            tid = row.get("task_id")
+            if tid and tid not in seen:
+                seen.add(tid)
+                task_ids.append(tid)
+        for tid in task_ids:
+            self.api.param_task_logs.delete({"task_id": tid})
+        return len(rows)
 
     @staticmethod
     def _parse_dt(value):

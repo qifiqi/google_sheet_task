@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from app.services.performance_analysis.projections import flatten_v1_metrics
+
 # (payload 键, 模板单元格, 变换)；transform="ratio" 表示百分数 → 小数。
 STOCK_PARAM_METRIC_SPECS = [
     ("return_rate", "D2", "ratio"),
@@ -138,6 +140,27 @@ def build_c1_1_summary_fields(value_getter: Callable[[int], Any]) -> dict[str, A
     return fields
 
 
+# V1 指标树的结构键（按年列表/字典承载）；出现任一即视为未投影的树输入。
+# 扁平投影（flatten_v1_metrics 产物）不含这些键，原样透传不二次扁平。
+_V1_TREE_MARKER_KEYS = (
+    "excess_returns",
+    "index_sharpe_ratios",
+    "start_sharpe_ratios",
+    "index_maximum_drawdown",
+    "start_maximum_drawdown",
+    "index_profit_monthly",
+    "start_profit_monthly",
+    "monthly_excess_return_percentage",
+)
+
+
 def build_analyze_fields(analyze_result: dict[str, Any]) -> dict[str, Any]:
-    """从 metrics_payload.metrics 透传次级分析字段。"""
+    """从 metrics_payload.metrics 透传次级分析字段。
+
+    V1 指标树中卡玛/索提诺/夏普等为按年列表结构，远端 StockParamResult
+    对应字段是 double 标量：树输入先经 flatten_v1_metrics 取 all 窗口标量
+    （历史 flat_result 的等价投影；合并曾丢失该层导致推送 400）。
+    """
+    if any(key in analyze_result for key in _V1_TREE_MARKER_KEYS):
+        analyze_result = flatten_v1_metrics(analyze_result)
     return {key: analyze_result.get(key, 0) for key in ANALYZE_RESULT_KEYS}

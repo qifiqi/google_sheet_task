@@ -210,7 +210,13 @@ class HttpRepositoryBase:
         return {**api_payload, "id": value}
 
     def delete(self, record_id: int | str) -> None:
-        """按主键删除远端记录。"""
+        """按主键删除远端记录。
+
+        注意：``ParamTaskResults/ResultsReturn/Logs`` 三个远端 Delete 端点
+        **忽略 id、按载荷 task_id 整任务删除**（0 行匹配报"操作失败"），
+        不得经本方法调用；这三个表的任务级删除由各仓储的
+        ``delete_by_task``/``delete_rows`` 显式按 task_id 发起。
+        """
         self._controller().delete({"id": self.normalize_id(record_id)})
 
     @staticmethod
