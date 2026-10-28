@@ -435,7 +435,11 @@ class C1_1Service(BaseGoogleSheetService):
                                 for position, value in merged_return_range.items()
                                 if position.startswith(k_column)
                             })
-                            _index_returns = calculate_index_returns_from_closes(kline)
+                            # 指数序列统一走 AG 列随机价（写入侧 item.stock_val，与表内
+                            # Index Return 汇总及 V2 报告读取同源），不再取 AE 随机 close
+                            _index_returns = calculate_index_returns_from_closes(
+                                [{'close': row.get('stock_val')} for row in kline]
+                            )
                         except Exception as e:
                             self._log_info(f"获取结果位置 {merged_return_range_a1} 时出错：{str(e)}")
                             self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")

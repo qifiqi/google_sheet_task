@@ -6,6 +6,7 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import random
 import re
 from collections import OrderedDict
 from datetime import datetime
@@ -255,6 +256,16 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
                     f"产品 {index}（{product_name}）使用 C7.0.3 模板，价格模式必须为 OHLC（开高低收）"
                 )
             price_mode = "ohlc_price"
+        # C1.1 模板由 AG 列随机价驱动（_build_product_kline 执行期强制 random_price），
+        # 显式指定其他价格模式直接拒绝，界面显示与实际生效保持一致。
+        if BacktestTrainingService._is_c1_1({"sheets": [sheet]}):
+            explicit_price_mode = str(product.get("price_mode") or config.get("price_mode") or "").strip().lower()
+            if explicit_price_mode and explicit_price_mode != "random_price":
+                product_name = str(product.get("product_name") or product.get("name") or stock_code).strip()
+                raise ValidationError(
+                    f"产品 {index}（{product_name}）使用 C1.1 模板，价格模式必须为随机价格（random_price）"
+                )
+            price_mode = "random_price"
 
         # 产品级数据源过白名单归一（非法值创建期即 400，不留给执行期取数失败）；
         # 兜底顺序 产品级 → 顶层遗留值 → akshare，与执行器 _build_product_kline 一致。
@@ -1007,7 +1018,16 @@ class BacktestMultiProductService(BacktestTrainingService):
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
         # C7.0.3 模板执行时写回 OHLC 四价列并校验四价字段（_execute_parameter_combination），
         # K线投影必须带 OHLC；价格模式强制与单品回测 get_bdl 的行为保持一致。
-        is_c7_0_3 = self._is_c7_0_3({"sheets": [product.get("sheet") or {}]})
+        sheet = {"sheets": [product.get("sheet") or {}]}
+        is_c7_0_3 = self._is_c7_0_3(sheet)
+        # C1.1 模板由 AG 列随机价驱动：强制随机价 + OHLC 写入，随机序列按任务/股票播种可复现
+        is_c1_1 = self._is_c1_1(sheet)
+        kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
+        random_price_range = None
+        random_generator = None
+        if is_c1_1:
+            random_price_range = str(product.get("random_price_range") or config_data.get("random_price_range") or "high_low").strip().lower()
+            random_generator = random.Random(f"{self.task_id}:{product['stock_code']}:{kline_key}")
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],
@@ -1015,14 +1035,16 @@ class BacktestMultiProductService(BacktestTrainingService):
             config_data["end_date"],
             price_mode=(
                 "ohlc_price" if is_c7_0_3
+                else "random_price" if is_c1_1
                 else (product.get("price_mode") or config_data.get("price_mode", "vwap_price"))
             ),
             adjust_type=product.get("kline_adjustment", "forward"),
             data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "akshare"),
             exchange_market=product.get("exchange_market"),
-            include_ohlc=is_c7_0_3,
+            include_ohlc=is_c7_0_3 or is_c1_1,
+            random_price_range=random_price_range,
+            random_generator=random_generator,
         )
-        kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
             "kline_key": kline_key,
             "kline": kline,
@@ -1069,6 +1091,8 @@ class BacktestMultiProductService(BacktestTrainingService):
         data_source: str = "akshare",
         exchange_market: str | None = None,
         include_ohlc: bool = False,
+        random_price_range: str | None = None,
+        random_generator: Any = None,
     ) -> list[dict[str, Any]]:
         market_type = normalize_market_type(market_type)
         current_date = datetime.now().date()
@@ -1107,6 +1131,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             )
         kline = self.kline_service.build_price_rows(
             klines, price_mode, start_date=start_date, end_date=end_date, include_ohlc=include_ohlc,
+            random_price_range=random_price_range, random_generator=random_generator,
         )
         min_rows = self._get_min_kline_rows(DEFAULT_MULTI_PRODUCT_MIN_KLINE_ROWS)
         if len(kline) < min_rows:

@@ -363,7 +363,8 @@ def test_c1_1_execute_writes_ohlc_vwap_ext(monkeypatch):
         "AG3": 9.5,
     }
     assert analysis_rows[0] == {"date": "2026-01-01", "index_return": 0.0, "start_return": 0.1}
-    assert abs(analysis_rows[1]["index_return"] - (13 / 12 - 1)) < 1e-12
+    # 指数统一取 AG 列随机价（stock_val）累计口径，与表内 Index Return 汇总同源
+    assert abs(analysis_rows[1]["index_return"] - (9.5 / 8.5 - 1)) < 1e-12
     assert analysis_rows[1]["start_return"] == 0.2
 
 
