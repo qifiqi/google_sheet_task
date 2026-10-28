@@ -24,7 +24,6 @@ openpyxl
 python-docx
 matplotlib
 PyJWT
-dingtalk-stream
 Flask-Limiter
 pydantic
 akshare

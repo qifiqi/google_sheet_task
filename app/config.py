@@ -81,7 +81,6 @@ class BaseConfig:
     REDIS_URL = ''
     REDIS_NAMESPACE = 'arb:gstask'
     # 内部进程命令端点（钉钉微服务 → Web）共享密钥；留空时端点 404。
-    INTERNAL_COMMAND_SECRET = ''
     # 远程数据服务凭据与超时（app/remote_api/client.py 统一调用器消费）。
     # Token 只能来自环境变量/密钥服务，禁止写入源码。STOCK_API_TOKEN 为服务级
     # 长效凭据（后台任务线程/启动钩子的唯一凭据来源）；它失效（远端 401）时，
@@ -124,7 +123,6 @@ class BaseConfig:
         cls.SQLALCHEMY_ECHO = (
             requested_sqlalchemy_echo and cls.SQLALCHEMY_ENGINE_LOG_ENABLED
         )
-        cls.INTERNAL_COMMAND_SECRET = os.environ.get('INTERNAL_COMMAND_SECRET', '')
         cls.DING_TALK_ACCESS_TOKEN = os.environ.get('DING_TALK_ACCESS_TOKEN', '')
         cls.DING_TALK_SECRET = os.environ.get('DING_TALK_SECRET', '')
         cls.DING_TALK_DETAIL_BASE_URL = os.environ.get(

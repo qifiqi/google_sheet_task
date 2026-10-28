@@ -12,7 +12,6 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 - `app/services/task/` — 任务主控门面（facade/runtime/creation/restart/occupancy/query/results）
 - `templates/` + `static/` — Jinja2 服务端渲染页面（Bootstrap 5 + 大量内联 JS） 
 - ~~`frontend/`~~ — Vue 3 SPA 已于 2026-10 从仓库移除（源码存根目录 `frontend.7z`），当前唯一前端为 `templates/` + `static/` 静态页面
-- `ding_stream_service/` — 钉钉 Stream 独立微服务（不挂载到 run.py）
 - `app/remote_api/` — DY.Stock.Api 远程接口客户端：`client.py` 统一调用器 + `controllers/` 按 URL 控制器拆分的具体接口函数（wire 字段 `stock_open/stock_max/...` 的翻译在 `KlineService.read/write_internal_kline_data`）
 - `tests/`、`docs/`、`docs/design/`、`migrations/`、`scripts/`
 
@@ -24,7 +23,6 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 pip install -r requirements.txt          # 运行依赖（pytest 在 requirements-dev.txt）
 python run.py                            # 启动 Flask，port 5000
 # （2026-10 起 frontend/ Vue SPA 已移除，无前端构建步骤，直接访问 Flask 5000）
-.venv\Scripts\python.exe run_ding.py     # 钉钉 Stream 微服务（不要用系统 python，缺 dingtalk-stream）
 python -m pytest tests/unit tests/integration   # 全量回归（统一入口，见"测试"）
 python -m pytest tests/unit/test_xxx.py::test_name   # 定向测试
 flask db migrate -m "..." / flask db upgrade     # 标准迁移（启动期 schema 修补已停用，见下）

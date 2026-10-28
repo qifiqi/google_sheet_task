@@ -271,7 +271,7 @@ class TaskRepository(BaseRepository):
         ]
 
     def count_by_status(self, status):
-        """按状态计数（ding_stream_service 批量重启指令的总量展示用）。"""
+        """按状态计数（管理端状态统计用）。"""
         return Task.query.filter_by(status=status).count()
 
     def list_by_name(self, name, limit=2):

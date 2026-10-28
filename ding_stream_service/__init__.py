@@ -1,1 +1,0 @@
-"""DingTalk stream microservice package."""
