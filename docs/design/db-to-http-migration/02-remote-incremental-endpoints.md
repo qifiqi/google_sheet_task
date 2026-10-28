@@ -135,3 +135,75 @@ POST /api/StockMetadata/BulkUpsert
    P0 缺口 `list_by_task_fields`；
 2. **E1 CAS + E2 批量删除**——正确性核心；E1 落地后 Redis 裁决层仅剩回测锁/启动清理职责；
 3. E3/E4 → E5/E6 → E7 其余 → E8。
+
+## P2：随机K线三表（2026-10-28 新增，dev_vue 合入后的本地固定表上收）
+
+> 本地三表 `t_param_task_kline_sources` / `t_param_task_random_series` / `t_param_task_result_kline_links`
+> 当前固定本地 DB（http 模式下孪生仓储走本地混合读写）。远端补齐下列控制器后即可上收。
+> 命名对齐现有约定：`POST /api/<Controller>/<Action>`，统一信封 `ret_code/ret_msg/ret_count/ret_obj`，
+> 布尔 0/1 编码；四动作同构（GetDataByPageList / GetInfoById / ModifyOrAdd / Delete）。
+
+### E10 源快照：/api/ParamTaskKlineSources
+
+```bash
+# 分页查询（唯一键过滤：task_id + stock_code + kline_key + data_source + adjust_type）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskKlineSources/GetDataByPageList'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"task_id": "t1", "stock_code": "600000", "kline_key": "2026-2025",
+       "data_source": "dfcf", "adjust_type": "forward", "page_index": 1, "page_size": 20}'
+
+# 按主键读快照详情（含 dates_json/open_json/... 大字段，单页全量不分页）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskKlineSources/GetInfoById'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"id": 1}'
+
+# 新增/更新（get-or-create 语义：唯一键命中即更新，否则插入；ret_obj 回显行含 id）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskKlineSources/ModifyOrAdd'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"task_id": "t1", "stock_code": "600000", "stock_name": "浦发银行", "market_type": "cn",
+       "kline_key": "2026-2025", "data_source": "dfcf", "adjust_type": "forward",
+       "start_date": "2025-01-02", "end_date": "2026-01-23", "row_count": 260,
+       "dates_json": "[\"2025-01-02\", ...]", "open_json": "[...]", "high_json": "[...]",
+       "low_json": "[...]", "close_json": "[...]", "vwap_json": "[...]"}'
+
+# 按主键删除
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskKlineSources/Delete'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"id": 1}'
+```
+
+### E11 随机序列：/api/ParamTaskRandomSeries
+
+```bash
+# 分页查询（按 owner 任务 + source_id 或 stock_code+kline_key 过滤）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskRandomSeries/GetDataByPageList'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"task_id": "t1", "source_id": 1, "page_index": 1, "page_size": 50}'
+
+# 按主键读序列（values_json 随机价格数组）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskRandomSeries/GetInfoById'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"id": 1}'
+
+# 新增/更新（执行链每随机组合一条；ret_obj 回显行含 id，供结果关联外键）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskRandomSeries/ModifyOrAdd'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"source_id": 1, "task_id": "t1", "stock_code": "600000", "kline_key": "2026-2025",
+       "dataset_key": "600000|2026-2025|g1", "random_group": 1, "price_mode": "random_price",
+       "random_price_range": "high_low", "seed": "<seed>", "row_count": 260,
+       "values_json": "[...]"}'
+
+# 按主键删除（任务清理时按 task_id 级联删除需配合 E2 语义或逐 id）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskRandomSeries/Delete'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"id": 1}'
+```
+
+### E12 结果关联：/api/ParamTaskResultKlineLinks
+
+```bash
+# 写关联（结果落库时同步写；result_id+series_id 幂等）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskResultKlineLinks/ModifyOrAdd'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"result_id": 123, "task_id": "t1", "series_id": 1}'
+
+# 分页查询（审计反查：task_id + series_id 过滤；ret_count 即 count_by_kline_series 总数）
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskResultKlineLinks/GetDataByPageList'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"task_id": "t1", "series_id": 1, "page_index": 1, "page_size": 100}'
+
+# 按主键删除
+curl -X 'POST' 'http://stockapi.jaspil.cn/api/ParamTaskResultKlineLinks/Delete'   -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Token: <token>'   -d '{"id": 1}'
+```
+
+### 端点增强核对补充（并入 E7 表）
+
+| 控制器 | 增强项 | 消费方 |
+|---|---|---|
+| ParamTaskResults | `result_ids` 数组过滤、`return_series_id` 精确过滤 | `list_by_kline_series`（省"task_id 全量拉取本地过滤"）、`get_entity_by_return_series_id`（省逐行扫描） |
+| ParamTaskLogs | `after_id` 游标过滤（id asc 增量） | `list_by_task_after`（日志增量轮询省重复传输） |
+| ParamTasks | `error_message_prefix` 前缀过滤（LIKE 转义） | `list_pending_queued_entities`（[SHEET_QUEUED] 排队补跑扫描） |
+
+> 执行锁不在此清单：2026-10-28 已裁定统一 Sheet 执行锁改走 Redis（TTL+续租），
+> Sheet 表仅保留占用展示镜像，远端无需新增锁端点。
+
