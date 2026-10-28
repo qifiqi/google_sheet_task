@@ -40,7 +40,7 @@ function formatModelVersion(value) {
     c5: "C5",
     c7_0_2: "C7.0.2",
     c7_0_3: "C7.0.3",
-    c1_1: "C1.1",
+    c1_1: "C1.1.0",
   };
   return labels[raw] || String(value || "").trim().toUpperCase();
 }

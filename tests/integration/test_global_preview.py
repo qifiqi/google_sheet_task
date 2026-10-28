@@ -114,8 +114,8 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
             # 统一命名规范：成员名 = 模型版本-股票代码（无任务名/时间戳，外层 zip 已带）
             member_names = archive.namelist()
             assert member_names == [
-                "c7_0_3-AAPL.xlsx",
-                "c7_0_3-MSFT.xlsx",
+                "C7.0.3-AAPL.xlsx",
+                "C7.0.3-MSFT.xlsx",
             ]
             entry_modified_at = datetime(*archive.getinfo(member_names[0]).date_time)
             assert entry_modified_at.year >= datetime.now().year - 1
@@ -149,7 +149,7 @@ def test_global_preview_stock_zip_honors_export_name(app_factory, monkeypatch):
         assert 'filename="download.zip"' in content_disposition
         # zip 外层保留任务名基名：手输名替换基名，模型版本 + 导出时间后缀照加
         assert re.search(
-            r"filename\*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA-c7_0_3-\d{8}_\d{6}\.zip$",
+            r"filename\*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA-C7.0.3-\d{8}_\d{6}\.zip$",
             content_disposition,
         )
 

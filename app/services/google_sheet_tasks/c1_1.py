@@ -49,7 +49,7 @@ class C1_1Service(BaseGoogleSheetService):
     _model_version = "c1_1"
 
     # 去重日志标签（公共去重器见基类）
-    _dedupe_label = "C1.1"
+    _dedupe_label = "C1.1.0"
 
     # 是否计算并写入 vwap 列；_prepare_batch 按任务配置覆盖（缺省计算）。
     _vwap_enabled = True

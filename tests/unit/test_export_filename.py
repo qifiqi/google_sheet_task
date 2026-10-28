@@ -22,7 +22,7 @@ def test_build_export_filename_full_segments():
     filename = build_export_filename(
         "C7多模型验证", "c7_0_3", "2023-01-01", "2023-12-29", now=FROZEN_NOW,
     )
-    assert filename == "C7多模型验证-c7_0_3-20230101-20231229-20261023_153000.xlsx"
+    assert filename == "C7多模型验证-C7.0.3-20230101-20231229-20261023_153000.xlsx"
 
 
 def test_build_export_filename_normalizes_date_formats():
@@ -38,7 +38,7 @@ def test_build_export_filename_omits_partial_range_and_optional_extension():
     filename = build_export_filename(
         "任务A", "c5", "2024-01-02", "", now=FROZEN_NOW, extension="",
     )
-    assert filename == "任务A-c5-20261023_153000"
+    assert filename == "任务A-C5-20261023_153000"
 
 
 def test_build_export_filename_truncates_long_base():

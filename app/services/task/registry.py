@@ -29,7 +29,7 @@ TASK_TYPE_REGISTRY: dict[str, TaskTypeSpec] = {
         TaskTypeSpec("google_sheet_c4", "C4", "_execute_google_sheet_c4_task", "task_concurrency_google_sheet_c4"),
         TaskTypeSpec("google_sheet_c5", "C5", "_execute_google_sheet_c5_task", "task_concurrency_google_sheet_c5"),
         TaskTypeSpec("google_sheet_c7", "C7", "_execute_google_sheet_c7_task", "task_concurrency_google_sheet_c7"),
-        TaskTypeSpec("google_sheet_c1_1", "C1.1", "_execute_google_sheet_c1_1_task", "task_concurrency_google_sheet_c1_1"),
+        TaskTypeSpec("google_sheet_c1_1", "C1.1.0", "_execute_google_sheet_c1_1_task", "task_concurrency_google_sheet_c1_1"),
         TaskTypeSpec("backtest_training", "单品回测", "_execute_backtest_training_task", "task_concurrency_backtest_training"),
         TaskTypeSpec("backtest_multi_product", "多品回测", "_execute_backtest_multi_product_task", "task_concurrency_backtest_multi_product"),
     )

@@ -622,9 +622,9 @@ def test_multi_product_portfolio_combination_skips_zero_ratio_products():
     assert returns[0]["start_return"] == pytest.approx(0.02)
 
 
-def test_xpl_c1_1_sheet_reads_h_layout_and_ae_close(monkeypatch):
+def test_xpl_c1_1_sheet_reads_h_layout_and_strike_index(monkeypatch):
     rows = [
-        [43102 + i, 33.256 + i, 0.01, 0.02, 0.02 + i / 1000]
+        [43102 + i, 10 + i, 0.01, 0.02, 0.02 + i / 1000]
         for i in range(12)
     ]
     rows.append(["-", "-", "-", "-", "-"])  # 表尾公式残留行
@@ -638,31 +638,27 @@ def test_xpl_c1_1_sheet_reads_h_layout_and_ae_close(monkeypatch):
 
         def get_range_2d(self, range_a1, _render_option):
             blocks = {
-                # H=日期(序列号)、I=Strike、J=Day%、K=P/L%、L=P/L%-Cum%
+                # H=日期(序列号)、I=Strike（模型取价列，底层=AG 原始随机价）、
+                # J=Day%、K=P/L%、L=P/L%-Cum%
                 f"H2:L{len(rows) + 1}": rows,
                 "E2:F26": [
                     ["Start date", "2018/01/02"],
                     ["Total Return:", "2.71%"],
                 ],
-                f"AG2:AG{len(rows) + 1}": [[10 + i] for i in range(len(rows))],
             }
             return blocks[range_a1]
 
     analyzer = PerformanceAnalyzer()
     monkeypatch.setattr(analyzer, "_init_google_sheet", lambda *_args: C11Sheet())
-    monkeypatch.setattr(
-        "app.services.performance_analysis.sheet_reader.get_config_manager",
-        lambda: type("CM", (), {"get_all_configs": lambda _self: {}})(),
-    )
 
     data, result, sheet_df = analyzer.get_google_sheet_data("sheet-id", "control")
 
     assert len(data) == 12  # 尾部 '-' 残留行被剔除
     assert str(data[0]["date"])[:10] == "2018-01-02"
-    assert data[1]["index_return"] == pytest.approx(0.1)  # 11/10-1，AG ext 口径
+    assert data[1]["index_return"] == pytest.approx(11 / 10 - 1)  # I 列 Strike 累计口径
     assert data[1]["start_return"] == pytest.approx(0.02)  # 固定取 K 列（P/L%，策略累计）
     assert result["Total Return:"] == "2.71%"
     assert list(sheet_df.columns) == [
-        "date", "strike", "day_pct", "pl_pct", "pl_cum_pct", "close",
+        "date", "close", "day_pct", "pl_pct", "pl_cum_pct",
         "index_return", "start_return",
     ]

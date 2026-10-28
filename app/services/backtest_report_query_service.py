@@ -493,7 +493,7 @@ def _detect_global_preview_model_name(task, parameters):
         "google_sheet_c4": "C4",
         "google_sheet_c5": "C5",
         "google_sheet_c7": "C7",
-        "google_sheet_c1_1": "C1.1",
+        "google_sheet_c1_1": "C1.1.0",
     }
     task_type = normalize_task_type(task.task_type)
     return fixed_model_names.get(task_type) or _detect_model_name(task.name, parameters)

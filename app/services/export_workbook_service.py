@@ -22,7 +22,7 @@ from app.constants.c_template_layout import (
 from app.exceptions import ValidationError
 from app.services.performance_analysis.projections import flatten_v1_metrics
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.utils.model_version import normalize_model_version, resolve_model_version
+from app.utils.model_version import format_model_version, normalize_model_version, resolve_model_version
 from app.utils.task_types import TYPE_GOOGLE_SHEET, TYPE_GOOGLE_SHEET_C1_1, TYPE_GOOGLE_SHEET_C5, TYPE_GOOGLE_SHEET_C7
 
 
@@ -288,7 +288,9 @@ def build_export_filename(
         start_text, end_text = end_text, start_text
     if not (start_text and end_text):
         start_text = end_text = ""
-    version_text = str(model_version or "").strip()
+    # 模型段统一走显示层格式化（slug c1_1 → C1.1；format_model_version 幂等，
+    # 传入已是显示名的值不受影响），导出文件名不出现下划线 slug
+    version_text = format_model_version(model_version) if str(model_version or "").strip() else ""
     segments = [
         sanitize_export_filename(base),
         sanitize_export_filename(version_text) if version_text else "",
@@ -469,9 +471,11 @@ def compose_preview_stem(
     两段都有时以 '_' 衔接；全缺返回空串。
     """
 
+    # 与 build_export_filename 同口径：模型段格式化为显示名（slug c1_1 → C1.1）
+    version_text = format_model_version(model_version) if str(model_version or "").strip() else ""
     head = "-".join(
         sanitize_export_filename(part)
-        for part in (str(model_version or "").strip(), str(stock_code or "").strip())
+        for part in (version_text, str(stock_code or "").strip())
         if str(part or "").strip()
     )
     start_text = normalize_filename_date(kline_start)

@@ -178,7 +178,7 @@ class GoogleSheetTableType(str, Enum):
             cls.C4: "C4",
             cls.C5: "C5",
             cls.C7: "C7",
-            cls.C1_1: "C1.1",
+            cls.C1_1: "C1.1.0",
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]

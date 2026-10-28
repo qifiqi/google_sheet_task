@@ -4,7 +4,7 @@
 // ── 原 Jinja 服务端渲染点的前端等价实现（静态化，docs/design/frontend-refactor/03 §5）──
 // 原 title：`首页 - Google Sheet {{ request.args.get('version') }}`（缺 version 时渲染字面 "None"）
 const versionParam = new URLSearchParams(location.search).get('version');
-const displayVersionParam = versionParam === 'c1_1' ? 'C1.1' : versionParam;
+const displayVersionParam = versionParam === 'c1_1' ? 'C1.1.0' : versionParam;
 document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'None' : displayVersionParam);
 (function () {
     // 原 `<h3>{{ version }} 任务管理</h3>`
@@ -31,7 +31,7 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
     const localUrlObj = new URL(window.location.href);
     let version = localUrlObj.searchParams.get('version') || 'c3';
     let upper_version = version.toUpperCase();
-    let display_version = version === 'c1_1' ? 'C1.1' : upper_version;
+    let display_version = version === 'c1_1' ? 'C1.1.0' : upper_version;
     let allTasks = [];
     let currentPage = 1;
     let tasksPerPage = 10;
