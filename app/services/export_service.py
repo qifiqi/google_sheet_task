@@ -37,6 +37,7 @@ from app.services.export_workbook_service import (
     compose_preview_stem,
     model_version_from_config,
     normalize_filename_date,
+    price_adjust_filename_segment,
     sanitize_export_filename,
     EXCEL_MIMETYPE,
     ZIP_MIMETYPE,
@@ -233,6 +234,7 @@ class ExportService:
             model_version=self._preview_model_text(task, payload),
             kline_start=kline_start,
             kline_end=kline_end,
+            price_adjust=price_adjust_filename_segment(task.to_dict().get("config")),
         )
         return GeneratedFile(filename, EXCEL_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
@@ -257,10 +259,11 @@ class ExportService:
         task_name = sanitize_export_filename(export_name or task.name or task_id)
         base = task_name if export_name else f"{task_name}_global_preview"
         model_text = self._preview_model_text(task, payload)
+        price_adjust = price_adjust_filename_segment(task.to_dict().get("config"))
         return GeneratedStream(
-            filename=build_export_filename(base, model_version=model_text, extension="zip"),
+            filename=build_export_filename(base, model_version=model_text, extension="zip", price_adjust=price_adjust),
             mimetype=ZIP_MIMETYPE,
-            generate=lambda: self._stream_stock_zip(payload, model_text),
+            generate=lambda: self._stream_stock_zip(payload, model_text, price_adjust=price_adjust),
         )
 
     def export_global_preview_batch(self, task_ids: list[str]) -> GeneratedFile:
@@ -289,6 +292,7 @@ class ExportService:
                     model_version=self._preview_model_text(task, payload),
                     kline_start=kline_start,
                     kline_end=kline_end,
+                    price_adjust=price_adjust_filename_segment(task.to_dict().get("config")),
                     extension="",
                 )
                 archive.writestr(
@@ -395,6 +399,14 @@ class ExportService:
         }
         codes |= {str(item.stock_code or "").strip() for item in payload.index_benchmarks}
         codes.discard("")
+        # 默认文件名价格/复权段：按 task_id 回查任务配置（RPT-S 直传 returns /
+        # Google Sheet 来源无任务身份时省略该段，回落既有命名）。
+        if not str(payload.price_adjust or "").strip() and report_request.task_id:
+            try:
+                task = self._get_task(str(report_request.task_id))
+                payload.price_adjust = price_adjust_filename_segment(task.to_dict().get("config"))
+            except NotFoundError:
+                payload.price_adjust = None
         cache_meta = {
             "title": payload.title,
             "task_id": report_request.task_id,
@@ -459,7 +471,7 @@ class ExportService:
             )
         return build_global_preview_payload(task.id)
 
-    def _stream_stock_zip(self, payload: dict[str, Any], model_text: str = ""):
+    def _stream_stock_zip(self, payload: dict[str, Any], model_text: str = "", price_adjust: str = ""):
         """按股票流式生成 ZIP 文件。"""
         output_queue: Queue = Queue(maxsize=8)
         finished = object()
@@ -476,8 +488,8 @@ class ExportService:
                     for stock_code, stock_payload in stock_payloads:
                         workbook = build_global_preview_workbook(stock_payload)
                         stock_start, stock_end = self._preview_kline_bounds(stock_payload)
-                        # 新规范：成员名 = 模型版本-股票代码_K线起-K线止（无任务名/时间戳，外层 zip 已带）。
-                        stem = compose_preview_stem(model_text, stock_code, stock_start, stock_end)
+                        # 新规范：成员名 = 模型版本-价格复权-股票代码_K线起-K线止（无任务名/时间戳，外层 zip 已带）。
+                        stem = compose_preview_stem(model_text, stock_code, stock_start, stock_end, price_adjust=price_adjust)
                         filename = f"{sanitize_export_filename(stem)}.xlsx"
                         zip_info = ZipInfo(filename, date_time=datetime.now().timetuple()[:6])
                         zip_info.compress_type = ZIP_STORED

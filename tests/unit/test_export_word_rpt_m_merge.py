@@ -7,6 +7,7 @@ RPT-M 请求在服务端按任务重建 payload（metadata 来自任务配置、
 """
 
 from io import BytesIO
+from types import SimpleNamespace
 
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.export_service import export_service
@@ -56,6 +57,13 @@ def _stub_rebuilt_payload(monkeypatch, captured):
     def fake_builder(task_id, group_key, ratios_override=None):
         captured["builder_args"] = (task_id, group_key, ratios_override)
         return rebuilt
+
+    # 文件名价格/复权段回查任务配置：单测无应用上下文，桩掉任务读取（空配置=段省略）
+    monkeypatch.setattr(
+        export_service,
+        "_get_task",
+        lambda task_id: SimpleNamespace(to_dict=lambda: {"config": {}}),
+    )
 
     def fake_cache(payload, builder, ttl_seconds=None, meta=None):
         captured["payload"] = payload

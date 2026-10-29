@@ -90,6 +90,9 @@ class StrategyBacktestReportSchema(APIModel):
     # generate_word 的默认文件名方案段（G组号）消费。
     group_key: str | None = None
     ratios: Any = None
+    # 默认文件名价格/复权段（统一 slug，如 close-qfq / rnd-oc）；不由前端传入，
+    # export_service 按 task_id 回查任务配置后回填，缺省时文件名省略该段。
+    price_adjust: str | None = None
 
     @field_validator("report_type", mode="before")
     @classmethod
