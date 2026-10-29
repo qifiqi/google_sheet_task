@@ -620,10 +620,7 @@ class BaseGoogleSheetService:
             "count_mode": config_data.get('count_mode', 'n_plus_1'),
             "price_mode": config_data.get('price_mode', 'vwap_price'),
             "date_range_mode": config_data.get('date_range_mode', []),
-            "exclude_recent_years": config_data.get(
-                'exclude_recent_years',
-                config_data.get('exclude_years', []),
-            ),
+            "exclude_recent_years": config_data.get('exclude_recent_years', []),
             "end_date": config_data.get('end_date'),
             "start_date": config_data.get('start_date'),
             "market_type": config_data.get('market_type'),

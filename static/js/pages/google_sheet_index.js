@@ -4,13 +4,19 @@
 // ── 原 Jinja 服务端渲染点的前端等价实现（静态化，docs/design/frontend-refactor/03 §5）──
 // 原 title：`首页 - Google Sheet {{ request.args.get('version') }}`（缺 version 时渲染字面 "None"）
 const versionParam = new URLSearchParams(location.search).get('version');
-const displayVersionParam = versionParam === 'c1_1' ? 'C1.1.0' : versionParam;
-document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'None' : displayVersionParam);
+// 无 version 的「首页」按 C3 列表渲染（下方 version 兜底），标题如实标 C3 而不是 None
+const VERSION_LABELS = { c3: 'C3', c4: 'C4', c5: 'C5', c7: 'C7', c1_1: 'C1.1.0' };
+const displayVersionParam = VERSION_LABELS[versionParam || 'c3'] || versionParam;
+document.title = '首页 - Google Sheet ' + displayVersionParam;
 (function () {
     // 原 `<h3>{{ version }} 任务管理</h3>`
     const heading = document.querySelector('h3.text-primary.fw-bold.mb-2');
     if (heading) {
-        heading.textContent = (displayVersionParam === null ? 'None' : displayVersionParam) + ' 任务管理';
+        heading.textContent = displayVersionParam + ' 任务管理';
+    }
+    const scopeHint = document.getElementById('filter-scope-hint');
+    if (scopeHint) {
+        scopeHint.textContent = '仅搜 ' + displayVersionParam;
     }
     // 原 `{% if version == 'c3' %}` 包住的「合并导出 / 创建批量任务」两个按钮：
     // 仅 ?version=c3 时保留，其余一律移除（与原服务端条件渲染逐字节一致）。
@@ -43,6 +49,22 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
     let _previousPendingView = null;
     let advancedFilters = { keyword: '', stock_code: '', token_name: '', start_date: '', end_date: '' };
     console.log(task_type);
+
+    const ADVANCED_FILTER_INPUTS = {
+        keyword: 'keyword-filter-input',
+        stock_code: 'stock-code-filter-input',
+        token_name: 'token-filter-input',
+        start_date: 'start-date-filter-input',
+        end_date: 'end-date-filter-input',
+    };
+    // 同一模板服务首页与各单版本页：跨版本提示只覆盖 Sheet 系任务（回测任务有独立页面）
+    const SHEET_VERSION_TYPES = [
+        { version: 'c3', task_type: 'google_sheet', label: 'C3' },
+        { version: 'c4', task_type: 'google_sheet_C4', label: 'C4' },
+        { version: 'c5', task_type: 'google_sheet_C5', label: 'C5' },
+        { version: 'c7', task_type: 'google_sheet_C7', label: 'C7' },
+        { version: 'c1_1', task_type: 'google_sheet_C1_1', label: 'C1.1' },
+    ];
 
     function getTaskVersion(task) {
         const normalizedType = String(task && task.task_type ? task.task_type : '').toLowerCase();
@@ -109,14 +131,47 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
         if (filterSelect) {
             filterSelect.value = currentFilter;
         }
+
+        Object.keys(ADVANCED_FILTER_INPUTS).forEach(function(key) {
+            const value = urlParams.get(key) || '';
+            advancedFilters[key] = value;
+            const input = document.getElementById(ADVANCED_FILTER_INPUTS[key]);
+            if (input) {
+                input.value = value;
+            }
+        });
     }
 
-    // 更新URL参数
+    // 更新URL参数（含高级筛选，保证刷新/收藏/跨版本跳转后条件不丢）
     function updateUrl() {
         const url = new URL(window.location);
         url.searchParams.set('page', currentPage);
         url.searchParams.set('filter', currentFilter);
+        Object.keys(ADVANCED_FILTER_INPUTS).forEach(function(key) {
+            const value = (advancedFilters[key] || '').trim();
+            if (value) {
+                url.searchParams.set(key, value);
+            } else {
+                url.searchParams.delete(key);
+            }
+        });
         window.history.pushState({}, '', url);
+    }
+
+    // 高级筛选参数（不含 status/filter，供列表请求与跨版本提示复用）
+    function buildAdvancedFilterParams() {
+        const params = new URLSearchParams();
+        Object.keys(ADVANCED_FILTER_INPUTS).forEach(function(key) {
+            const value = (advancedFilters[key] || '').trim();
+            if (value) {
+                params.set(key, value);
+            }
+        });
+        return params;
+    }
+
+    function hasAdvancedFilters() {
+        return Array.from(buildAdvancedFilterParams().keys()).length > 0;
     }
 
     // 从服务端获取任务列表（服务端分页+筛选）
@@ -132,21 +187,9 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
         if (currentFilter !== 'all') {
             params.set('status', currentFilter);
         }
-        if (advancedFilters.keyword.trim()) {
-            params.set('keyword', advancedFilters.keyword.trim());
-        }
-        if (advancedFilters.stock_code.trim()) {
-            params.set('stock_code', advancedFilters.stock_code.trim());
-        }
-        if (advancedFilters.token_name.trim()) {
-            params.set('token_name', advancedFilters.token_name.trim());
-        }
-        if (advancedFilters.start_date) {
-            params.set('start_date', advancedFilters.start_date);
-        }
-        if (advancedFilters.end_date) {
-            params.set('end_date', advancedFilters.end_date);
-        }
+        buildAdvancedFilterParams().forEach(function(value, key) {
+            params.set(key, value);
+        });
 
         Api.endpoints.task.list(params.toString()).then(function(data) {
             isLoadingTasks = false;
@@ -254,8 +297,75 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
             tbody.appendChild(row);
         });
 
+        if (allTasks.length === 0) {
+            renderEmptyState(tbody);
+        }
+
         bindTaskEvents();
         renderPagination();
+    }
+
+    // 空结果提示：说明列表只覆盖当前版本，并在其他版本有匹配时给出直达链接
+    function renderEmptyState(tbody) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 6;
+        cell.className = 'text-center text-muted py-4';
+        cell.textContent = (hasAdvancedFilters() || currentFilter !== 'all')
+            ? `当前 ${display_version} 视图下没有匹配的任务`
+            : `当前 ${display_version} 视图暂无任务`;
+
+        if (hasAdvancedFilters()) {
+            const hint = document.createElement('div');
+            hint.className = 'small mt-2';
+            cell.appendChild(hint);
+            fillCrossVersionHint(hint);
+        }
+
+        row.appendChild(cell);
+        tbody.appendChild(row);
+    }
+
+    function fillCrossVersionHint(container) {
+        const targets = SHEET_VERSION_TYPES.filter(function(item) {
+            return item.task_type !== task_type;
+        });
+        const filterParams = buildAdvancedFilterParams();
+
+        Promise.all(targets.map(function(item) {
+            const query = new URLSearchParams(filterParams);
+            query.set('task_type', item.task_type);
+            if (currentFilter !== 'all') {
+                query.set('status', currentFilter);
+            }
+            query.set('page', '1');
+            query.set('per_page', '1');
+            return Api.endpoints.task.list(query.toString()).then(function(data) {
+                return { item: item, total: (data && data.total) || 0 };
+            }).catch(function() {
+                return { item: item, total: 0 };
+            });
+        })).then(function(results) {
+            if (!container.isConnected) return;
+            const hits = results.filter(function(result) { return result.total > 0; });
+            if (hits.length === 0) {
+                container.textContent = '其他版本也没有匹配';
+                return;
+            }
+            container.textContent = '其他版本有匹配：';
+            hits.forEach(function(hit, index) {
+                if (index > 0) {
+                    container.appendChild(document.createTextNode(' · '));
+                }
+                const link = document.createElement('a');
+                const linkQuery = new URLSearchParams(filterParams);
+                linkQuery.set('version', hit.item.version);
+                linkQuery.set('filter', currentFilter);
+                link.href = '/google-sheet/?' + linkQuery.toString();
+                link.textContent = hit.item.label + '（' + hit.total + ' 条）';
+                container.appendChild(link);
+            });
+        });
     }
 
     function getTaskTokenName(task) {

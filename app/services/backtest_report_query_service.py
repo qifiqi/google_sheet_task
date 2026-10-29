@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
+from app.schemas.task_configs import primary_stock_code
 from app.utils.formatting import to_beijing_iso
 from app.constants.c_template_layout import (
     C3_METRIC_CELLS,
@@ -232,7 +233,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
         **calculate_metrics,
         "sheet_result": sheet_result,
         "model_name": model_name,
-        "stock_code": task_config.get("stock_code"),
+        "stock_code": primary_stock_code(task_config),
     }
     filename, filename_title = _build_backtest_result_export_filename(task, task_result.id)
     return {
@@ -855,7 +856,7 @@ def _build_global_preview_payload_from_results(task, task_results):
         parameters = loads(task_result.parameters) if task_result.parameters else {}
         year_key = str(parameters.get("kline_key") or "未分组")
         stock_code = str(
-            parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
+            parameters.get("stock_code") or primary_stock_code(task_config) or "未命名股票"
         ).strip().upper() or "未命名股票"
         group_key = f"{stock_code}::{year_key}"
         group = groups.setdefault(group_key, {
@@ -971,7 +972,7 @@ def _build_global_preview_payload_from_results(task, task_results):
             "id": task.id,
             "name": task.name,
             "status": task.status,
-            "stock_code": task_config.get("stock_code"),
+            "stock_code": primary_stock_code(task_config),
             "market_type": task_config.get("market_type"),
         },
         "summary": {
@@ -1025,7 +1026,7 @@ def _build_global_preview_initial_payload(task_id):
     for item in items:
         parameters = item["parameters"]
         if group_mode == "stock":
-            key = str(parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票").strip().upper()
+            key = str(parameters.get("stock_code") or primary_stock_code(task_config) or "未命名股票").strip().upper()
         else:
             key = str(parameters.get("kline_key") or "未分组")
         group = groups.setdefault(key, {"key": key, "label": key, "result_ids": [], "items": []})

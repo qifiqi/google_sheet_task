@@ -71,30 +71,51 @@ class TestTaskRepository:
         page = task_repository.list_paginated_with_statistics(1, 10, keyword="示例")
         assert page["items"][0]["id"] == "t-1"
 
-    def test_list_paginated_with_statistics_stock_code(self, app_factory, task_row):
-        """stock_code 过滤锚定 config JSON 的 "stock_code" 键，product_name 等字段不误中。"""
+    def test_list_paginated_with_statistics_keyword_matches_config(self, app_factory, task_row):
+        """keyword 覆盖 config 文本：只在参数组合里出现的股票代码也能被搜到。"""
         task_repository.create({
-            "id": "t-stock",
-            "name": "多品任务",
+            "id": "t-cfg",
+            "name": "半导体ETF",
             "status": "completed",
-            "task_type": "backtest_multi_product",
-            "config": json.dumps({"products": [
-                {"product_name": "苹果", "stock_code": "AAPL.US", "market_type": "en"},
-                {"product_name": "特斯拉", "stock_code": "TSLA.US", "market_type": "en"},
-            ]}),
-        })
-        task_repository.create({
-            "id": "t-name-only",
-            "name": "名字含代码",
-            "status": "completed",
-            "task_type": "backtest_multi_product",
-            "config": json.dumps({"products": [{"product_name": "AAPL 联名", "stock_code": "GOOG.US"}]}),
+            "task_type": "google_sheet_C7",
+            "config": json.dumps({"parameters": [["SOXX"], ["", 2.3]]}),
         })
         page = task_repository.list_paginated_with_statistics(
-            1, 10, task_type="backtest_multi_product", stock_code="aapl"
+            1, 10, task_type="google_sheet_C7", keyword="soxx"
         )
-        assert [t["id"] for t in page["items"]] == ["t-stock"]
+        assert [t["id"] for t in page["items"]] == ["t-cfg"]
         assert page["aggregates"]["total"] == 1
+
+    @pytest.mark.parametrize("task_type", ["google_sheet_C7", "backtest_multi_product"])
+    @pytest.mark.parametrize("separators", [None, (",", ":")])
+    @pytest.mark.parametrize("code", ["soxx", "SOX", "SOXX.US"])
+    def test_stock_code_searches_full_projection(self, app_factory, task_row, task_type, separators, code):
+        task_repository.create({
+            "id": "t-stock", "name": "多股任务", "status": "completed", "task_type": task_type,
+            "config": json.dumps({"stock_codes": ["QQQ.US", "SOXX.US"]}, separators=separators),
+        })
+        task_repository.create({
+            "id": "t-name-only", "name": "SOXX", "status": "completed", "task_type": task_type,
+            "config": json.dumps({"stock_codes": ["ITB.US"], "title": "SOXX", "parameters": [["2.2"]]}),
+        })
+        page = task_repository.list_paginated_with_statistics(1, 1, task_type=task_type, stock_code=code)
+        assert [t["id"] for t in page["items"]] == ["t-stock"]
+        assert page["pagination"]["total"] == page["aggregates"]["total"] == 1
+
+    @pytest.mark.parametrize("code", ["%", "_", '"', "\\\\", "SO%", "SO_"])
+    def test_stock_code_wildcards_are_literal(self, app_factory, code):
+        task_repository.create({
+            "id": "t-stock", "name": "多股任务", "status": "completed", "task_type": "google_sheet_C7",
+            "config": json.dumps({"stock_codes": ["SOXX.US"]}),
+        })
+        page = task_repository.list_paginated_with_statistics(1, 10, stock_code=code)
+        assert page["pagination"]["total"] == 0
+
+    @pytest.mark.parametrize("config", ['{', 'null', '{"stock_codes":null}', '{"stock_codes":"SOXX"}', '{"stock_codes":{"a":"SOXX"}}'])
+    def test_stock_search_ignores_invalid_projections(self, app_factory, config):
+        task_repository.create({"id": "invalid-projection", "name": "bad", "task_type": "model_summary_rebuild", "config": config})
+        page = task_repository.list_paginated_with_statistics(1, 10, stock_code="SOXX")
+        assert page["pagination"]["total"] == 0
 
     def test_clear_created_by(self, app_factory, task_row):
         Task.query.filter_by(id="t-1").update({"created_by_user_id": 7})

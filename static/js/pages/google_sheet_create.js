@@ -27,8 +27,9 @@
                     config = JSON.parse(config);
                 }
                 
-                if (config.title || config.spreadsheet_title) {
-                    document.getElementById('spreadsheet_title').value = config.title || config.spreadsheet_title;
+                const templateSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
+                if (templateSheet.title) {
+                    document.getElementById('spreadsheet_title').value = templateSheet.title;
                 }
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
@@ -59,8 +60,8 @@
                 }
                 // 统一 sheets[] 形态取首个 Sheet 引用（与 fillFormWithTemplate 同口径）
                 const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
-                if (firstSheet.spreadsheet_id || config.spreadsheet_id) {
-                    loadGoogleSheets(firstSheet.spreadsheet_id || config.spreadsheet_id);
+                if (firstSheet.spreadsheet_id) {
+                    loadGoogleSheets(firstSheet.spreadsheet_id);
                 }
 
                 // 填充参数配置
@@ -571,10 +572,10 @@
                     }
                 }
 
-                // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+                // 填充Google Sheet配置（统一 sheets[1] 形态）
                 const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
-                if (firstSheet.title || config.title || config.spreadsheet_title) {
-                    document.getElementById('spreadsheet_title').value = firstSheet.title || config.title || config.spreadsheet_title || '';
+                if (firstSheet.title) {
+                    document.getElementById('spreadsheet_title').value = firstSheet.title;
                 }
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
@@ -600,8 +601,8 @@
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
-                if (firstSheet.spreadsheet_id || config.spreadsheet_id) {
-                    loadGoogleSheets(firstSheet.spreadsheet_id || config.spreadsheet_id);
+                if (firstSheet.spreadsheet_id) {
+                    loadGoogleSheets(firstSheet.spreadsheet_id);
                 }
 
                 // 填充参数配置
@@ -1241,10 +1242,10 @@
                 document.getElementById('task_name').value = restartConfig.name + ' (重启)';
             }
             
-            // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+            // 填充Google Sheet配置（统一 sheets[1] 形态）
             const firstSheet = (Array.isArray(restartConfig.sheets) && restartConfig.sheets[0]) || {};
-            if (firstSheet.title || restartConfig.title || restartConfig.spreadsheet_title) {
-                document.getElementById('spreadsheet_title').value = firstSheet.title || restartConfig.title || restartConfig.spreadsheet_title || '';
+            if (firstSheet.title) {
+                document.getElementById('spreadsheet_title').value = firstSheet.title;
             }
             // if (restartConfig.stock_code) {
             //     document.getElementById('stock_code').value = restartConfig.stock_code;
@@ -1271,8 +1272,8 @@
             if (restartConfig.proxy_url) {
                 document.getElementById('proxy_url').value = restartConfig.proxy_url;
             }
-            if (firstSheet.spreadsheet_id || restartConfig.spreadsheet_id) {
-                loadGoogleSheets(firstSheet.spreadsheet_id || restartConfig.spreadsheet_id);
+            if (firstSheet.spreadsheet_id) {
+                loadGoogleSheets(firstSheet.spreadsheet_id);
             }
             
             // 填充参数配置

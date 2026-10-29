@@ -173,7 +173,244 @@ class TestMigrateConfig:
         assert status in ("unchanged", "migrated")
 
 
+class TestStockCodeSearchProjection:
+    @pytest.mark.parametrize("task_type", [
+        "google_sheet_C4", "google_sheet_C5", "google_sheet_C7", "google_sheet_C1_1",
+    ])
+    def test_indexes_all_codes_without_changing_execution_parameters(self, task_type):
+        from copy import deepcopy
+
+        source = {
+            "sheets": [{"spreadsheet_id": "s"}],
+            "parameters": [["QQQ", "soxx", "", "QQQ"], ["2.2"]],
+            "stock_codes": ["OLD"],
+        }
+        original = deepcopy(source)
+        shaped = validate_task_config_shape(task_type, source)
+        assert shaped["stock_codes"] == ["QQQ", "SOXX"]
+        assert "stock_code" not in shaped
+        assert shaped["parameters"] == original["parameters"]
+        assert source == original
+
+    def test_parameter_edit_rebuilds_index(self):
+        config = validate_task_config_shape("google_sheet_C7", {
+            "sheets": [{"spreadsheet_id": "s"}], "parameters": [["QQQ", "SOXX"]],
+        })
+        config["parameters"] = [["ITB"]]
+        assert validate_task_config_shape("google_sheet_C7", config)["stock_codes"] == ["ITB"]
+        config["parameters"] = []
+        assert validate_task_config_shape("google_sheet_C7", config)["stock_codes"] == []
+
+    @pytest.mark.parametrize("task_type", ["google_sheet", "backtest_training"])
+    def test_single_stock_uses_explicit_code_not_parameter_values(self, task_type):
+        config = {
+            "sheets": [{"spreadsheet_id": "s"}],
+            "stock_code": "SOXX.US", "parameters": [["2.2", "3"]],
+        }
+        shaped = validate_task_config_shape(task_type, config)
+        assert shaped["stock_codes"] == ["SOXX.US"]
+        assert shaped["stock_code"] == "SOXX.US"
+
+    def test_c3_missing_code_keeps_existing_sheet_mode(self):
+        shaped = validate_task_config_shape("google_sheet", {
+            "sheets": [{"spreadsheet_id": "abc"}], "parameters": [["2.2"]],
+        })
+        assert "stock_code" not in shaped
+        assert shaped["stock_codes"] == []
+
+    def test_multi_product_indexes_all_products(self):
+        shaped = validate_task_config_shape("backtest_multi_product", {
+            "products": [
+                {"stock_code": "QQQ", "sheet": {"spreadsheet_id": "s1"}},
+                {"stock_code": "SOXX", "sheet": {"spreadsheet_id": "s2"}},
+            ],
+        })
+        assert shaped["stock_codes"] == ["QQQ", "SOXX"]
+        assert "stock_code" not in shaped
+
+    def test_migration_preserves_explicit_and_absent_execution_settings(self):
+        legacy = {
+            "sheets": [{"spreadsheet_id": "s"}],
+            "parameters": [["QQQ", "SOXX"], ["2.2"]],
+            "exclude_years": [2, 4],
+        }
+        migrated, status = migrate_config("google_sheet_C7", legacy)
+        assert status == "migrated"
+        assert migrated["stock_codes"] == ["QQQ", "SOXX"]
+        assert "stock_code" not in migrated
+        assert migrated["exclude_recent_years"] == [2, 4]
+        assert "exclude_years" not in migrated
+        assert "date_range_mode" not in migrated
+        assert migrated["parameters"] == legacy["parameters"]
+        again, status = migrate_config("google_sheet_C7", migrated)
+        assert again == migrated and status == "unchanged"
+
+    def test_explicit_null_execution_options_are_preserved(self):
+        config = {"sheets": [{"spreadsheet_id": "s"}], "parameters": [["SOXX"]], "count_mode": None}
+        shaped = validate_task_config_shape("google_sheet_C7", config)
+        assert "count_mode" in shaped and shaped["count_mode"] is None
+
+    def test_migration_preserves_sheet_extensions(self):
+        ref = {"spreadsheet_id": "s", "sheet_name": "data", "title": "T", "layout_hint": "X"}
+        migrated, _ = migrate_config("backtest_training", {"sheet": ref})
+        assert migrated["sheets"] == [ref]
+
+    def test_migration_does_not_guess_code(self):
+        migrated, _ = migrate_config("google_sheet", {
+            "spreadsheet_id": "s", "sheet_name": "data", "title": "SOXX-bdl-1y-0",
+        })
+        assert not migrated.get("stock_code")
+        assert migrated["stock_codes"] == []
+
+    @pytest.mark.parametrize("source", [
+        {"sheets": [{"spreadsheet_id": "a"}], "sheet": {"spreadsheet_id": "b"}},
+        {"spreadsheet_id": "a", "sheet": {"spreadsheet_id": "b"}},
+        {"spreadsheet_id": "a", "sheet_name": "data", "sheet": {"spreadsheet_id": "a", "sheet_name": "other"}},
+    ])
+    def test_conflicting_sheet_references_are_not_silently_discarded(self, source):
+        migrated, status = migrate_config("google_sheet", source)
+        assert migrated is None and status.startswith("skipped:")
+
+
+class TestConfigWriteBoundaries:
+    def test_lowercase_template_type_uses_same_shape_without_changing_filter_key(self):
+        from app.services.task_template_service import task_template_service
+
+        stored = json.loads(task_template_service._serialize_config_str({
+            "task_type": "google_sheet_c7", "sheets": [{"spreadsheet_id": "s"}],
+            "parameters": [["QQQ", "SOXX"]], "stock_codes": ["STALE"],
+        }))
+        assert stored["stock_codes"] == ["QQQ", "SOXX"]
+        assert stored["task_type"] == "google_sheet_c7"
+
+    def test_legacy_keys_rejected_alongside_canonical_sheet(self):
+        with pytest.raises(ValueError):
+            validate_task_config_shape("google_sheet", {
+                "sheets": [{"spreadsheet_id": "a"}], "spreadsheet_id": "b",
+            })
+
+    def test_migration_template_type_detected_from_config(self):
+        from scripts.migrate_task_config_schema import _infer_config_kind
+
+        assert _infer_config_kind({"task_type": "google_sheet_c7", "sheets": []}) == "google_sheet_c7"
+
+    def test_c31_template_keeps_input_stock_codes(self):
+        from app.services.task_template_service import task_template_service
+
+        source = {"task_type": "google_sheet_C31", "stock_codes": ["QQQ", "SOXX"],
+                  "sheets": [{"spreadsheet_id": "s1"}, {"spreadsheet_id": "s2"}],
+                  "parameters": [[1, 2]]}
+        stored = json.loads(task_template_service._serialize_config_str(source))
+        assert stored["stock_codes"] == source["stock_codes"]
+        assert len(stored["sheets"]) == 2
+
+
+class TestMigrationSafety:
+    def test_backup_and_atomic_config_update(self, app_factory, tmp_path):
+        from app.extensions import db
+        from app.models import Task
+        from scripts.migrate_task_config_schema import apply_changes
+
+        row = Task(id="migrate-safe", name="safe", task_type="google_sheet", status="completed", config='{"old":1}')
+        db.session.add(row)
+        db.session.commit()
+        backup = tmp_path / "backup.json"
+        apply_changes(db.session, [{"table": "task", "id": row.id, "before": row.config, "after": '{"new":1}'}], backup)
+        db.session.expire_all()
+        assert db.session.get(Task, row.id).config == '{"new":1}'
+        assert json.loads(backup.read_text(encoding="utf-8"))["changes"][0]["before"] == '{"old":1}'
+        assert row.status == "completed"
+
+    def test_concurrent_change_rolls_back_entire_batch(self, app_factory, tmp_path):
+        from app.extensions import db
+        from app.models import Task
+        from scripts.migrate_task_config_schema import apply_changes
+
+        for identity in ("migrate-a", "migrate-b"):
+            db.session.add(Task(id=identity, name=identity, task_type="google_sheet", status="completed", config='{"old":1}'))
+        db.session.commit()
+        changes = [
+            {"table": "task", "id": "migrate-a", "before": '{"old":1}', "after": '{"new":1}'},
+            {"table": "task", "id": "migrate-b", "before": '{"stale":1}', "after": '{"new":1}'},
+        ]
+        with pytest.raises(ValueError, match="变化"):
+            apply_changes(db.session, changes, tmp_path / "backup.json")
+        assert db.session.get(Task, "migrate-a").config == '{"old":1}'
+        assert db.session.get(Task, "migrate-b").config == '{"old":1}'
+
+    def test_existing_backup_is_not_overwritten(self, app_factory, tmp_path):
+        from app.extensions import db
+        from scripts.migrate_task_config_schema import apply_changes
+
+        backup = tmp_path / "backup.json"
+        backup.write_text("original", encoding="utf-8")
+        with pytest.raises(FileExistsError):
+            apply_changes(db.session, [], backup)
+        assert backup.read_text(encoding="utf-8") == "original"
+
+    def test_backup_flush_failure_prevents_database_changes(self, app_factory, tmp_path, monkeypatch):
+        import os
+        from app.extensions import db
+        from app.models import Task
+        from scripts.migrate_task_config_schema import apply_changes
+
+        db.session.add(Task(id="flush", name="flush", task_type="google_sheet", status="completed", config="{}"))
+        db.session.commit()
+        def fail_flush(fd):
+            raise OSError("disk failure")
+        monkeypatch.setattr(os, "fsync", fail_flush)
+        with pytest.raises(OSError, match="disk failure"):
+            apply_changes(db.session, [{"table": "task", "id": "flush", "before": "{}", "after": '{"x":1}'}], tmp_path / "backup.json")
+        assert db.session.get(Task, "flush").config == "{}"
+
+    def test_task_started_after_precheck_is_not_modified(self, app_factory, tmp_path, monkeypatch):
+        import os
+        from app.extensions import db
+        from app.models import Task
+        from scripts.migrate_task_config_schema import apply_changes
+
+        db.session.add(Task(id="race", name="race", task_type="google_sheet", status="pending", config="{}"))
+        db.session.commit()
+        fsync = os.fsync
+        def start_after_precheck(fd):
+            fsync(fd)
+            db.session.query(Task).filter_by(id="race").update({"status": "running"})
+            db.session.commit()
+        monkeypatch.setattr(os, "fsync", start_after_precheck)
+        with pytest.raises(ValueError, match="运行中"):
+            apply_changes(db.session, [{"table": "task", "id": "race", "before": "{}", "after": '{"x":1}'}], tmp_path / "backup.json")
+        assert db.session.get(Task, "race").config == "{}"
+
+    def test_running_tasks_block_migration(self, app_factory, tmp_path):
+        from app.extensions import db
+        from app.models import Task
+        from scripts.migrate_task_config_schema import apply_changes
+
+        db.session.add(Task(id="running", name="running", task_type="google_sheet", status="running", config="{}"))
+        db.session.commit()
+        backup = tmp_path / "backup.json"
+        with pytest.raises(ValueError, match="运行中"):
+            apply_changes(db.session, [], backup)
+        assert not backup.exists()
+
+
 class TestUpdateConfigMerge:
+    def test_c7_merge_recomputes_search_codes(self, app_factory, monkeypatch):
+        from app.services.task import task_manager
+        from app.repositories import task_repository
+
+        monkeypatch.setattr(task_manager, "validate_c_series_sheet_models", lambda config: None)
+        task_repository.create({
+            "id": "c7-index", "name": "index", "task_type": "google_sheet_C7", "status": "completed",
+            "config": json.dumps({"sheets": [{"spreadsheet_id": "s", "model_version": "c7_0_3"}],
+                                  "parameters": [["QQQ", "SOXX"]], "stock_codes": ["QQQ", "SOXX"]}),
+        })
+        task_manager.update_task_config("c7-index", {"parameters": [["ITB", "XBI"]]})
+        config = task_repository.get("c7-index")["config"]
+        assert config["stock_codes"] == ["ITB", "XBI"]
+        assert config["parameters"] == [["ITB", "XBI"]]
+        assert "stock_code" not in config
+
     def test_merge_keeps_untouched_keys(self, app_factory, monkeypatch):
         """结构化表单部分提交：payload 未列出的键保留（修复表单重建丢键）。"""
         with app_factory.app_context():

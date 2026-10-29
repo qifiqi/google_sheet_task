@@ -20,7 +20,7 @@ function getTemplateMeta(template) {
     const typeLabel = type.toUpperCase();
     const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
         ? (config.sheets[0].sheet_name || '默认')
-        : (config.sheet_name || '默认');
+        : '默认';
 
     let parameterLabel = '参数组数';
     let parameterValue = '0';

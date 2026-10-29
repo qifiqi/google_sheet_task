@@ -226,15 +226,11 @@
 
     function firstSheetRef(config) {
         const sheets = config && Array.isArray(config.sheets) ? config.sheets : [];
-        if (sheets.length && sheets[0] && typeof sheets[0] === 'object') {
-            return sheets[0];
-        }
-        // 未迁移旧数据回退
-        return config && config.sheet && typeof config.sheet === 'object' ? config.sheet : {};
+        return sheets.length && sheets[0] && typeof sheets[0] === 'object' ? sheets[0] : {};
     }
 
     function inferModelVersion(config) {
-        // 统一 sheets[1] 形态；旧 sheet{} 仅作未迁移数据回退
+        // 统一 sheets[1] 形态
         const sheet = firstSheetRef(config);
         const text = [
             config && config.model_version,

@@ -83,8 +83,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _is_c1_1(config_data):
-        sheet = (config_data.get('sheets') or [{}])[0] if isinstance(config_data.get('sheets'), list) else {}
-        return 'C1.1' in str(sheet.get('title') or config_data.get('title') or '').upper()
+        sheets = config_data.get('sheets') if isinstance(config_data.get('sheets'), list) else []
+        sheet = sheets[0] if sheets and isinstance(sheets[0], dict) else {}
+        return 'C1.1' in str(sheet.get('title') or '').upper()
 
     @staticmethod
     def _get_c1_1_sheet_config(config_data):
@@ -631,9 +632,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     for i, param in enumerate(parameter):
                         cell_updates[parameter_positions[i]] = param
 
-            is_c7 = is_c7_0_3 or 'C7' in str(
-                config_data.get('sheet', {}).get('title') or config_data.get('title') or ''
-            ).upper()
+            sheets = config_data.get('sheets') if isinstance(config_data.get('sheets'), list) else []
+            sheet_title = str((sheets[0] if sheets and isinstance(sheets[0], dict) else {}).get('title') or '')
+            is_c7 = is_c7_0_3 or 'C7' in sheet_title.upper()
             result_value_render_option = 'UNFORMATTED_VALUE' if is_c7 else 'FORMATTED_VALUE'
 
             # 仅当 K 线来源变化（或首次执行）时重写行情列；同源组合只改参数，减少 Sheet IO。

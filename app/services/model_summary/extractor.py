@@ -12,6 +12,7 @@ from flask import has_app_context
 
 from app.constants.c_template_layout import C3_METRIC_CELLS, C4_C5_METRIC_CELLS
 from app.models import Task, TaskResult, TaskStatus, TaskType
+from app.schemas.task_configs import primary_stock_code
 from app.services.performance_analysis.historical_metrics import (
     avg_monthly_excess_return_diff,
     collect_summary_all_entries,
@@ -397,14 +398,17 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
         if isinstance(config_from_parameters, dict):
             config = {**config, **config_from_parameters} if isinstance(config, dict) else config_from_parameters
 
+    # 任务配置的 stock_codes 投影优先于任务名解析：多股任务名不含单只代码
+    if isinstance(config, dict):
+        direct = primary_stock_code(config)
+        if direct:
+            return standardize(direct)
+
     parsed = _stock_code_from_task_name(task.task_type, parameter_task_name)
     if parsed:
         return standardize(parsed)
 
     if isinstance(config, dict):
-        direct = _first_text_value(config, ("stock_code", "stock_no", "code", "symbol"))
-        if direct:
-            return standardize(direct)
         parsed = _stock_code_from_task_name(
             task.task_type,
             _first_text_value(config, ("task_name", "name", "base_task_name", "taskName")),
@@ -419,10 +423,6 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
     direct = _first_text_value(parameters, ("stock_code", "stock_no", "code", "symbol"))
     if direct:
         return standardize(direct)
-    if isinstance(config, dict):
-        direct = _first_text_value(config, ("stock_code", "stock_no", "code", "symbol"))
-        if direct:
-            return standardize(direct)
     return str(task.id).strip().upper()
 
 
