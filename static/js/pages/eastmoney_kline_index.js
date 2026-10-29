@@ -116,20 +116,43 @@ function getStockDisplayName() {
     return queryData.stock_name || queryData.stock_code || "-";
 }
 
-function getDefaultExportFileName(calculation) {
+function getDefaultExportFileName() {
     if (!queryData) return "K线数据";
-    const oneYear = calculation && calculation.recent.values.find(
-        (item) => item.label === "1年",
-    );
-    const oneYearVolatility = oneYear && oneYear.result
-        ? formatPercent(oneYear.result.value)
-        : "无数据";
-    return `${queryData.stock_code}-${queryData.stock_name || "股票"}-${oneYearVolatility}`;
+    // 统一导出文件名规范：{基名}-{价格}-{复权}-{起}-{止}-{时间戳}（与后端
+    // build_export_filename 同构；slug 表见 contract-constants.js，输入框仍可手改）。
+    // 原默认名里的"1年波动率"是结果值，按规范不进文件名（表内可见）。
+    const slugs = window.BizConstants || {};
+    const priceSlugs = slugs.EXPORT_PRICE_FILENAME_SLUGS || {};
+    const adjustSlugs = slugs.EXPORT_ADJUST_FILENAME_SLUGS || {};
+    const dates = (klineRows || [])
+        .map((row) => normalizeExportDate(row.stock_date))
+        .filter(Boolean)
+        .sort();
+    const stamp = new Date();
+    const pad = (num) => String(num).padStart(2, "0");
+    const timestamp = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
+    const segments = [
+        `${queryData.stock_code || ""}${queryData.stock_name || "股票"}`,
+        priceSlugs[queryData.priceBasis] || queryData.priceBasis || "",
+        adjustSlugs[queryData.adjust_type] || "",
+        dates[0] || "",
+        dates[dates.length - 1] || "",
+        timestamp,
+    ];
+    return segments.filter(Boolean).join("-");
+}
+
+function normalizeExportDate(value) {
+    const head = String(value || "").trim().split(/[ T]/)[0].replace(/\//g, "-");
+    const match = head.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (!match) return "";
+    const pad = (part) => part.padStart(2, "0");
+    return `${match[1]}${pad(match[2])}${pad(match[3])}`;
 }
 
 function getExportFileName() {
     const fileName = document.getElementById("export-file-name").value.trim()
-        || getDefaultExportFileName(volatility);
+        || getDefaultExportFileName();
     return fileName.replace(/[\\/:*?"<>|]/g, "_").replace(/\.xlsx$/i, "");
 }
 
@@ -580,7 +603,7 @@ function refreshVolatilityAnalysis() {
         showMessage("请选择有效的计算基准日期");
         return;
     }
-    const oldDefaultFileName = getDefaultExportFileName(volatility);
+    const oldDefaultFileName = getDefaultExportFileName();
     const currentFileName = document.getElementById("export-file-name").value.trim();
     queryData.priceBasis = document.getElementById("volatility-price-basis").value || "close";
     volatility = calculateVolatilityAnalysis(
@@ -590,7 +613,7 @@ function refreshVolatilityAnalysis() {
     );
     renderVolatilityAnalysis(volatility.recent, volatility.yearly, volatility.turnover);
     if (!currentFileName || currentFileName === oldDefaultFileName) {
-        document.getElementById("export-file-name").value = getDefaultExportFileName(volatility);
+        document.getElementById("export-file-name").value = getDefaultExportFileName();
     }
 }
 
@@ -794,7 +817,7 @@ async function fetchKlines() {
         );
         renderVolatilityAnalysis(volatility.recent, volatility.yearly, volatility.turnover);
         renderTable();
-        document.getElementById("export-file-name").value = getDefaultExportFileName(volatility);
+        document.getElementById("export-file-name").value = getDefaultExportFileName();
         document.getElementById("export-btn").disabled = false;
         document.getElementById("kline-chart-btn").disabled = false;
         showMessage(

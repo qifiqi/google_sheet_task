@@ -25,5 +25,30 @@
             error: 'text-bg-danger',
             failed: 'text-bg-danger',
         },
+
+        // 后端：app/services/export_workbook_service.py PRICE_MODE_FILENAME_SLUGS /
+        // RANDOM_PRICE_RANGE_FILENAME_SLUGS / KLINE_ADJUSTMENT_FILENAME_SLUGS。
+        // 导出文件名价格/复权段 slug（前端拼文件名用，如东财K线页）；随机价段
+        // rnd-hl/rnd-oc 由后端任务导出消费，前端查询页暂无该形态。
+        EXPORT_PRICE_FILENAME_SLUGS: {
+            kp_price: 'open',
+            sp_price: 'close',
+            vwap_price: 'vwap',
+            ohlc_price: 'ohlc',
+            random_price: 'rnd',
+        },
+        EXPORT_RANDOM_RANGE_FILENAME_SLUGS: {
+            high_low: 'hl',
+            open_close: 'oc',
+        },
+        EXPORT_ADJUST_FILENAME_SLUGS: {
+            forward: 'qfq',
+            back: 'hfq',
+            none: 'raw',
+            // 东财K线页 kline-adjust 下拉的数值词表（0 不复权 / 1 前复权 / 2 后复权）
+            0: 'raw',
+            1: 'qfq',
+            2: 'hfq',
+        },
     };
 })();
