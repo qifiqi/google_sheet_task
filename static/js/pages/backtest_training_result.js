@@ -240,7 +240,7 @@
 
         try {
             const exportBaseName = state.exportBaseName || 'backtest_result';
-            const defaultFilename = exportBaseName.startsWith('backtest_result_')
+            const fallbackFilename = exportBaseName.startsWith('backtest_result_')
                 ? `${exportBaseName}_details.csv`
                 : `${exportBaseName}.csv`;
 
@@ -250,6 +250,13 @@
                 const err = await resp.json().catch(() => ({}));
                 throw new Error(err.message || `HTTP error! status: ${resp.status}`);
             }
+
+            // 后端按统一命名规范（模型版本-价格复权-时间戳）生成文件名，优先采用
+            const defaultFilename = decodeURIComponent(
+                (resp.headers.get('Content-Disposition') || '').match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+                    || (resp.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/i)?.[1]
+                    || fallbackFilename
+            );
 
             const blob = await resp.blob();
             

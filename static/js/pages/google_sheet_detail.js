@@ -1230,9 +1230,9 @@
 
         setButtonBusy(btn, true, '导出中…');
         try {
-            const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
-            const saveTarget = await prepareExcelSaveTarget(defaultFilename);
-                const response = await Api.endpoints.export.task(encodeURIComponent(currentTaskId));
+            // 先请求拿响应头里的统一规范文件名（含模型版本/价格复权段），再弹保存框；
+            // 服务端名缺失才回落任务名。
+            const response = await Api.endpoints.export.task(encodeURIComponent(currentTaskId));
             if (!response.ok) {
                 const text = await response.text();
                 let message = `导出失败，状态码 ${response.status}`;
@@ -1246,8 +1246,12 @@
                 return;
             }
 
+            const defaultFilename = ensureExcelExtension(
+                getExportFilenameFromResponse(response) || `${currentTaskData?.name || currentTaskId}.xlsx`
+            );
+            const saveTarget = await prepareExcelSaveTarget(defaultFilename);
             const blob = await response.blob();
-            await saveExcelBlob(blob, saveTarget, getExportFilenameFromResponse(response) || defaultFilename);
+            await saveExcelBlob(blob, saveTarget, defaultFilename);
         } catch (error) {
             if (error.name === 'AbortError') {
                 showNotification('已取消保存操作', 'info');
