@@ -285,12 +285,14 @@
                     data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
                 <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V2 数据明细（展开/收起）
             </button>
-            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
-                <i class="bi bi-download me-1"></i>导出 Excel
-            </button>
-            <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
-                <i class="bi bi-file-earmark-word me-1"></i>导出 Word
-            </button>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                    <i class="bi bi-download me-1"></i>导出 Excel
+                </button>
+                <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
+                    <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+                </button>
+            </div>
         </div>
     </div>
     <div class="collapse" id="v1-details-collapse">
