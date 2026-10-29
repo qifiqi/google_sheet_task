@@ -485,21 +485,14 @@ class TaskResultHttpRepository(HttpRepositoryBase):
         if return_series_id is not None:
             result_fields["return_series_id"] = return_series_id
         saved = self.save(dump_row(result_fields, datetime_fields=self._DT_FIELDS))
-        # 随机K线结果关联固定本地表（远端无对应端点）；远端结果主键为本地链路外键。
+        # 随机K线结果关联：远端 ParamTaskResultKlineLinks（E12，2026-10-29 上线）。
         if kline_series_id:
-            self._save_kline_link(saved, kline_series_id)
+            self.api.param_task_result_kline_links.modify_or_add(dump_row({
+                "result_id": saved.get("id"),
+                "task_id": saved.get("task_id"),
+                "series_id": int(kline_series_id),
+            }))
         return saved
-
-    def _save_kline_link(self, saved_result, kline_series_id):
-        from app.extensions import db
-
-        link = self._kline_link_model()(
-            result_id=saved_result.get("id"),
-            task_id=saved_result.get("task_id"),
-            series_id=int(kline_series_id),
-        )
-        db.session.add(link)
-        db.session.commit()
 
     def delete(self, result_id, commit=True):
         """删除单条结果；不存在返回 False。
@@ -661,20 +654,14 @@ class TaskResultHttpRepository(HttpRepositoryBase):
             for row in rows[: max(1, int(limit))]
         ]
 
-    # ---- 随机K线结果关联（TaskResultKlineLink 固定本地表，远端无对应端点；
-    # 与 sheet_lock / task_kline_snapshot 同一"固定本地绑定"策略） ----
-
-    @staticmethod
-    def _kline_link_model():
-        from app.models import TaskResultKlineLink
-
-        return TaskResultKlineLink
+    # ---- 随机K线结果关联（ParamTaskResultKlineLinks，E12 端点 2026-10-29 上线） ----
 
     def count_by_kline_series(self, task_id: str, series_id: int) -> int:
-        return self._kline_link_model().query.filter_by(
-            task_id=task_id,
-            series_id=series_id,
-        ).count()
+        page = self.page(
+            {"task_id": task_id, "series_id": series_id},
+            group="param_task_result_kline_links",
+        )
+        return int(page.get("total") or 0)
 
     def list_by_kline_series(
         self,
@@ -685,18 +672,20 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     ):
         """使用指定随机K线序列的结果列表（审计反查，按执行顺序）。
 
-        关联在本地链路表、结果行在远端：本地取 result_id 集合后远端按
-        task_id 拉取过滤（TODO(db-to-http): 远端补 result_ids 过滤端点）。
+        关联行与结果行分属两个控制器：先取关联 result_id 分页，再远端按
+        task_id 拉结果行过滤（TODO(db-to-http): 远端补 result_ids 过滤）。
         """
-        query = self._kline_link_model().query.filter_by(
-            task_id=task_id,
-            series_id=series_id,
-        )
+        links = list(self.iter_pages(
+            {"task_id": task_id, "series_id": series_id},
+            group="param_task_result_kline_links",
+        ))
+        links.sort(key=lambda row: int(row.get("id") or 0))
         if offset is not None:
-            query = query.offset(offset)
+            links = links[offset:]
         if limit is not None:
-            query = query.limit(limit)
-        wanted = {row.result_id for row in query.all()}
+            links = links[:limit]
+        wanted = {int(row.get("result_id") or 0) for row in links}
+        wanted.discard(0)
         if not wanted:
             return []
         rows = [

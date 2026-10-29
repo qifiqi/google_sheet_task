@@ -11,7 +11,10 @@ from app.remote_api.controllers.param_google_sheet_tokens import ParamGoogleShee
 from app.remote_api.controllers.param_scheduled_tasks import ParamScheduledTasksApi
 from app.remote_api.controllers.param_stock_metadata import ParamStockMetadataApi
 from app.remote_api.controllers.param_system_configs import ParamSystemConfigsApi
+from app.remote_api.controllers.param_task_kline_sources import ParamTaskKlineSourcesApi
 from app.remote_api.controllers.param_task_logs import ParamTaskLogsApi
+from app.remote_api.controllers.param_task_random_series import ParamTaskRandomSeriesApi
+from app.remote_api.controllers.param_task_result_kline_links import ParamTaskResultKlineLinksApi
 from app.remote_api.controllers.param_task_result_summary_index import ParamTaskResultSummaryIndexApi
 from app.remote_api.controllers.param_task_results import ParamTaskResultsApi
 from app.remote_api.controllers.param_task_results_return import ParamTaskResultsReturnApi
@@ -61,7 +64,10 @@ def bind_controllers(client: Any) -> None:
     client.param_scheduled_tasks = ParamScheduledTasksApi(client)
     client.param_stock_metadata = ParamStockMetadataApi(client)
     client.param_system_configs = ParamSystemConfigsApi(client)
+    client.param_task_kline_sources = ParamTaskKlineSourcesApi(client)
     client.param_task_logs = ParamTaskLogsApi(client)
+    client.param_task_random_series = ParamTaskRandomSeriesApi(client)
+    client.param_task_result_kline_links = ParamTaskResultKlineLinksApi(client)
     client.param_task_result_summary_index = ParamTaskResultSummaryIndexApi(client)
     client.param_task_results = ParamTaskResultsApi(client)
     client.param_task_results_return = ParamTaskResultsReturnApi(client)

@@ -27,6 +27,9 @@ from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.task_kline_snapshot_repository import TaskKlineSnapshotRepository
+from app.repositories.http_backend.task_kline_snapshot_repository import (
+    TaskKlineSnapshotHttpRepository,
+)
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
@@ -86,9 +89,13 @@ google_sheet_token_repository = (
 # 导航菜单远端无对应表，固定本地。
 navigation_repository = NavigationRepository()
 auth_repository = AuthRepository()
-# K线快照三表远端尚无对应端点（E10-E12 规格），暂固定本地；
-# 主站端点补齐后并入上方条件绑定。执行锁已改走 Redis（sheet_execution_lock_service）。
-task_kline_snapshot_repository = TaskKlineSnapshotRepository()
+# K线快照三表：远端 E10-E12 端点已上线（2026-10-29 实测），http 模式走远端孪生，
+# db 模式仍走本地 SQLAlchemy。
+task_kline_snapshot_repository = (
+    TaskKlineSnapshotHttpRepository()
+    if _USE_HTTP_BACKEND
+    else TaskKlineSnapshotRepository()
+)
 scheduled_task_repository = (
     ScheduledTaskHttpRepository() if _USE_HTTP_BACKEND else ScheduledTaskRepository()
 )
