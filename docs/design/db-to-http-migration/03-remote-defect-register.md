@@ -165,3 +165,12 @@ POST /api/ParamTasks/ModifyOrAdd
 - SysModel：行主键是 ``model_id``（不是 id）；GetById 按 model_id 查 200 正常。
 - SheetTokens/Delete / ParamTaskLogs 等其余 Delete：不存在行 400（既有契约）。
 
+## 附：StockParamResult 重跑语义与删除契约（2026-10-29 实测补记）
+
+- **重跑天然覆盖，无需删除**：AddOrModify 不带 id 时按业务键
+  （task_id+stock_code+task_index）upsert——同键二次写入更新同一行
+  （验证：return_rate 1.11→2.22，行数仍 1）。C 系重头重跑/重启不会堆行。
+- **Delete 契约比备忘更严**：需要**整行字段**（从分页回查原样写回）才 200；
+  仅 id+task_id+stock_code 三字段也会 400"操作失败"。本项目执行链只写不删，
+  不受影响；如需按任务清理需主站提供按 task_id 批量删除端点（同 E2 语义）。
+
