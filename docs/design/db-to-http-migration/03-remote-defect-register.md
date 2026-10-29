@@ -150,3 +150,18 @@ POST /api/ParamTasks/ModifyOrAdd
 - StockData/StockDataUs GetSummaryByPageList 过滤是 ``begin_date``+``end_time``
   （无 stock_code 过滤，空载荷 400）。
 
+## 附：2026-10-29 补测契约备忘（57 个未测端点全覆盖，7070）
+
+- ParamXplAnalysisJobs：**id 由客户端生成**（"id不能为空"；现有最大 id+1 可用），
+  与其他数值表（主键远端生成）契约不同。
+- StockParamResult/AddOrModify：插入正常（200，按 id upsert）；**Delete 需要
+  id+task_id+stock_code 全字段才 200**（单 id / 单 task_id 都 400"操作失败"）——
+  本项目执行链只写不删，不受影响。
+- StockData/GetListVolume：按应用真实调用形态（带后缀 stock_code + coefficient）
+  200；DTO 里 stock_lelvel 等多个字段是严格 Int32（传字符串/空即 400 类型转换错）。
+- StockData GetListHisPage/GetListPage/GetStockListByCodeOrDate 与 StockDataUs
+  同名端点：带日期/分页参数后全部 200；GetDataAllList 空载荷超时（277 万行大表，
+  生产代码须带过滤调用）。
+- SysModel：行主键是 ``model_id``（不是 id）；GetById 按 model_id 查 200 正常。
+- SheetTokens/Delete / ParamTaskLogs 等其余 Delete：不存在行 400（既有契约）。
+
