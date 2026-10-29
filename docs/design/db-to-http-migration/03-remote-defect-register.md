@@ -125,3 +125,28 @@ POST /api/ParamTasks/ModifyOrAdd
 - 三个 Delete 的真实行为与 Swagger Dto 注解对齐（或补按行删除端点）；
 - ParamTaskResults 分页过滤补单数 `task_id`（或三表统一 `task_ids[]`）；
 - Delete 0 行匹配建议返回 200+ret_count=0 而非 400，便于幂等删除。
+
+## 缺陷 #4：ParamGoogleSheetTokens/ModifyOrAdd 插入分支 500（2026-10-29）
+
+`POST /api/ParamGoogleSheetTokens/ModifyOrAdd`：**新行插入**一律 500"内部请求出错"
+（与载荷无关，精简单字段同样 500）；**更新已有行正常 200**。读路径
+（GetDataByPageList / GetInfoById）正常。影响：Token 导入/新建流程；占用计数更新
+（update 分支）不受影响。已登记待主站修复。
+
+## 缺陷 #5：ParamTaskResultSummaryIndex/ModifyOrAdd 插入分支 500（2026-10-29）
+
+`POST /api/ParamTaskResultSummaryIndex/ModifyOrAdd`：**新行插入**一律 500（UUID
+宿主任务 + DTO 全字段载荷同样 500）；分页/删除正常。影响：http 模式下回测汇总
+重建（模型汇总 dedupe/重建链路写汇总索引）会失败。已登记待主站修复。
+
+## 附：2026-10-29 全控制器实测契约备忘（7070 测试环境）
+
+- ParamTasks：不接受客户端自带 id（携带即 400"操作失败"）；不携带 id 插入，
+  主键 UUID 经 ``ret_obj`` 字符串回带；Delete/Delete后读同既有登记。
+- 数值主键表（Results/Return/Cache 等）新行主键经 ``ret_count`` 回带。
+- ParamTaskLogs / Return Delete 按 task_id 整删（id 被忽略）。
+- ParamScheduledTasks ModifyOrAdd 需 ``task_function``；ParamGoogleSheet 需
+  ``registry_scope``/``sheet_name`` 等非空列齐全，否则 500。
+- StockData/StockDataUs GetSummaryByPageList 过滤是 ``begin_date``+``end_time``
+  （无 stock_code 过滤，空载荷 400）。
+
