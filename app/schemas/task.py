@@ -21,6 +21,9 @@ class TaskListQuery(PageQuery):
     status: str | None = None
     keyword: str = ""
     stock_code: str = ""
+    token_name: str = ""
+    start_date: str = ""  # 创建时间起（YYYY-MM-DD，含当日）
+    end_date: str = ""  # 创建时间止（YYYY-MM-DD，含当日）
 
 
 class TaskResultListQuery(PageQuery):

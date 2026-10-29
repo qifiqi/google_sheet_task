@@ -6,6 +6,8 @@
 - 服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
   BadRequestError，待服务层改抛语义异常后移除。
 """
+from datetime import datetime, timedelta
+
 from app.utils.json_utils import dumps
 
 from flask import Blueprint, g, request
@@ -32,6 +34,18 @@ task_api_bp = Blueprint('task_api', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 
 
+def _parse_list_date(value, field):
+    """YYYY-MM-DD → 当日零点 naive datetime；空串返回 None；非法格式抛 400。"""
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise BadRequestError(f"参数 {field} 日期格式无效，应为 YYYY-MM-DD")
+
+
+
 @task_api_bp.route('/tasks', methods=['GET', 'POST'])
 @login_required
 def tasks():
@@ -48,6 +62,12 @@ def tasks():
                 query.page, query.per_page
             ))
 
+        start_time = _parse_list_date(query.start_date, "start_date")
+        end_time = _parse_list_date(query.end_date, "end_date")
+        if end_time is not None:
+            # 含当日：end 取次日零点（半开区间）
+            end_time = end_time + timedelta(days=1)
+
         data = task_manager.get_tasks_paginated(
             page=query.page,
             per_page=query.per_page,
@@ -56,6 +76,9 @@ def tasks():
             status=query.status,
             keyword=query.keyword,
             stock_code=query.stock_code,
+            token_name=query.token_name,
+            start_time=start_time,
+            end_time=end_time,
         )
         return success(data=data)
 

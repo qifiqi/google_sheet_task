@@ -20,6 +20,8 @@ let paginationState = {
 let isLoadingTasks = false;
 let currentPageTasks = [];
 let stockCodeFilter = '';
+let statusFilter = '';
+let keywordFilter = '';
 const selectedBatchExportTaskIds = new Set();
 
 function readStoredListPaginationState() {
@@ -443,6 +445,12 @@ async function loadTasks(options = {}) {
     if (code) {
         query.set('stock_code', code);
     }
+    if (statusFilter) {
+        query.set('status', statusFilter);
+    }
+    if (keywordFilter.trim()) {
+        query.set('keyword', keywordFilter.trim());
+    }
     isLoadingTasks = true;
     try {
         const data = await Api.endpoints.task.list(query.toString());
@@ -595,6 +603,32 @@ document.getElementById('stockCodeFilterInput').addEventListener('keydown', (eve
 document.getElementById('clearStockCodeFilterBtn').addEventListener('click', () => {
     document.getElementById('stockCodeFilterInput').value = '';
     stockCodeFilter = '';
+    document.getElementById('clearStockCodeFilterBtn').disabled = true;
+    loadTasks({ page: 1 });
+});
+
+// 状态 / 关键字筛选：与股票代码筛选同样走服务端过滤（分页/统计同步收敛）。
+document.getElementById('statusFilterSelect').addEventListener('change', (event) => {
+    statusFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        keywordFilter = document.getElementById('keywordFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('keywordFilterInput').addEventListener('change', (event) => {
+    keywordFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('resetAllFiltersBtn').addEventListener('click', () => {
+    document.getElementById('stockCodeFilterInput').value = '';
+    document.getElementById('keywordFilterInput').value = '';
+    document.getElementById('statusFilterSelect').value = '';
+    stockCodeFilter = '';
+    keywordFilter = '';
+    statusFilter = '';
     document.getElementById('clearStockCodeFilterBtn').disabled = true;
     loadTasks({ page: 1 });
 });

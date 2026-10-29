@@ -126,6 +126,16 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
             window.clearTimeout(searchDebounceTimer);
             searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
         });
+        document.getElementById('token-filter').addEventListener('input', function() {
+            window.clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
+        });
+        document.getElementById('start-date-filter').addEventListener('change', function() {
+            filterTasks();
+        });
+        document.getElementById('end-date-filter').addEventListener('change', function() {
+            filterTasks();
+        });
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
             const interval = (data && data.data.config && data.data.config.tasks_admin_refresh_interval)
                 ? data.data.config.tasks_admin_refresh_interval : 30000;
@@ -143,6 +153,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         const status = document.getElementById('status-filter').value;
         const taskType = document.getElementById('type-filter').value;
         const keyword = document.getElementById('search-input').value.trim();
+        const tokenName = document.getElementById('token-filter').value.trim();
+        const startDate = document.getElementById('start-date-filter').value;
+        const endDate = document.getElementById('end-date-filter').value;
         const params = new URLSearchParams();
 
         params.set('page', page);
@@ -150,6 +163,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         if (status) params.set('status', status);
         if (taskType) params.set('task_type', taskType);
         if (keyword) params.set('keyword', keyword);
+        if (tokenName) params.set('token_name', tokenName);
+        if (startDate) params.set('start_date', startDate);
+        if (endDate) params.set('end_date', endDate);
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
             if (!err && data && data.data && data.data.items) {
@@ -177,6 +193,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         document.getElementById('status-filter').value = '';
         document.getElementById('type-filter').value = '';
         document.getElementById('search-input').value = '';
+        document.getElementById('token-filter').value = '';
+        document.getElementById('start-date-filter').value = '';
+        document.getElementById('end-date-filter').value = '';
         filterTasks();
     }
 

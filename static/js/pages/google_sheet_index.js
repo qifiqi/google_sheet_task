@@ -41,6 +41,7 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
     let serverStatistics = {};
     let isLoadingTasks = false;
     let _previousPendingView = null;
+    let advancedFilters = { keyword: '', stock_code: '', token_name: '', start_date: '', end_date: '' };
     console.log(task_type);
 
     function getTaskVersion(task) {
@@ -131,6 +132,21 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
         if (currentFilter !== 'all') {
             params.set('status', currentFilter);
         }
+        if (advancedFilters.keyword.trim()) {
+            params.set('keyword', advancedFilters.keyword.trim());
+        }
+        if (advancedFilters.stock_code.trim()) {
+            params.set('stock_code', advancedFilters.stock_code.trim());
+        }
+        if (advancedFilters.token_name.trim()) {
+            params.set('token_name', advancedFilters.token_name.trim());
+        }
+        if (advancedFilters.start_date) {
+            params.set('start_date', advancedFilters.start_date);
+        }
+        if (advancedFilters.end_date) {
+            params.set('end_date', advancedFilters.end_date);
+        }
 
         Api.endpoints.task.list(params.toString()).then(function(data) {
             isLoadingTasks = false;
@@ -159,6 +175,36 @@ document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'Non
     // 筛选任务（服务端筛选，重置到第一页）
     function filterTasks(filter) {
         currentFilter = filter;
+        currentPage = 1;
+        updateUrl();
+        loadTasks();
+    }
+
+    // 高级筛选（关键字/股票代码/Token/创建日期）：服务端过滤，重置到第一页
+    function readAdvancedFilterInputs() {
+        return {
+            keyword: document.getElementById('keyword-filter-input').value || '',
+            stock_code: document.getElementById('stock-code-filter-input').value || '',
+            token_name: document.getElementById('token-filter-input').value || '',
+            start_date: document.getElementById('start-date-filter-input').value || '',
+            end_date: document.getElementById('end-date-filter-input').value || ''
+        };
+    }
+
+    function applyAdvancedFilters() {
+        advancedFilters = readAdvancedFilterInputs();
+        currentPage = 1;
+        updateUrl();
+        loadTasks();
+    }
+
+    function resetAdvancedFilters() {
+        document.getElementById('keyword-filter-input').value = '';
+        document.getElementById('stock-code-filter-input').value = '';
+        document.getElementById('token-filter-input').value = '';
+        document.getElementById('start-date-filter-input').value = '';
+        document.getElementById('end-date-filter-input').value = '';
+        advancedFilters = { keyword: '', stock_code: '', token_name: '', start_date: '', end_date: '' };
         currentPage = 1;
         updateUrl();
         loadTasks();

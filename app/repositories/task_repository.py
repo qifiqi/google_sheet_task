@@ -41,6 +41,9 @@ class TaskRepository(BaseRepository):
         status=None,
         keyword=None,
         stock_code=None,
+        token_name=None,
+        start_time=None,
+        end_time=None,
     ):
         """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
 
@@ -49,6 +52,9 @@ class TaskRepository(BaseRepository):
         - stock_code：按 config JSON 文本里的 "stock_code" 键值前缀匹配，
           锚定键名避免误中 product_name/sheet 等其他字段；
           兼容 json.dumps（": "）与 JSON.stringify（":"）两种分隔符；
+        - token_name：按 config JSON 文本里的 "token_name" 键值前缀匹配，
+          分隔符兼容口径与 stock_code 一致；
+        - start_time/end_time：created_at 半开区间过滤 [start, end)；
         - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
         """
         query = Task.query
@@ -80,6 +86,19 @@ class TaskRepository(BaseRepository):
                     Task.config.like(f'%"stock_code": "{needle}%'),
                     Task.config.like(f'%"stock_code":"{needle}%'),
                 ))
+
+        if token_name:
+            needle = str(token_name).strip().strip('"').replace("%", "")
+            if needle:
+                query = query.filter(or_(
+                    Task.config.like(f'%"token_name": "{needle}%'),
+                    Task.config.like(f'%"token_name":"{needle}%'),
+                ))
+
+        if start_time is not None:
+            query = query.filter(Task.created_at >= start_time)
+        if end_time is not None:
+            query = query.filter(Task.created_at < end_time)
 
         ordered_query = query.order_by(Task.created_at.desc())
         pagination = ordered_query.paginate(

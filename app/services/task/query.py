@@ -99,6 +99,9 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
         stock_code: Optional[str] = None,
+        token_name: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
     ) -> dict[str, Any]:
         page_data = task_repository.list_paginated_with_statistics(
             page=page,
@@ -108,6 +111,9 @@ class TaskQueryService:
             status=status,
             keyword=keyword,
             stock_code=stock_code,
+            token_name=token_name,
+            start_time=start_time,
+            end_time=end_time,
         )
         aggregates = page_data["aggregates"]
         total = aggregates["total"]
@@ -226,6 +232,9 @@ class TaskQueryMixin:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
         stock_code: Optional[str] = None,
+        token_name: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
     ) -> dict[str, Any]:
         return TaskQueryService(self).get_tasks_paginated(
             page=page,
@@ -235,6 +244,9 @@ class TaskQueryMixin:
             status=status,
             keyword=keyword,
             stock_code=stock_code,
+            token_name=token_name,
+            start_time=start_time,
+            end_time=end_time,
         )
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
