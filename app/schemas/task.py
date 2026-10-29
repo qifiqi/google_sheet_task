@@ -2,9 +2,16 @@
 
 from typing import Any
 
-from pydantic import RootModel
+from pydantic import Field, RootModel, field_validator
 
 from app.schemas.common import APIModel, PageQuery
+
+# GET /api/tasks/<task_id>/results 的 fields 白名单；return_date_range 为计算字段
+# （收益序列首末日期，批量从 return_series 取），不在存储列映射里。
+TASK_RESULT_FIELD_WHITELIST = frozenset({
+    "id", "task_id", "step_index", "parameters", "result", "return_series_id",
+    "success", "error_message", "timestamp", "return_date_range",
+})
 
 
 class TaskListQuery(PageQuery):
@@ -13,27 +20,71 @@ class TaskListQuery(PageQuery):
     task_type: str | None = None
     status: str | None = None
     keyword: str = ""
+    stock_code: str = ""
+    token_name: str = ""
+    start_date: str = ""  # 创建时间起（YYYY-MM-DD，含当日）
+    end_date: str = ""  # 创建时间止（YYYY-MM-DD，含当日）
 
 
 class TaskResultListQuery(PageQuery):
     """GET /api/results 查询参数。"""
 
     task_id: str | None = None
+    success: bool | None = None
+    keyword: str = ""
+
+
+class KlineSnapshotPageQuery(PageQuery):
+    """随机K线快照列表与 series→results 反查的分页参数。"""
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=100, ge=1, le=200)
+    stock_code: str = ""
+    random_group: int | None = Field(default=None, ge=1)
 
 
 class TaskConfigUpdateSchema(APIModel):
-    """PUT /api/tasks/<id>/config。"""
+    """PUT /api/tasks/<id>/config。
+
+    merge=True（默认）：payload 中的顶层键覆盖旧值、未出现的键保留——
+    供结构化编辑表单做部分提交，修复"表单重建丢键"；merge=False：整体
+    替换（管理端 JSON 编辑器等提交完整 config 的场景，支持删键）。
+    """
 
     config: dict[str, Any]
     name: str | None = None
     description: str | None = None
     status: str | None = None
+    merge: bool = True
 
 
 class TaskIdsBatchSchema(APIModel):
-    """POST /api/exports/tasks/batch 等批量导出请求体。"""
+    """POST /api/exports/tasks/batch-export 等批量导出请求体。"""
 
     task_ids: list[Any]
+
+
+class TaskResultsQuerySchema(APIModel):
+    """GET /api/tasks/<task_id>/results 的 fields 投影查询参数。
+
+    缺省（不带 fields）= 历史全量 to_dict，CSV/详情消费方不受影响；
+    下拉/索引类消费方用 fields 裁剪响应，避开 result 大 JSON。
+    """
+
+    fields: str = ""
+
+    @field_validator("fields")
+    @classmethod
+    def _validate_fields(cls, value: str) -> list[str]:
+        """逗号分隔字段白名单校验；未知字段直接 400（支持列表随消息下发）。"""
+        requested = [part.strip() for part in value.split(",") if part.strip()]
+        unknown = [part for part in requested if part not in TASK_RESULT_FIELD_WHITELIST]
+        if unknown:
+            raise ValueError(
+                f"fields 含不支持的字段: {','.join(unknown)}"
+                f"（支持: {','.join(sorted(TASK_RESULT_FIELD_WHITELIST))}）"
+            )
+        return list(dict.fromkeys(requested))
 
 
 class TaskCreateSchema(APIModel):

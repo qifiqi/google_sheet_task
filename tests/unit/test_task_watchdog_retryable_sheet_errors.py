@@ -40,8 +40,8 @@ def test_watchdog_limits_retryable_google_sheet_restarts(app_factory, monkeypatc
 
         def fake_restart(task_id, resume_from_checkpoint=True):
             restart_calls.append((task_id, resume_from_checkpoint))
+            # 与真实 TaskManager.restart_task 契约一致：成功返回信息 dict（无 status 键）。
             return {
-                "status": "success",
                 "message": "任务重启成功",
                 "restart_from_step": 515,
             }

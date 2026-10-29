@@ -14,16 +14,16 @@ from app.services.performance_analysis.portfolio_combiner import (
 )
 
 from app.extensions import db
+from app.services.sheet_execution_lock_service import get_sheet_execution_lock_service
 from app.models import (
     BacktestProductResultCache,
-    BacktestSheetRunLock,
-    Permission,
+    SheetExecutionLock,
     Task,
     TaskResult,
     TaskResultReturn,
 )
 from app.services.backtest_report_query_service import _build_zip_member_name
-from app.services.export_service import GeneratedFile, export_service
+from app.services.export_service import GeneratedFile
 from app.routes.backtest_api import _build_excel_download_name
 from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
@@ -158,6 +158,60 @@ def test_normalize_multi_product_config_keeps_per_product_price_mode():
     assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "vwap_price"]
 
 
+def test_normalize_multi_product_config_rejects_non_ohlc_price_mode_for_c7_0_3():
+    """C7.0.3 执行期强制 OHLC 取价，创建期显式传其他价格模式直接拒绝。"""
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [
+            _base_product(0),
+            _base_product(1) | {
+                "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+                "price_mode": "sp_price",
+            },
+        ],
+    }
+
+    with pytest.raises(ValidationError, match="C7.0.3 模板，价格模式必须为 OHLC"):
+        normalize_multi_product_config(config)
+
+
+def test_normalize_multi_product_config_defaults_c7_0_3_to_ohlc_price_mode():
+    """C7.0.3 产品未显式指定价格模式时归一为 OHLC，而非回退全局默认 vwap。"""
+    product = _base_product(1) | {
+        "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+    }
+    product.pop("price_mode")
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_base_product(0), product],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert normalized["products"][0]["price_mode"] == "sp_price"
+    assert normalized["products"][1]["price_mode"] == "ohlc_price"
+
+
+def test_normalize_multi_product_config_allows_mixed_c3_and_c7_0_3_products():
+    """多品按行号对齐、模板版本按产品独立执行：C3 与 C7.0.3 可以混排。"""
+    c7_product = _base_product(1) | {
+        "sheet": {"spreadsheet_id": "sheet-2", "sheet_name": "data", "title": "C7.0.3 model"},
+        "price_mode": "ohlc_price",
+        "parameters": [["1.2", "5"], ["1.5", "8"]],
+    }
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [_base_product(0), c7_product],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "ohlc_price"]
+
+
 def test_normalize_multi_product_config_validates_parameter_alignment():
     product_1 = _base_product(0, "50")
     product_2 = _base_product(1, "50")
@@ -231,7 +285,7 @@ def test_multi_product_batch_export_global_preview_returns_zip(app_factory, monk
             fake_batch_export,
         )
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["multi-batch-1"]},
         )
 
@@ -258,7 +312,7 @@ def test_multi_product_batch_export_global_preview_rejects_empty_selection(app_f
     with app.app_context():
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": []},
         )
 
@@ -272,7 +326,7 @@ def test_multi_product_batch_export_global_preview_rejects_unfinished_task(app_f
         _add_multi_product_task("multi-running", status="running")
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["multi-running"]},
         )
 
@@ -285,7 +339,7 @@ def test_multi_product_batch_export_global_preview_rejects_too_many_tasks(app_fa
     with app.app_context():
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": [f"task-{index}" for index in range(11)]},
         )
 
@@ -302,7 +356,7 @@ def test_multi_product_kline_source_requires_same_stock_and_signature():
     ]
     signature = service._build_kline_signature(kline)
     current = {
-        "Kline_key": "2024-01-01~2024-01-03",
+        "kline_key": "2024-01-01~2024-01-03",
         "stock_code": "QQQ",
         "kline_signature": signature,
     }
@@ -349,6 +403,10 @@ def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory)
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.commit()
 
@@ -370,6 +428,10 @@ def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
         running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
         target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
         db.session.add_all([running, target])
+        db.session.add(SheetExecutionLock(
+            spreadsheet_id="shared-sheet", task_id="running-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        ))
         db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.add(TaskResultReturn(task_id=target.id, stock_date="2024-01-01", index_return=1, start_return=1))
         db.session.commit()
@@ -439,9 +501,9 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             parameters="{}",
             result=json.dumps({
                 "sheet__title": {
-                    "calculate_metrics": {
+                    "metrics_payload": {"metrics": {
                         "excess_returns": []
-                    },
+                    }},
                     "D2": "1",
                 }
             }),
@@ -453,7 +515,7 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         client = app.test_client()
-        resp = client.get(f"/backtest-multi-product/api/task-result/{task_result.id}")
+        resp = client.get(f"/api/backtest-multi-product/task-result/{task_result.id}")
 
         assert resp.status_code == 200
         payload = resp.get_json()
@@ -473,7 +535,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             name="multi-c7-result-units",
             task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             status="completed",
-            config=json.dumps({"products": [{"sheet": {"title": "C7 model"}}]}),
+            config=json.dumps({"products": [{"sheet": {"title": "C7 model", "model_version": "c7_0_2"}}]}),
             created_at=datetime.now(),
         )
         db.session.add(task)
@@ -482,7 +544,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             step_index=0,
             parameters=json.dumps({"product_index": 0}),
             result=json.dumps({"sheet__title": {
-                "calculate_metrics": {"excess_returns": []},
+                "metrics_payload": {"metrics": {"excess_returns": []}},
                 "D10": "-0.14",
                 "D18": "0.01",
                 "D22": "122.95%",
@@ -494,7 +556,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-multi-product/api/task-result/{task_result.id}"
+            f"/api/backtest-multi-product/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200
@@ -615,33 +677,34 @@ def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
     app = app_factory
     with app.app_context():
         manager = TaskManager()
+        lock_service = get_sheet_execution_lock_service()
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-1",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is True
         assert locked_task_id is None
         assert acquired_ids == ["shared-sheet"]
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
-            ["shared-sheet"],
+        acquired, locked_task_id, acquired_ids = lock_service.acquire_for_task(
             "task-2",
-            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            ["shared-sheet"],
         )
 
         assert acquired is False
         assert locked_task_id == "task-1"
         assert acquired_ids == []
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-2")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+        lock_service.release_sheets(["shared-sheet"], "task-2")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
 
-        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-1")
-        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
+        lock_service.release_sheets(["shared-sheet"], "task-1")
+        assert SheetExecutionLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
 
 
 def test_fixed_product_cache_key_ignores_ratio_and_changes_for_inputs(app_factory):
@@ -729,7 +792,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
         monkeypatch.setattr(
             "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-            lambda _return_date: {"weighted_metric": 1},
+            lambda _return_date, runtime_params=None: {"weighted_metric": 1},
         )
         monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
             "kline_key": "2024-01-01~2024-12-31",
@@ -763,7 +826,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         assert len(fixed_results) == 2
         assert fixed_results[0]["parameters"]["ratio"] == "25"
         assert fixed_results[0]["return_series_id"] is not None
-        assert fixed_results[0]["result"]["sheet__title"]["weighted_calculate_metrics"]
+        assert fixed_results[0]["result"]["sheet__title"]["metrics_payload"]["weighted_metrics"]
 
 
 def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_factory, monkeypatch):
@@ -821,7 +884,7 @@ def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_fac
         )
         monkeypatch.setattr(
             "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-            lambda _return_date: {"weighted_metric": 1},
+            lambda _return_date, runtime_params=None: {"weighted_metric": 1},
         )
 
         assert service._execute_products(task, config) == "completed"
@@ -859,7 +922,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 
         manager = TaskManager()
 
-        assert manager._extract_backtest_spreadsheet_ids_to_lock(
+        assert manager._extract_sheets_to_lock(
             BACKTEST_MULTI_PRODUCT_TASK_TYPE,
             config,
         ) == ["sheet-2"]
@@ -868,7 +931,7 @@ def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
 def _task_result_payload(index_return, start_return):
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [{
                     "year": "all",
                     "index_annualized_return": index_return,
@@ -881,7 +944,7 @@ def _task_result_payload(index_return, start_return):
                 "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
                 "index_sharpe_ratios": {"all": {"avg_monthly_return": index_return, "sharpe_ratio": 2}},
                 "start_sharpe_ratios": {"all": {"avg_monthly_return": start_return, "sharpe_ratio": 3}},
-            }
+            }}
         }
     }
 
@@ -889,7 +952,7 @@ def _task_result_payload(index_return, start_return):
 def _task_result_payload_with_year_drawdowns():
     return {
         "sheet__title": {
-            "calculate_metrics": {
+            "metrics_payload": {"metrics": {
                 "excess_returns": [
                     {
                         "year": "2024",
@@ -919,7 +982,7 @@ def _task_result_payload_with_year_drawdowns():
                 "year_index_yearly_max_repair_days": {"2024": 5},
                 "year_start_yearly_max_repair_days": {"2024": 9},
                 "excess_drawdown_winning_rate": 0.75,
-            }
+            }}
         }
     }
 
@@ -932,7 +995,7 @@ def _task_result_payload_with_returns(index_return, start_return, returns):
 
 def _task_result_payload_with_returns_and_weighted(index_return, start_return, weighted_start, returns):
     payload = _task_result_payload_with_returns(index_return, start_return, returns)
-    payload["sheet__title"]["weighted_calculate_metrics"] = {
+    payload["sheet__title"]["metrics_payload"]["weighted_metrics"] = {
         "excess_returns": [{
             "year": "all",
             "index_annualized_return": weighted_start,
@@ -960,7 +1023,7 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1182,7 +1245,7 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
     captured_returns = []
     _GLOBAL_PREVIEW_CACHE.clear()
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1403,7 +1466,7 @@ def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monk
     metric_call_count = 0
     _GLOBAL_PREVIEW_CACHE.clear()
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         nonlocal metric_call_count
         metric_call_count += 1
         total_start = sum(item["start_return"] for item in return_date)
@@ -1541,7 +1604,7 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -1649,7 +1712,7 @@ def test_build_multi_product_global_preview_default_mode_compounds_daily_weighti
     app = app_factory
     captured_returns = []
 
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured_returns.append(list(return_date))
         total_start = sum(item["start_return"] for item in return_date)
         return {
@@ -1752,7 +1815,7 @@ def test_build_multi_product_global_preview_returns_dash_without_common_return_d
 
     monkeypatch.setattr(
         "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
-        lambda return_date: captured_returns.append(return_date) or {},
+        lambda return_date, runtime_params=None: captured_returns.append(return_date) or {},
     )
 
     with app.app_context():

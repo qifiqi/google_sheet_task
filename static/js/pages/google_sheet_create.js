@@ -57,10 +57,12 @@
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
-                if (config.spreadsheet_id) {
-                    loadGoogleSheets(config.spreadsheet_id);
+                // 统一 sheets[] 形态取首个 Sheet 引用（与 fillFormWithTemplate 同口径）
+                const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
+                if (firstSheet.spreadsheet_id || config.spreadsheet_id) {
+                    loadGoogleSheets(firstSheet.spreadsheet_id || config.spreadsheet_id);
                 }
-                
+
                 // 填充参数配置
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {
@@ -569,9 +571,10 @@
                     }
                 }
 
-                // 填充Google Sheet配置
-                if (config.title || config.spreadsheet_title) {
-                    document.getElementById('spreadsheet_title').value = config.title || config.spreadsheet_title;
+                // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+                const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
+                if (firstSheet.title || config.title || config.spreadsheet_title) {
+                    document.getElementById('spreadsheet_title').value = firstSheet.title || config.title || config.spreadsheet_title || '';
                 }
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
@@ -597,8 +600,8 @@
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
-                if (config.spreadsheet_id) {
-                    loadGoogleSheets(config.spreadsheet_id);
+                if (firstSheet.spreadsheet_id || config.spreadsheet_id) {
+                    loadGoogleSheets(firstSheet.spreadsheet_id || config.spreadsheet_id);
                 }
 
                 // 填充参数配置
@@ -924,9 +927,11 @@
         
         // 构造任务配置
         const taskConfig = {
-            spreadsheet_id: spreadsheetId,
-            title: spreadsheetTitle || null,
-            sheet_name: sheetName,
+            sheets: [{
+                spreadsheet_id: spreadsheetId,
+                sheet_name: sheetName,
+                title: spreadsheetTitle || ''
+            }],
             // stock_code: document.getElementById('stock_code').value.trim() || null,
             token_type: tokenType,
             token_id: tokenType === 'file' ? tokenId : null,
@@ -1166,9 +1171,11 @@
             // 构造配置对象
             return {
                 task_type: 'google_sheet',
-                spreadsheet_id: spreadsheetId,
-                title: spreadsheetTitle || null,
-                sheet_name: sheetName,
+                sheets: [{
+                    spreadsheet_id: spreadsheetId,
+                    sheet_name: sheetName,
+                    title: spreadsheetTitle || ''
+                }],
                 // stock_code: document.getElementById('stock_code').value.trim() || null,
                 token_type: tokenType,
                 token_id: tokenType === 'file' ? tokenId : null,
@@ -1234,9 +1241,10 @@
                 document.getElementById('task_name').value = restartConfig.name + ' (重启)';
             }
             
-            // 填充Google Sheet配置
-            if (restartConfig.title || restartConfig.spreadsheet_title) {
-                document.getElementById('spreadsheet_title').value = restartConfig.title || restartConfig.spreadsheet_title;
+            // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+            const firstSheet = (Array.isArray(restartConfig.sheets) && restartConfig.sheets[0]) || {};
+            if (firstSheet.title || restartConfig.title || restartConfig.spreadsheet_title) {
+                document.getElementById('spreadsheet_title').value = firstSheet.title || restartConfig.title || restartConfig.spreadsheet_title || '';
             }
             // if (restartConfig.stock_code) {
             //     document.getElementById('stock_code').value = restartConfig.stock_code;
@@ -1263,8 +1271,8 @@
             if (restartConfig.proxy_url) {
                 document.getElementById('proxy_url').value = restartConfig.proxy_url;
             }
-            if (restartConfig.spreadsheet_id) {
-                loadGoogleSheets(restartConfig.spreadsheet_id);
+            if (firstSheet.spreadsheet_id || restartConfig.spreadsheet_id) {
+                loadGoogleSheets(firstSheet.spreadsheet_id || restartConfig.spreadsheet_id);
             }
             
             // 填充参数配置

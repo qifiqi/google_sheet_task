@@ -4,7 +4,6 @@ registry scope 过滤与占用查询方法按 google_sheet_registry_service、
 task/occupancy.py 调用点定形后补入（B2/B3）。
 """
 from app.extensions import db
-from app.exceptions import NotFoundError
 from app.models import GoogleSheet
 from app.repositories.base import BaseRepository
 
@@ -39,6 +38,13 @@ class GoogleSheetRepository(BaseRepository):
         """按 spreadsheet_id 取第一条配置（占用收集用）。"""
         row = GoogleSheet.query.filter_by(spreadsheet_id=str(spreadsheet_id)).first()
         return row.to_dict() if row else None
+
+    def list_by_spreadsheet_id(self, spreadsheet_id):
+        """按 spreadsheet_id 取全部配置（跨 table_type / registry_scope）。"""
+        rows = GoogleSheet.query.filter_by(
+            spreadsheet_id=str(spreadsheet_id)
+        ).order_by(GoogleSheet.id.asc()).all()
+        return [row.to_dict() for row in rows]
 
     def get_duplicate_row(self, spreadsheet_id, scope_value, exclude_id=None):
         """同 scope 下 spreadsheet_id 查重；返回 dict 或 None。"""

@@ -394,5 +394,5 @@
     return payload;
   }
 
-  Biz.returnSeriesExport = { exportAndDownload };
+  Biz.returnSeriesExport = { exportAndDownload, ensureSheetJs };
 })();

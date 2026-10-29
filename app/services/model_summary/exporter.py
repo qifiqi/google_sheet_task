@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
-import json
+from app.utils.json_utils import dumps
 import re
 from datetime import datetime
 from typing import Any
 
 from app.services.model_summary import extractor
+from app.utils.value_parser import parse_percent_like
 
 
 CSV_LEADING_COLUMNS = [
@@ -31,7 +32,7 @@ def _csv_text(value: Any) -> str:
     if value in (None, ""):
         return ""
     if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+        return dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
     return str(value)
 
 
@@ -41,7 +42,7 @@ def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
         return ""
     if not format_name and isinstance(value, str):
         return value
-    number = extractor._safe_number(value)
+    number = parse_percent_like(value)
     if number is None:
         return _csv_text(value)
     if format_name == "percent":

@@ -4,9 +4,9 @@
 API 路径返回 JSON 统一信封；页面路由保持 Flask 默认 HTML 错误页。
 
 API 路径判定：路径含 /api 段，或请求 Accept 优先 application/json
-（fetch 默认 */* 时同样视为 API）。历史说明：api-model-query-audit/05 拆分后
-JSON API 不以 /api 开头的只剩 /admin/api/*（admin_api_bp）等少数正式前缀，
-页面路由（浏览器导航）Accept 优先 text/html——Accept 启发式保留，勿删。
+（fetch 默认 */* 时同样视为 API）。说明：2026-09 URL 命名收敛后全部注册
+JSON API 均以 /api 开头（管理端 /api/admin/*、回测子域 /api/backtest-training/* 等），
+startswith("/api") 即覆盖；"/api/" in path 与 Accept 启发式留作非注册路径兜底，勿删。
 
 红线：错误响应绝不携带 str(e) 等内部信息；detail 仅写日志。
 """

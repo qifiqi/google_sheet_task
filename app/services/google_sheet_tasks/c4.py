@@ -1,14 +1,16 @@
-import json
 import time
 from typing import Dict, Any
 
-from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
-from app.services.config_manager import get_config_manager
+from app.services.google_sheet_tasks.base import (
+    BaseGoogleSheetService,
+    build_execute_task_alert,
+    resolve_min_kline_rows,
+    should_alert_execute_task_result,
+)
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
@@ -19,7 +21,6 @@ from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields
@@ -39,10 +40,14 @@ def _market_price_field(market_type: str) -> str:
 class C4Service(BaseGoogleSheetService):
     """Google Sheet服务 - C4"""
 
+    _model_version = "c4"
+
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.performance_analyzer = performance_analyzer
+        # 预计算循环每股复用同一实例：避免每股重建 HTTP 连接池（TLS 握手）与股票名缓存失效
+        self.kline_service = KlineService(dfcf_api=DFCJStockApi(), yahoo_api=YFApi())
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -61,7 +66,7 @@ class C4Service(BaseGoogleSheetService):
             task_index,
             {
                 "stock_code": combination.get("stock_code"),
-                "kline_range": combination.get("year", ""),
+                "kline_range": combination.get("kline_key", ""),
             },
         )
         model_result = result
@@ -69,11 +74,7 @@ class C4Service(BaseGoogleSheetService):
             first_value = next(iter(result.values()), None)
             if isinstance(first_value, dict):
                 model_result = first_value
-        analyze_result = (
-            model_result.get("flat_result")
-            if isinstance(model_result.get("flat_result"), dict)
-            else model_result
-        )
+        analyze_result = (model_result.get("metrics_payload") or {}).get("metrics", {})
         payload.update({
             "return_rate": model_result.get("D2", 0),
             "annualized_rate": model_result.get("D3", 0),
@@ -119,7 +120,8 @@ class C4Service(BaseGoogleSheetService):
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
                     outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type,
-                    config_data.get("kline_data_source")
+                    config_data.get("kline_data_source"),
+                    kline_service=self.kline_service,
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -147,8 +149,9 @@ class C4Service(BaseGoogleSheetService):
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
                 google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
 
-            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            settle_seconds = self._get_sheet_settle_seconds()
+            self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 return success_count, failed_count, 'cancelled'
 
             processed_index = 0  # 已处理的组合数量
@@ -175,7 +178,7 @@ class C4Service(BaseGoogleSheetService):
 
                     current_step = processed_index + 1
 
-                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
+                    self._log_step(current_step, total_combinations, "开始执行参数组合")
 
                     # 推送执行进度
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
@@ -286,7 +289,6 @@ class C4Service(BaseGoogleSheetService):
             c4_output_column_l = config_data.get('c4_output_column_l')
 
             for google_sheet in self.google_sheets:
-                # A_num = google_sheet.get_last_row('A')
                 A_num = column_A_length
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
                 google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
@@ -300,9 +302,7 @@ class C4Service(BaseGoogleSheetService):
             kline = combination['kline']
             # 准备要更新的单元格
             for i in range(len(kline)):
-                item = {}
-                if i <= len(kline):
-                    item = kline[i]
+                item = kline[i]
                 cell_num = i + 2
                 cell_A = f"{c4_input_column_a}{cell_num}"
                 cell_B = f"{c4_input_column_b}{cell_num}"
@@ -369,17 +369,13 @@ class C4Service(BaseGoogleSheetService):
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
                     _result = google_sheet.get_range(c4_output_range_1)
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
-                        # _result = check_result(_result)
                         _result_yearly = google_sheet.get_range(c4_output_range_2)
-                        # _result_yearly = check_result(google_sheet.get_range(c4_output_range_2))
                         _index_return = check_result(
                             google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
                         )
                         _start_return = check_result(
                             google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
                         )
-                        _index_return_date = []
-                        _start_return_date = []
                         _return_data = []
                         for i in range(len(kline)):
                             _return_data.append({
@@ -388,10 +384,9 @@ class C4Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
                         _result['metrics_payload'] = metrics_payload
-                        _result['flat_result'] = flat_result
                         _result['_return_date'] = _return_data
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
@@ -401,7 +396,7 @@ class C4Service(BaseGoogleSheetService):
                         break
 
                 if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
+                    self._log_info("所有任务已完成")
                     return True, results
                 return False, None
 
@@ -420,18 +415,20 @@ class C4Service(BaseGoogleSheetService):
             raise
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None, kline_service=None):
         # C4 固定按市场取价：A股用开盘价、美股用收盘价；投影与过滤统一走 KlineService.build_price_rows
+        # kline_service 缺省时内联构造（测试/无实例场景）；生产路径传 self.kline_service 复用连接池与名称缓存
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
         selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "akshare")
-        klines = KlineService(
+        service = kline_service or KlineService(
             dfcf_api=DFCJStockApi(),
             yahoo_api=YFApi(),
-        ).get_kline_data(
+        )
+        klines = service.get_kline_data(
             parameter,
             market_type,
             limit,
@@ -454,7 +451,7 @@ class C4Service(BaseGoogleSheetService):
             market_type,
             klines,
             context="原始K线",
-            min_rows=30,
+            min_rows=resolve_min_kline_rows(),
             price_field=_market_price_field(market_type),
         )
         data_start_date = klines[0]['stock_date']
@@ -486,11 +483,6 @@ class C4Service(BaseGoogleSheetService):
         if 'recent' in date_range_mode:
             if count_mode == 'n_plus_1':
                 for i in range(1, (_end_year_1 - _start_date) + 1):
-                    _i = i
-                    if i!=0:
-                        _i = i - 1
-
-                    _end_data = f"{_end_year_1-_i}{end_date[4:]}"
                     _start_data = f"{_end_year_1 - i}{end_date[4:]}"
                     d = {}
                     # 历史行为：此处原将日期串按位置传入 year 形参，年份匹配恒为空，保持现状
@@ -518,7 +510,7 @@ class C4Service(BaseGoogleSheetService):
                     d['stock_code'] = parameter
                     if stock_name:
                         d['stock_name'] = stock_name
-                    d['year'] = i
+                    d['kline_key'] = i
                     d['kline'] = kline
 
                     data.append(d)

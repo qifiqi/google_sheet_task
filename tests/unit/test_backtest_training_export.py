@@ -50,7 +50,7 @@ def test_batch_export_global_preview_returns_zip(app_factory, monkeypatch):
             fake_batch_export,
         )
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["single-batch-1"]},
         )
 
@@ -65,7 +65,7 @@ def test_batch_export_global_preview_rejects_empty_selection(app_factory, monkey
     with app.app_context():
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": []},
         )
 
@@ -79,7 +79,7 @@ def test_batch_export_global_preview_rejects_unfinished_task(app_factory, monkey
         _add_backtest_task("single-running", status="running")
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": ["single-running"]},
         )
 
@@ -93,7 +93,7 @@ def test_batch_export_global_preview_rejects_more_than_ten_tasks(app_factory, mo
         monkeypatch.setenv("AUTH_ENABLED", "false")
         task_ids = [f"task-{index}" for index in range(11)]
         response = app.test_client().post(
-            "/api/exports/global-previews/batch",
+            "/api/exports/global-previews/batch-export",
             json={"task_ids": task_ids},
         )
 
@@ -312,7 +312,7 @@ def test_single_global_preview_derives_year_max_excess_drawdown_with_string_year
         "excess_maximum_number_of_backtest_repair_days": 2,
     }
 
-    _period_text, rows = _extract_summary_rows(calculate_metrics, "C3")
+    _period_text, rows = _extract_summary_rows(calculate_metrics)
 
     drawdown_row = next(row for row in rows if row["metric"] == "年最大超额回撤")
     assert drawdown_row["model_value"] == "4.00%"
@@ -347,7 +347,7 @@ def test_single_global_preview_fallback_keeps_drawdown_values_negative(monkeypat
         lambda _payload: (_ for _ in ()).throw(RuntimeError("format failed")),
     )
 
-    _period_text, rows = _extract_summary_rows(calculate_metrics, "C3")
+    _period_text, rows = _extract_summary_rows(calculate_metrics)
 
     values = {row["metric"]: row["model_value"] for row in rows}
     assert values["年最大超额回撤"] == "4.00%"

@@ -11,7 +11,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from datetime import datetime, timedelta
-import json
+from app.utils.json_utils import loads
 import time
 from app import create_app
 from app.repositories import (
@@ -110,7 +110,7 @@ def execute_task(task_id, instance_id):
             logger.info(f"[Worker] 开始执行任务: {task['name']}")
 
             function_name = task['task_function']
-            params = json.loads(task['task_params']) if task['task_params'] else {}
+            params = loads(task['task_params']) if task['task_params'] else {}
 
             # 执行对应函数
             if function_name == 'cleanup_old_logs':

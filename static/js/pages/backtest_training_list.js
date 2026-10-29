@@ -3,7 +3,7 @@
 // 接口调用经 common/api.js。
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
-const BATCH_EXPORT_API = '/api/exports/global-previews/batch';
+const BATCH_EXPORT_API = '/api/exports/global-previews/batch-export';
 const DEFAULT_PAGE_SIZE = 20;
 const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
 let paginationState = {
@@ -18,6 +18,9 @@ let paginationState = {
 };
 let isLoadingTasks = false;
 let currentPageTasks = [];
+let stockCodeFilter = '';
+let statusFilter = '';
+let keywordFilter = '';
 const selectedBatchExportTaskIds = new Set();
 
 function readStoredListPaginationState() {
@@ -60,12 +63,13 @@ function buildDetailHref(taskId) {
 
 function inferModelVersion(task) {
     if (task.model_version) {
-        return String(task.model_version).toUpperCase();
+        return formatModelVersion(task.model_version);
     }
 
     const config = task.config || {};
-    const sheet = config.sheet || {};
-    const title = String(sheet.title || config.title || task.name || '').toUpperCase();
+    const sheets = Array.isArray(config.sheets) ? config.sheets : [];
+    const sheet = sheets.length && sheets[0] ? sheets[0] : (config.sheet || {});
+    const title = String(sheet.title || task.name || '').toUpperCase();
     // 详细版本：标题带子版本号时一并展示（如 C7.0.3）。
     if (title.includes('C7.0.3')) {
         return 'C7.0.3';
@@ -97,9 +101,10 @@ function inferModelVersion(task) {
 function renderTaskCell(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const taskName = task.name || '未命名任务';
-    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
-        ? task.config.sheet.sheet_name
-        : '-';
+    const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
+        ? task.config.sheets[0]
+        : (task.config && task.config.sheet || {});
+    const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
 
     return `
         <div class="fw-semibold" title="${Biz.escapeHtml(task.id || '')}">${Biz.escapeHtml(taskName)}</div>
@@ -109,9 +114,10 @@ function renderTaskCell(task) {
 
 function getTaskSecondaryText(task) {
     const shortId = String(task.id || '').slice(0, 8);
-    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
-        ? task.config.sheet.sheet_name
-        : '-';
+    const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
+        ? task.config.sheets[0]
+        : (task.config && task.config.sheet || {});
+    const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
     return `ID: ${shortId} · Sheet: ${sheetName}`;
 }
 
@@ -247,14 +253,12 @@ function clearBatchExportSelection() {
 
 async function exportSelectedBatchTasks() {
     const button = document.getElementById('confirmBatchExportBtn');
-    const originalHtml = button.innerHTML;
     const taskIds = [...selectedBatchExportTaskIds];
     if (!taskIds.length) {
         return;
     }
 
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+    setButtonBusy(button, true, '导出中…');
     try {
         const response = await Api.endpoints.export.globalPreviewsBatch(taskIds);
         if (!response.ok) {
@@ -286,7 +290,7 @@ async function exportSelectedBatchTasks() {
     } catch (error) {
         alert(error.message || '导出失败');
     } finally {
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
         updateBatchExportSummary();
     }
 }
@@ -387,6 +391,16 @@ async function loadTasks(options = {}) {
         page: String(nextPage),
         per_page: String(nextPerPage)
     });
+    const code = stockCodeFilter.trim();
+    if (code) {
+        query.set('stock_code', code);
+    }
+    if (statusFilter) {
+        query.set('status', statusFilter);
+    }
+    if (keywordFilter.trim()) {
+        query.set('keyword', keywordFilter.trim());
+    }
     isLoadingTasks = true;
     try {
         const data = await Api.endpoints.task.list(query.toString());
@@ -509,6 +523,41 @@ document.getElementById('pageSizeSelect').addEventListener('change', (event) => 
     loadTasks({ page: 1, perPage: nextPerPage });
 });
 
+// 状态 / 关键字 / 股票代码筛选：服务端过滤（分页/统计同步收敛），与多品列表页同款。
+document.getElementById('statusFilterSelect').addEventListener('change', (event) => {
+    statusFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('change', (event) => {
+    keywordFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        keywordFilter = document.getElementById('keywordFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('applyStockCodeFilterBtn').addEventListener('click', () => {
+    stockCodeFilter = document.getElementById('stockCodeFilterInput').value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('stockCodeFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        stockCodeFilter = document.getElementById('stockCodeFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('resetAllFiltersBtn').addEventListener('click', () => {
+    document.getElementById('statusFilterSelect').value = '';
+    document.getElementById('keywordFilterInput').value = '';
+    document.getElementById('stockCodeFilterInput').value = '';
+    statusFilter = '';
+    keywordFilter = '';
+    stockCodeFilter = '';
+    loadTasks({ page: 1 });
+});
+
 document.getElementById('openBatchExportBtn').addEventListener('click', () => {
     renderBatchExportTaskList();
     bootstrap.Modal.getOrCreateInstance(document.getElementById('batchExportModal')).show();
@@ -525,4 +574,5 @@ const initialListPagination = getInitialListPaginationState();
 paginationState.page = initialListPagination.page;
 paginationState.per_page = initialListPagination.per_page;
 loadTasks();
-setInterval(loadTasks, 5000);
+// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐，仅页面可见时）。
+setIntervalVisible(loadTasks, 60 * 1000);

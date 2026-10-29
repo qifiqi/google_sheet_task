@@ -139,6 +139,8 @@
     .stock-search-item:hover { background: rgba(var(--bs-primary-rgb), 0.08); }
     .param-table input { min-width: 7rem; }
     .param-toolbar { align-items: center; }
+    .global-param-section [data-bs-toggle="collapse"] i { transition: transform 0.15s ease; }
+    .global-param-section [data-bs-toggle="collapse"][aria-expanded="false"] i { transform: rotate(180deg); }
     .param-help-button {
         width: 2rem;
         height: 2rem;

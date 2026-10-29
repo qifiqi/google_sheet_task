@@ -4,12 +4,13 @@
 // ── 原 Jinja 服务端渲染点的前端等价实现（静态化，docs/design/frontend-refactor/03 §5）──
 // 原 title：`首页 - Google Sheet {{ request.args.get('version') }}`（缺 version 时渲染字面 "None"）
 const versionParam = new URLSearchParams(location.search).get('version');
-document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : versionParam);
+const displayVersionParam = versionParam === 'c1_1' ? 'C1.1.0' : versionParam;
+document.title = '首页 - Google Sheet ' + (displayVersionParam === null ? 'None' : displayVersionParam);
 (function () {
     // 原 `<h3>{{ version }} 任务管理</h3>`
     const heading = document.querySelector('h3.text-primary.fw-bold.mb-2');
     if (heading) {
-        heading.textContent = (versionParam === null ? 'None' : versionParam) + ' 任务管理';
+        heading.textContent = (displayVersionParam === null ? 'None' : displayVersionParam) + ' 任务管理';
     }
     // 原 `{% if version == 'c3' %}` 包住的「合并导出 / 创建批量任务」两个按钮：
     // 仅 ?version=c3 时保留，其余一律移除（与原服务端条件渲染逐字节一致）。
@@ -30,6 +31,7 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
     const localUrlObj = new URL(window.location.href);
     let version = localUrlObj.searchParams.get('version') || 'c3';
     let upper_version = version.toUpperCase();
+    let display_version = version === 'c1_1' ? 'C1.1.0' : upper_version;
     let allTasks = [];
     let currentPage = 1;
     let tasksPerPage = 10;
@@ -39,12 +41,14 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
     let serverStatistics = {};
     let isLoadingTasks = false;
     let _previousPendingView = null;
+    let advancedFilters = { keyword: '', stock_code: '', token_name: '', start_date: '', end_date: '' };
     console.log(task_type);
 
     function getTaskVersion(task) {
         const normalizedType = String(task && task.task_type ? task.task_type : '').toLowerCase();
         if (normalizedType === 'google_sheet_c5') return 'c5';
         if (normalizedType === 'google_sheet_c4') return 'c4';
+        if (normalizedType === 'google_sheet_c1_1') return 'c1_1';
         if (normalizedType === 'google_sheet') return 'c3';
         return version || 'c3';
     }
@@ -63,10 +67,10 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
         Api.endpoints.config.get().then(function(data) {
             const interval = (data && data.config && data.config.frontend_polling_interval) ?
                             data.config.frontend_polling_interval : 15000;
-            setInterval(loadTasks, interval);
+            setIntervalVisible(loadTasks, interval);
         }).catch(function() {
             // 原 ajaxRequest 失败回调同样落到默认 15000ms 轮询
-            setInterval(loadTasks, 15000);
+            setIntervalVisible(loadTasks, 15000);
         });
 
         window.addEventListener('popstate', function(event) {
@@ -128,6 +132,21 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
         if (currentFilter !== 'all') {
             params.set('status', currentFilter);
         }
+        if (advancedFilters.keyword.trim()) {
+            params.set('keyword', advancedFilters.keyword.trim());
+        }
+        if (advancedFilters.stock_code.trim()) {
+            params.set('stock_code', advancedFilters.stock_code.trim());
+        }
+        if (advancedFilters.token_name.trim()) {
+            params.set('token_name', advancedFilters.token_name.trim());
+        }
+        if (advancedFilters.start_date) {
+            params.set('start_date', advancedFilters.start_date);
+        }
+        if (advancedFilters.end_date) {
+            params.set('end_date', advancedFilters.end_date);
+        }
 
         Api.endpoints.task.list(params.toString()).then(function(data) {
             isLoadingTasks = false;
@@ -161,6 +180,36 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
         loadTasks();
     }
 
+    // 高级筛选（关键字/股票代码/Token/创建日期）：服务端过滤，重置到第一页
+    function readAdvancedFilterInputs() {
+        return {
+            keyword: document.getElementById('keyword-filter-input').value || '',
+            stock_code: document.getElementById('stock-code-filter-input').value || '',
+            token_name: document.getElementById('token-filter-input').value || '',
+            start_date: document.getElementById('start-date-filter-input').value || '',
+            end_date: document.getElementById('end-date-filter-input').value || ''
+        };
+    }
+
+    function applyAdvancedFilters() {
+        advancedFilters = readAdvancedFilterInputs();
+        currentPage = 1;
+        updateUrl();
+        loadTasks();
+    }
+
+    function resetAdvancedFilters() {
+        document.getElementById('keyword-filter-input').value = '';
+        document.getElementById('stock-code-filter-input').value = '';
+        document.getElementById('token-filter-input').value = '';
+        document.getElementById('start-date-filter-input').value = '';
+        document.getElementById('end-date-filter-input').value = '';
+        advancedFilters = { keyword: '', stock_code: '', token_name: '', start_date: '', end_date: '' };
+        currentPage = 1;
+        updateUrl();
+        loadTasks();
+    }
+
     // 渲染任务列表
     function renderTasks() {
         const tbody = document.getElementById('tasks-table-body');
@@ -168,7 +217,7 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
 
         allTasks.forEach(function(task) {
             const row = document.createElement('tr');
-            const typeLabel = task.task_type === task_type ? upper_version : '默认';
+            const typeLabel = task.task_type === task_type ? display_version : '默认';
             const typeBadgeClass = task.task_type === task_type ? 'bg-warning' : 'bg-secondary';
             const tokenName = getTaskTokenName(task);
 

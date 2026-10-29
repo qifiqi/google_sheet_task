@@ -6,7 +6,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-google_sheet_bp = Blueprint('google_sheet', __name__)
+google_sheet_bp = Blueprint('google_sheet', __name__, url_prefix='/google-sheet')
 
 
 # 无参数的纯静态页走表驱动（ponytail 审计 D1）；create/detail 为版本 dispatcher，保留手写
@@ -32,6 +32,8 @@ def create():
         return send_page('google_sheet_c5/create.html')
     if version == 'c7':
         return send_page('google_sheet_c7/create.html')
+    if version == 'c1_1':
+        return send_page('google_sheet_c1_1/create.html')
     if version == 'c4':
         return send_page('google_sheet_c4/create.html')
     return send_page('google_sheet/create.html')
@@ -48,6 +50,8 @@ def detail():
         return send_page('google_sheet_c5/detail.html')
     if version == 'c7':
         return send_page('google_sheet_c7/detail.html')
+    if version == 'c1_1':
+        return send_page('google_sheet_c1_1/detail.html')
     if version == 'c4':
         return send_page('google_sheet_c4/detail.html')
     return send_page('google_sheet/detail.html')

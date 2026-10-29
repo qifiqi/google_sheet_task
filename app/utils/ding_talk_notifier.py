@@ -2,18 +2,78 @@ from datetime import datetime
 import base64
 import hashlib
 import hmac
+import re
 import time
 import urllib.parse
+from collections.abc import Iterable
 
 import requests
 from flask import current_app, has_app_context
 
 from app.repositories import auth_repository, task_repository
-from app.models import Task, User
 from app.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+
+Field = tuple[str, object]
+
+# webhook URL 查询串里的凭据参数，异常消息落日志前打码
+_CREDENTIAL_URL_PARAMS = re.compile(r"(access_token|sign)=[^&\s'\"]+", re.IGNORECASE)
+
+
+def _redact_credentials(text: str) -> str:
+    """打码文本中内嵌的钉钉 webhook 凭据（access_token/sign）。"""
+    return _CREDENTIAL_URL_PARAMS.sub(r"\1=***", str(text or ""))
+
+
+def build_markdown_message(
+    title: str,
+    fields: Iterable[Field],
+    summary: str | None = None,
+    body_lines: Iterable[str] | None = None,
+    detail_url: str | None = None,
+    at_mobiles: Iterable[str] | None = None,
+) -> str:
+    """钉钉 markdown 正文统一构建（ding 微服务与告警通知器共用）。
+
+    标题 + 字段行（``- **label**：value``，空值归 "-"）+ 多行摘要引用块 +
+    可选正文行 + 可选详情链接与 @手机号。摘要按行拆分逐行加 ``> `` 前缀。
+    """
+    lines = [f"### {title}", ""]
+    for label, value in fields:
+        normalized_value = str(value or "").strip() or "-"
+        lines.append(f"- **{label}**：{normalized_value}")
+
+    summary_text = str(summary or "").strip()
+    if summary_text:
+        lines.extend(["", "> 摘要"])
+        for line in summary_text.splitlines():
+            lines.append(f"> {line}")
+
+    if body_lines:
+        lines.append("")
+        lines.extend(str(line) for line in body_lines)
+
+    if detail_url:
+        lines.extend([
+            "",
+            f"[查看详情]({detail_url})",
+        ])
+
+    mobile_mentions = [
+        f"@{str(mobile or '').strip()}"
+        for mobile in (at_mobiles or [])
+        if str(mobile or '').strip()
+    ]
+    if mobile_mentions:
+        lines.extend([
+            "",
+            " ".join(mobile_mentions),
+        ])
+
+    return "\n".join(lines)
 
 
 class DingTalkNotifier:
@@ -50,7 +110,6 @@ class DingTalkNotifier:
         if len(raw) <= 7:
             return raw
         return f"{raw[:3]}****{raw[-4:]}"
-
     def _task_detail_url(self, task_id, detail_url=None):
         if detail_url:
             return detail_url
@@ -82,38 +141,14 @@ class DingTalkNotifier:
         detail_url=None,
         at_mobiles=None,
     ):
-        """构建更易读且支持 @ 的钉钉 markdown 正文。"""
-        lines = [f"### {keyword}", ""]
-        for label, value in fields:
-            normalized_value = str(value or "").strip() or "-"
-            lines.append(f"- **{label}**：{normalized_value}")
-
-        summary_text = str(summary or "").strip()
-        if summary_text:
-            lines.extend([
-                "",
-                "> 摘要",
-                f"> {summary_text}",
-            ])
-
-        if detail_url:
-            lines.extend([
-                "",
-                f"[查看详情]({detail_url})",
-            ])
-
-        mobile_mentions = [
-            f"@{str(mobile or '').strip()}"
-            for mobile in (at_mobiles or [])
-            if str(mobile or '').strip()
-        ]
-        if mobile_mentions:
-            lines.extend([
-                "",
-                " ".join(mobile_mentions),
-            ])
-
-        return "\n".join(lines)
+        """构建更易读且支持 @ 的钉钉 markdown 正文（委托统一构建器）。"""
+        return build_markdown_message(
+            keyword,
+            fields,
+            summary=summary,
+            detail_url=detail_url,
+            at_mobiles=at_mobiles,
+        )
 
     def _collect_oncall_developer_mobiles(self):
         mobiles = set()
@@ -225,5 +260,6 @@ class DingTalkNotifier:
 
             return result
         except Exception as e:
-            logger.error(f"发送钉钉消息失败: {str(e)}", exc_info=True)
-            return {"error": str(e)}
+            # requests 异常消息会内嵌完整请求 URL（含 access_token/sign），落日志前必须打码
+            logger.error("发送钉钉消息失败: %s", _redact_credentials(str(e)))
+            return {"error": _redact_credentials(str(e))}

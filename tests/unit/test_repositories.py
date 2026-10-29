@@ -3,6 +3,8 @@
 覆盖 docs/design/data-layer-refactor/02 各 repository 契约的基础读写与异常路径；
 测试代码不受"业务层禁 ORM"约束（02 §4）。
 """
+import json
+
 import pytest
 
 from app.exceptions import NotFoundError
@@ -11,16 +13,14 @@ from app.models import (
     Role,
     SystemConfig,
     Task,
-    TaskLog,
-    TaskResult,
     User,
 )
 from app.repositories import (
-    backtest_repository,
     google_sheet_repository,
     navigation_repository,
     auth_repository,
     scheduled_task_repository,
+    sheet_lock_repository,
     stock_metadata_repository,
     system_config_repository,
     task_log_repository,
@@ -57,12 +57,6 @@ class TestTaskRepository:
         assert updated["status"] == "running"
         assert task_repository.update_fields("missing", status="running") is None
 
-    def test_summary_counts_and_recent(self, app_factory, task_row):
-        task_repository.create({"id": "t-2", "name": "完成", "status": "completed"})
-        counts = task_repository.summary_counts()
-        assert counts == {"total": 2, "completed": 1, "running": 0, "error": 0}
-        assert [t["id"] for t in task_repository.list_recent(limit=1)] == ["t-2"]
-
     def test_distinct_task_types_and_list_by_ids(self, app_factory, task_row):
         assert task_repository.list_distinct_task_types() == ["google_sheet"]
         assert [t["id"] for t in task_repository.list_by_ids(["t-1", "missing"])] == ["t-1"]
@@ -76,6 +70,31 @@ class TestTaskRepository:
         assert page["items"][0]["id"] == "t-2"
         page = task_repository.list_paginated_with_statistics(1, 10, keyword="示例")
         assert page["items"][0]["id"] == "t-1"
+
+    def test_list_paginated_with_statistics_stock_code(self, app_factory, task_row):
+        """stock_code 过滤锚定 config JSON 的 "stock_code" 键，product_name 等字段不误中。"""
+        task_repository.create({
+            "id": "t-stock",
+            "name": "多品任务",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [
+                {"product_name": "苹果", "stock_code": "AAPL.US", "market_type": "en"},
+                {"product_name": "特斯拉", "stock_code": "TSLA.US", "market_type": "en"},
+            ]}),
+        })
+        task_repository.create({
+            "id": "t-name-only",
+            "name": "名字含代码",
+            "status": "completed",
+            "task_type": "backtest_multi_product",
+            "config": json.dumps({"products": [{"product_name": "AAPL 联名", "stock_code": "GOOG.US"}]}),
+        })
+        page = task_repository.list_paginated_with_statistics(
+            1, 10, task_type="backtest_multi_product", stock_code="aapl"
+        )
+        assert [t["id"] for t in page["items"]] == ["t-stock"]
+        assert page["aggregates"]["total"] == 1
 
     def test_clear_created_by(self, app_factory, task_row):
         Task.query.filter_by(id="t-1").update({"created_by_user_id": 7})
@@ -122,12 +141,39 @@ class TestTaskResultRepository:
         self._make_result()
         page = task_result_repository.list_paginated(1, 20, task_id="t-1")
         assert page["total"] == 1
+        assert page["total_success"] == 1
+        assert page["total_failed"] == 0
         item = page["items"][0]
-        assert set(item.keys()) == {"id", "task_id", "step_index", "success", "timestamp"}
+        # 原有精简键不变，结果查询页扩展任务名/类型/预览投影
+        assert {
+            "id", "task_id", "step_index", "success", "timestamp",
+        } <= set(item.keys())
+        assert item["task_name"] == "示例任务"
+        assert item["task_type"] == "google_sheet"
+        assert "parameters_preview" in item
+        assert "error_preview" in item
 
     def test_list_paginated_missing_task_empty(self, app_factory, task_row):
         page = task_result_repository.list_paginated(1, 20, task_id="missing")
-        assert page == {"items": [], "total": 0, "current_page": 1, "per_page": page["per_page"]}
+        assert page == {
+            "items": [], "total": 0, "current_page": 1,
+            "per_page": page["per_page"], "total_success": 0, "total_failed": 0,
+        }
+
+    def test_list_paginated_success_and_keyword_filters(self, app_factory, task_row):
+        self._make_result(success=True)
+        self._make_result(success=False)
+        # success 过滤 + 同过滤条件计数
+        page_success = task_result_repository.list_paginated(1, 20, task_id="t-1", success=True)
+        assert page_success["total"] == 1
+        assert page_success["total_success"] == 1
+        page_failed = task_result_repository.list_paginated(1, 20, task_id="t-1", success=False)
+        assert page_failed["total"] == 1
+        assert page_failed["total_failed"] == 1
+        # keyword 匹配任务名称（跨任务，不走 task_id 精确分支）
+        assert task_result_repository.list_paginated(1, 20, keyword="示例")["total"] == 2
+        # keyword 落空
+        assert task_result_repository.list_paginated(1, 20, keyword="不存在")["total"] == 0
 
 
 # ==================== task_log_repository ====================
@@ -335,26 +381,41 @@ class TestStockMetadataRepository:
         assert stock_metadata_repository.get("600000.SH", "us") is None
 
 
-# ==================== backtest_repository ====================
+# ==================== sheet_lock_repository（统一 Sheet 执行锁） ====================
 
 
-class TestBacktestRepository:
+class TestSheetLockRepository:
     def test_lock_acquire_idempotent_and_conflict(self, app_factory):
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
         assert (ok, holder) == (True, None)
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
         assert (ok, holder) == (True, None)  # 同任务幂等
-        ok, holder = backtest_repository.acquire_lock("ss1", "t-2", "backtest_training")
+        ok, holder = sheet_lock_repository.acquire("ss1", "t-2", "backtest_training")
         assert (ok, holder) == (False, "t-1")  # 他任务冲突
 
-    def test_lock_release_guards_owner(self, app_factory):
-        backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
-        assert backtest_repository.release_lock("ss1", "t-2") is False
-        assert backtest_repository.release_lock("ss1", "t-1") is True
-        assert backtest_repository.get_lock("ss1") is None
-        assert backtest_repository.release_lock("ss1", "t-1") is False
+    def test_lock_acquire_all_rolls_back_on_conflict(self, app_factory):
+        sheet_lock_repository.acquire("ss0", "t-0", "backtest_training")
+        ok, holder, acquired = sheet_lock_repository.acquire_all(
+            ["ss1", "ss0"], "t-1", "backtest_training"
+        )
+        assert (ok, holder) == (False, "t-0")
+        assert acquired == ["ss1"]  # 全拿全放：冲突时先拿的也要回滚
+        assert sheet_lock_repository.get("ss1") is None
 
-    def test_release_locks_by_task(self, app_factory):
-        backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
-        backtest_repository.acquire_lock("ss2", "t-1", "backtest_training")
-        assert backtest_repository.release_locks_by_task("t-1") == 2
+    def test_lock_release_guards_owner(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        assert sheet_lock_repository.release("ss1", "t-2") is False
+        assert sheet_lock_repository.release("ss1", "t-1") is True
+        assert sheet_lock_repository.get("ss1") is None
+        assert sheet_lock_repository.release("ss1", "t-1") is False
+
+    def test_find_conflict_excludes_self(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-1") is None
+        assert sheet_lock_repository.find_conflict(["ss1"], exclude_task_id="t-2") == "t-1"
+        assert sheet_lock_repository.find_conflict(["ss-none"]) is None
+
+    def test_release_all_by_task(self, app_factory):
+        sheet_lock_repository.acquire("ss1", "t-1", "backtest_training")
+        sheet_lock_repository.acquire("ss2", "t-1", "backtest_training")
+        assert sheet_lock_repository.release_all_by_task("t-1") == 2

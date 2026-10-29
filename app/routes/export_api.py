@@ -7,15 +7,15 @@
 
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 from dataclasses import replace
 from urllib.parse import quote
 
-from flask import Blueprint, Response, request, send_file, stream_with_context
+from flask import Blueprint, Response, g, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import StrategyBacktestReportSchema
+from app.schemas.backtest import StrategyBacktestReportSchema, parse_preview_runtime_params
 from app.schemas.task import TaskIdsBatchSchema
 from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
@@ -38,14 +38,18 @@ _export_limit = limiter.limit(
     key_func=rate_limit_user_key,
 )
 
+# Word 报告端点被全局预览页按"股票×年份×参数方案"逐个循环调用，调用量远高于
+# 普通单文件导出，单独放宽（默认 60/min，可经系统配置 rate_limit_word_report 调整）。
+_word_report_limit = limiter.limit(
+    lambda: f"{rate_limit_config('rate_limit_word_report', 60) or 60}/minute",
+    key_func=rate_limit_user_key,
+)
+
 
 def _require_completed_task(task: dict):
     if str(task.get("status") or "").lower() == "completed":
         return
-    raise BadRequestError(
-        f"任务 {task.get('name') or task.get('id')} 尚未完成，不能导出",
-        data={"task_id": task.get("id"), "task_status": task.get("status")},
-    )
+    raise BadRequestError(f"任务 {task.get('name') or task.get('id')} 尚未完成，不能导出")
 
 
 def _file_response(generated):
@@ -82,8 +86,8 @@ def _parse_ratios_query():
     if not raw_ratios:
         return None
     try:
-        ratios = json.loads(raw_ratios)
-    except (TypeError, json.JSONDecodeError):
+        ratios = loads(raw_ratios)
+    except (TypeError, JSONDecodeError):
         raise BadRequestError("ratios 参数不是有效 JSON")
     if not isinstance(ratios, list):
         raise BadRequestError("ratios 参数必须是数组")
@@ -108,7 +112,7 @@ def export_task_results_by_stock(task_id):
     return _file_response(export_service.export_task_results_by_stock(task["id"]))
 
 
-@export_api_bp.route("/tasks/batch", methods=["POST"])
+@export_api_bp.route("/tasks/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_task_results_batch():
@@ -123,13 +127,12 @@ def export_global_preview(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview(task["id"], ratios_override=ratios)
-    export_name = request.args.get("export_name")
-    if export_name:
-        generated = replace(
-            generated,
-            filename=f"{sanitize_export_filename(export_name)}.xlsx",
-        )
+    generated = export_service.export_global_preview(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=parse_preview_runtime_params(),
+        export_name=request.args.get("export_name"),
+    )
     return _file_response(generated)
 
 
@@ -140,17 +143,16 @@ def export_global_preview_by_stock(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
-    export_name = request.args.get("export_name")
-    if export_name:
-        generated = replace(
-            generated,
-            filename=f"{sanitize_export_filename(export_name)}.zip",
-        )
+    generated = export_service.export_global_preview_by_stock(
+        task["id"],
+        ratios_override=ratios,
+        runtime_params=parse_preview_runtime_params(),
+        export_name=request.args.get("export_name"),
+    )
     return _stream_response(generated)
 
 
-@export_api_bp.route("/global-previews/batch", methods=["POST"])
+@export_api_bp.route("/global-previews/batch-export", methods=["POST"])
 @login_required
 @_export_limit
 def export_global_preview_batch():
@@ -170,7 +172,7 @@ def export_backtest_result(result_id):
     return _file_response(export_service.export_backtest_result(result_id))
 
 
-@export_api_bp.route("/performance_analysis", methods=["POST"])
+@export_api_bp.route("/performance-analysis", methods=["POST"])
 @login_required
 @_export_limit
 def export_performance_analysis():
@@ -179,7 +181,7 @@ def export_performance_analysis():
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])
 @login_required
-@_export_limit
+@_word_report_limit
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
     report_request = parse_body(StrategyBacktestReportSchema)
@@ -187,6 +189,24 @@ def export_backtest_word_report():
     generated = replace(
         generated,
         filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.docx"),
+    )
+    return _file_response(generated)
+
+
+@export_api_bp.route("/backtest-reports/pdf", methods=["POST"])
+@login_required
+@_word_report_limit
+def export_backtest_pdf_report():
+    """接收单产品或多产品回测收益序列并导出 PDF 报告。
+
+    与 Word 端点共用载荷与缓存，DOCX 生成后经 LibreOffice 转换为 PDF；
+    转换耗时显著高于纯 DOCX 下发，同样适用放宽的 word 报告限流。
+    """
+    report_request = parse_body(StrategyBacktestReportSchema)
+    generated = export_service.export_backtest_pdf(report_request)
+    generated = replace(
+        generated,
+        filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.pdf"),
     )
     return _file_response(generated)
 

@@ -502,6 +502,23 @@ if (versionParam && versionParam !== 'c4') {
     }
 
     // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
+    // 市场联动 K 线数据源：akshare/dfcf/qq/tdx 仅覆盖 A股行情，
+    // 用户把市场切换为非 A股（en/hk/...）时，数据源自动切到 Yahoo；切回 A股不自动还原。
+    function linkKlineSourceToMarket(marketType) {
+        const sourceSelect = document.getElementById('kline_data_source');
+        if (!sourceSelect) {
+            return;
+        }
+        const market = String(marketType || '').trim().toLowerCase();
+        if (!market || market === 'cn') {
+            return;
+        }
+        if (sourceSelect.value !== 'yahoo') {
+            sourceSelect.value = 'yahoo';
+            showNotification('非A股市场：K线数据源已联动切换为 Yahoo', 'info');
+        }
+    }
+
     function getSelectedDateRangeModes() {
         const modes = [];
         const fullEl = document.getElementById('date_range_full');
@@ -644,7 +661,7 @@ if (versionParam && versionParam !== 'c4') {
             'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
             'start_date', 'end_date'
         ];
-        
+
         inputFields.forEach(function(fieldId) {
             const field = document.getElementById(fieldId);
             if (field) {
@@ -652,6 +669,15 @@ if (versionParam && versionParam !== 'c4') {
                 field.addEventListener('change', debouncedSaveFormData);
             }
         });
+
+        // 市场类型变化：联动 K 线数据源（非A股切 Yahoo）+ 自动保存
+        const marketTypeSelect = document.getElementById('market_type');
+        if (marketTypeSelect) {
+            marketTypeSelect.addEventListener('change', function() {
+                linkKlineSourceToMarket(this.value);
+                debouncedSaveFormData();
+            });
+        }
 
         // 监听spreadsheet输入变化
         const spreadsheetInput = document.getElementById('spreadsheet');
@@ -1422,11 +1448,36 @@ if (versionParam && versionParam !== 'c4') {
             }
             if (restartConfig.market_type) document.getElementById('market_type').value = restartConfig.market_type;
 
-            if (restartConfig.date_range_mode) {
-                const drmInput = document.querySelector(`input[name="date_range_mode"][value="${restartConfig.date_range_mode}"]`);
-                if (drmInput) {
-                    drmInput.checked = true;
+            // 与 fillFormWithTemplate 对齐：此前重启路径只回填了 market_type，
+            // count_mode/kline_adjustment/kline_data_source/起止日期全部丢失，
+            // 日期还会被 initDefaultDatesIfEmpty 的默认区间静默替换，导致重启后
+            // 任务参数与原任务不一致
+            if (restartConfig.count_mode) {
+                const modeInput = document.querySelector(`input[name="count_mode"][value="${restartConfig.count_mode}"]`);
+                if (modeInput) {
+                    modeInput.checked = true;
                 }
+            }
+            // date_range_mode 在 config 里是数组，且复选框只有 id 没有 name，
+            // 旧选择器永远匹配不到；统一走共享助手（模板路径同款）
+            if (restartConfig.date_range_mode !== undefined) {
+                Biz.formState.applyDateRangeModes(restartConfig.date_range_mode);
+            }
+            if (restartConfig.kline_adjustment) {
+                const adjustSelect = document.getElementById('kline_adjustment');
+                if (adjustSelect) adjustSelect.value = restartConfig.kline_adjustment;
+            }
+            if (restartConfig.kline_data_source) {
+                const sourceSelect = document.getElementById('kline_data_source');
+                if (sourceSelect) sourceSelect.value = restartConfig.kline_data_source;
+            }
+            if (restartConfig.start_date) {
+                const sd = document.getElementById('start_date');
+                if (sd) sd.value = restartConfig.start_date;
+            }
+            if (restartConfig.end_date) {
+                const ed = document.getElementById('end_date');
+                if (ed) ed.value = restartConfig.end_date;
             }
             
             // 填充参数配置

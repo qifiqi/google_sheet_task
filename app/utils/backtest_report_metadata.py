@@ -4,21 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def get_backtest_model_version(title: Any) -> str:
-    """从任务模板标题解析报告使用的模型版本。"""
-    normalized_title = str(title or "").upper()
-    if "C7.0.3" in normalized_title:
-        return "c7.0.3"
-    if "C7" in normalized_title:
-        return "c7.0.2"
-    if "C5" in normalized_title:
-        return "c5"
-    if "C4" in normalized_title:
-        return "c4"
-    if "C3" in normalized_title or "CHARTING:3" in normalized_title:
-        return "c3"
-    return ""
+from app.utils.model_version import normalize_model_version
 
 
 def get_price_type(price_mode: Any) -> str:
@@ -30,3 +16,14 @@ def get_price_type(price_mode: Any) -> str:
         "random_price": "随机价",
         "ohlc_price": "OHLC（开高低收）",
     }.get(str(price_mode or "").strip().lower(), "")
+
+
+def is_c7_0_3_config(config: Any) -> bool:
+    """C7.0.3 任务配置判定；运行时只读 sheets[].model_version。"""
+    if not isinstance(config, dict):
+        return False
+    return any(
+        normalize_model_version(item.get("model_version")) == "c7_0_3"
+        for item in config.get("sheets") or []
+        if isinstance(item, dict)
+    )

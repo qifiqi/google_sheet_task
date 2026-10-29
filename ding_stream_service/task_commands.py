@@ -11,6 +11,8 @@ from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 from app import create_app
+from app.exceptions import ConflictError, NotFoundError
+from app.models import Task, TaskStatus
 from app.repositories import task_repository
 from app.services.task import task_manager
 
@@ -236,24 +238,32 @@ class TaskCommandService:
             )
             results = []
             for task in tasks:
-                task_id = task.id
-                task_name = task.name
-                task_type = task.task_type
-                original_status = task.status
+                # list_by_status_ordered 返回 to_dict 投影，字段一律字典访问。
+                task_id = task["id"]
+                task_name = task.get("name")
+                task_type = task.get("task_type")
+                original_status = task.get("status")
                 logger.info(
                     "钉钉组合指令重启异常任务: task_id=%s task_name=%s type=%s",
                     task_id,
                     task_name,
                     task_type,
                 )
-                restart_result = task_manager.restart_task(
-                    task_id,
-                    resume_from_checkpoint=command.resume_from_checkpoint,
-                )
+                restart_status = "success"
+                try:
+                    restart_result = task_manager.restart_task(
+                        task_id,
+                        resume_from_checkpoint=command.resume_from_checkpoint,
+                    )
+                except (ConflictError, NotFoundError) as exc:
+                    # restart_task 新契约失败抛领域异常；逐任务隔离，
+                    # 单任务失败不中断整批重启。
+                    restart_status = "error"
+                    restart_result = {"message": str(exc)}
                 logger.info(
                     "异常任务重启结果: task_id=%s restart_status=%s message=%s",
                     task_id,
-                    restart_result.get("status"),
+                    restart_status,
                     restart_result.get("message"),
                 )
                 results.append(
@@ -262,7 +272,9 @@ class TaskCommandService:
                         "task_name": task_name,
                         "task_type": task_type,
                         "original_status": original_status,
-                        "restart_status": restart_result.get("status"),
+                        "restart_status": (
+                            "queued" if restart_result.get("queued") else restart_status
+                        ),
                         "message": restart_result.get("message"),
                         "restart_from_step": restart_result.get("restart_from_step"),
                     }
@@ -281,7 +293,7 @@ class TaskCommandService:
         with app.app_context():
             query = Task.query
             if command.status_group == "running":
-                query = query.filter(Task.status == "running")
+                query = query.filter(Task.status == TaskStatus.RUNNING.value)
             else:
                 query = query.filter(Task.status.in_(STOPPED_STATUSES))
 
@@ -331,10 +343,11 @@ class TaskCommandService:
                 )
                 return {"status": "error", "message": error_message}
 
-            task_id = task.id
-            task_name = task.name
-            task_status = task.status
-            task_type = task.task_type
+            # _resolve_task 返回 to_dict 投影，字段一律字典访问。
+            task_id = task["id"]
+            task_name = task.get("name")
+            task_status = task.get("status")
+            task_type = task.get("task_type")
             logger.info(
                 "钉钉指令触发任务断点重启: task_id=%s task_name=%s status=%s type=%s",
                 task_id,
@@ -343,14 +356,22 @@ class TaskCommandService:
                 task_type,
             )
 
-            result = task_manager.restart_task(
-                task_id,
-                resume_from_checkpoint=command.resume_from_checkpoint,
-            )
+            restart_status = "success"
+            try:
+                result = task_manager.restart_task(
+                    task_id,
+                    resume_from_checkpoint=command.resume_from_checkpoint,
+                )
+            except (ConflictError, NotFoundError) as exc:
+                restart_status = "error"
+                result = {"message": str(exc)}
+            # format_restart_reply 以 status 键区分成败；排队场景保留 start_error
+            # 供“队列提示”展示，仍按成功渲染。
+            result["status"] = restart_status
             logger.info(
                 "单任务重启结果: task_id=%s restart_status=%s message=%s",
                 task_id,
-                result.get("status"),
+                restart_status,
                 result.get("message"),
             )
             result.update(
@@ -542,7 +563,11 @@ def format_batch_restart_reply(
         )
 
     restart_results = result.get("results") or []
-    success_count = sum(1 for item in restart_results if item.get("restart_status") == "success")
+    success_count = sum(
+        1
+        for item in restart_results
+        if item.get("restart_status") in ("success", "queued")
+    )
     failed_count = len(restart_results) - success_count
     fields = [
         ("用户", sender_nick),
@@ -563,7 +588,10 @@ def format_batch_restart_reply(
 
     body_lines = []
     for index, item in enumerate(restart_results, start=1):
-        status_label = "成功" if item.get("restart_status") == "success" else "失败"
+        status_label = {
+            "success": "成功",
+            "queued": "已排队",
+        }.get(item.get("restart_status"), "失败")
         body_lines.extend(
             [
                 f"{index}. **{item.get('task_name') or '-'}**",

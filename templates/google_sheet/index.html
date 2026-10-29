@@ -8,6 +8,7 @@
     <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
     <link href="/static/css/template-auth.css" rel="stylesheet">
     <link href="/static/css/common/base.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
 
     <script src="/static/js/bootstrap.bundle.min.js"></script>
 </head>
@@ -149,21 +150,41 @@
 
         <!-- 任务列表 -->
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h4 class="text-primary fw-bold mb-2">任务列表</h4>
 
-                <div class="btn-group" role="group">
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    <input type="text" class="form-control form-control-sm" id="keyword-filter-input"
+                           style="width: 140px;" placeholder="任务名称 / ID" aria-label="按名称或ID搜索任务">
+                    <input type="text" class="form-control form-control-sm" id="stock-code-filter-input"
+                           style="width: 130px;" placeholder="股票代码" aria-label="按股票代码筛选任务">
+                    <input type="text" class="form-control form-control-sm" id="token-filter-input"
+                           style="width: 110px;" placeholder="Token" aria-label="按Token筛选任务">
+                    <input type="date" class="form-control form-control-sm" id="start-date-filter-input"
+                           aria-label="创建起始日期" title="创建起始日期">
+                    <span class="text-muted">~</span>
+                    <input type="date" class="form-control form-control-sm" id="end-date-filter-input"
+                           aria-label="创建结束日期" title="创建结束日期">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="applyAdvancedFilters()">
+                        <i class="bi bi-search"></i> 查询
                     </button>
-                    <select class="form-select form-select-sm w-auto" id="filter-select" onchange="filterTasks(this.value)">
-                        <option value="all">全部任务</option>
-                        <option value="running">执行中</option>
-                        <option value="completed">已完成</option>
-                        <option value="error">执行出错</option>
-                        <option value="cancelled">已取消</option>
-                        <option value="pending">待重启</option>
-                    </select>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetAdvancedFilters()">
+                        重置
+                    </button>
+
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                        <select class="form-select form-select-sm w-auto" id="filter-select" onchange="filterTasks(this.value)">
+                            <option value="all">全部任务</option>
+                            <option value="running">执行中</option>
+                            <option value="completed">已完成</option>
+                            <option value="error">执行出错</option>
+                            <option value="cancelled">已取消</option>
+                            <option value="pending">待重启</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="card-body">

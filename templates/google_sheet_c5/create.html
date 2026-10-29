@@ -8,6 +8,7 @@
 <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
 <link href="/static/css/template-auth.css" rel="stylesheet">
 <link href="/static/css/common/base.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
     <script src="/static/js/bootstrap.bundle.min.js"></script>
 </head>
 <body class="template-auth-pending">
@@ -68,7 +69,7 @@
 
                     <!-- Google Sheet 配置 -->
                     <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <h5 class="card-title mb-0">
                                 <i class="bi bi-table"></i> Google Sheet 配置
                             </h5>
@@ -182,7 +183,7 @@
 
                     <!-- 产品配置 -->
                     <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <h5 class="card-title mb-0">
                                 <i class="bi bi-gear"></i> 产品配置
                             </h5>
@@ -285,6 +286,13 @@
                                                     <div class="col-md-3 d-none random-price-option">
                                                         <label class="form-label" for="random_group_count">随机组数</label>
                                                         <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_series_mode">随机序列模式</label>
+                                                        <select class="form-select" id="random_series_mode">
+                                                            <option value="per_window" selected>各窗口独立随机</option>
+                                                            <option value="full_truncate">全区间生成后按窗口截断</option>
+                                                        </select>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -593,6 +601,7 @@
             versionQuery: 'c5',
             taskType: 'google_sheet_C5',
             templateTaskType: 'google_sheet_c5',
+            tableType: 'c5',
             klineDataSourceDefault: 'dfcf',
             countRandomGroupsMultiplier: false,
             modelVersion: { enabled: false, default: 'c7_0_2' }

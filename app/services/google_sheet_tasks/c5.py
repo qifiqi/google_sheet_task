@@ -1,24 +1,15 @@
-import json
+from app.utils.json_utils import dumps
 from typing import Dict, Any
 
-from flask import current_app
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
-
-from app.repositories import task_repository, task_result_repository
-from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
-from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.check_policy import C5_INVALID, normalize_check_values
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.result_validator import is_valid_result_value
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService
 from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_stock_param_metric_fields
@@ -28,6 +19,8 @@ logger = get_logger(__name__)
 
 
 class C5Service(BaseGoogleSheetService):
+    _model_version = "c5"
+
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C5"
 
@@ -62,13 +55,13 @@ class C5Service(BaseGoogleSheetService):
             {
                 "stock_code": combination.get("stock_code"),
                 "ml": combination.get("B1"),
-                "kline_range": json.dumps(combination['kline']),
+                "kline_range": dumps(combination['kline']),
             },
         )
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
-        analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+        analyze_result = (result.get('metrics_payload') or {}).get('metrics', {})
 
         payload.update({
             "multiplier": combination.get("A1", 0),
@@ -79,7 +72,7 @@ class C5Service(BaseGoogleSheetService):
         return payload
 
 
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],kline_data_map) -> tuple[
         bool, Dict[str, Any]]:
         """执行单个参数组合"""
         try:
@@ -102,35 +95,32 @@ class C5Service(BaseGoogleSheetService):
             c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
             cell_updates[c5_parameter_positions[0]] = c5_parameter_1
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
-            Kline_key = combination['Kline_key']
+            kline_key = combination['kline_key']
             is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
-                KLINE_DATA_MAP.get(Kline_key),
-                context=f"K线区间 {Kline_key}",
+                kline_data_map.get(kline_key),
+                context=f"K线区间 {kline_key}",
             )
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
-                cache_Kline_key = _combination.get('Kline_key',"")
+                cache_kline_key = _combination.get('kline_key',"")
                 kline = current_kline
                 _kline_len = len(kline)
 
                 if is_custom_kline:
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
-                elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                elif kline_key != cache_kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
-                        # A_num = google_sheet.get_last_row('A')
                         A_num = column_A_length
                         self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                         google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
-                        item = {}
-                        if i <= _kline_len:
-                            item = kline[i]
+                        item = kline[i]
                         cell_num = i + 2
                         cell_A = f"{c5_input_column_a}{cell_num}"
                         cell_B = f"{c5_input_column_b}{cell_num}"
@@ -167,13 +157,6 @@ class C5Service(BaseGoogleSheetService):
                     return False
                 c5_check_positions_c_v = check_values.get(":".join(c5_check_positions))
                 c5_output_range_1_c_v = check_values.get(c5_output_range_1)
-                # for position, value in check_values.items():
-                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                #         return False
-                #     if 'target' in str(value).lower():
-                #         return False
-                _check_values = initial_results[spreadsheet_id]
-
                 if (c5_parameter_1.strip() != c5_check_positions_c_v.get(c5_check_positions[0]).strip()
                         and c5_parameter_2.strip() != c5_check_positions_c_v.get(c5_check_positions[1]).strip()):
                     # 校验参数是否成功响应
@@ -223,10 +206,7 @@ class C5Service(BaseGoogleSheetService):
                             self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                             break
 
-                        _index_return_date = []
-                        _start_return_date = []
                         _return_data = []
-                        _index_start_return_date = []
                         for i in range(len(kline)):
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
@@ -234,9 +214,8 @@ class C5Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
-                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
+                        metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
-                        _result[f"flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
@@ -247,7 +226,7 @@ class C5Service(BaseGoogleSheetService):
                         break
 
                 if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
+                    self._log_info("所有任务已完成")
                     return True, results
                 return False, None
 
@@ -291,34 +270,23 @@ class C5Service(BaseGoogleSheetService):
             "custom",
             rows,
             context="自定义K线",
-            min_rows=30,
+            min_rows=self._get_min_kline_rows(),
             price_field="stock_val",
         )
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
-        data = []
-        for v1 in parameters[1]:
-            for v2 in parameters[2]:
-                data.append({
-                    "stock_code": parameter,
-                    "A1": v1,
-                    "B1": v2,
-                    "year": "custom",
-                    "Kline_key": "custom",
-                })
+        return super()._get_custom_parameters(parameter, parameters, custom_kline_map, deduplicate=True)
 
-        if not data:
-            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
-
-        data = self._deduplicate_parameter_combinations(data, custom_kline_map)
-        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
-
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare", random_price_range="high_low", random_group_count=1, random_series_mode="per_window"):
         """auto-K线参数展开已统一到 base._expand_auto_year_parameters（审计 B1 合并）。
 
         C5 由此同步获得 C7 的近半年（0.5）区间与随机价格（random_price 模式）
         能力：配置提供相应键即启用，缺省时 price_mode != random_price，
         随机分组为空操作。
+
+        random_series_mode 透传基类骨架（per_window 默认 / full_truncate 全区间
+        生成后窗口截断）；random_price_range / random_group_count 未透传为既有
+        行为（C5 随机价固定 high_low 单组），此处不顺手改。
         """
         return self._expand_auto_year_parameters(
             parameter,
@@ -333,4 +301,5 @@ class C5Service(BaseGoogleSheetService):
             adjust_type=adjust_type,
             data_source=data_source,
             source_label="google_sheet_c5",
+            random_series_mode=random_series_mode,
         )

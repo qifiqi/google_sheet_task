@@ -1,6 +1,8 @@
     # Google Sheet 参数批量校验系统
 
-一个前后端分离（Flask + Vue 3）的任务平台，支持 Google Sheet 参数批量校验、任务调度、RBAC 权限控制与 JWT 登录鉴权。
+一个基于 Flask 的任务平台（静态前端 + JWT 鉴权），支持 Google Sheet 参数批量校验、任务调度与回测报告。
+
+> **现状（2026-10）**：Vue 3 SPA（`frontend/`）已从仓库移除（源码存根目录 `frontend.7z`），当前唯一前端为静态页面（`templates/` + `static/`）。本文部分章节为历史描述；项目文档以 [docs/README.md](docs/README.md) 与 AGENTS.md 为准。
 
 ## 功能特性
 
@@ -23,7 +25,7 @@
 
 ### 🎨 界面特性
 - **响应式设计**: 支持桌面和移动设备
-- **现代化 UI**: Vue 3 前端基于 Element Plus + Naive UI；Jinja 模板页面配套 static/ 样式
+- **现代化 UI**: Bootstrap 5 静态页面（`templates/` + `static/`），支持暗色主题
 - **实时更新**: 无需刷新页面的实时数据更新
 - **用户友好**: 直观的操作界面和交互体验
 
@@ -32,36 +34,31 @@
 ### 后端架构
 ```
 app/
-├── __init__.py          # 应用工厂
-├── config.py            # 配置管理
-├── extensions.py        # 扩展初始化
+├── __init__.py          # 应用工厂（create_app）
+├── config.py            # 配置
+├── extensions.py        # 扩展初始化（db / migrate / limiter）
+├── startup.py           # 启动编排（bootstrap_app）与 CLI 命令
 ├── models.py            # 数据模型
-├── routes/              # 路由模块
-│   ├── admin.py         # 管理面板路由
-│   ├── api.py           # API 路由
-│   └── google_sheet.py  # Google Sheet 模块路由
-├── services/            # 业务逻辑服务
-│   ├── task_manager.py      # 任务管理器
-│   ├── google_sheet_service.py  # Google Sheet 服务
-│   └── config_manager.py    # 配置管理器
-└── utils/               # 工具模块
-    └── logger.py        # 日志工具
+├── constants/           # 跨模块业务事实常量
+├── exceptions/          # 统一异常体系
+├── schemas/             # Pydantic 请求模型
+├── repositories/        # 数据访问层（独占 ORM）
+├── routes/              # API 路由（*_api.py）与页面路由（pages/）
+├── services/            # 业务编排（task/ 任务门面、google_sheet_tasks/ C系模板等）
+└── utils/               # 工具（logger、auth、dfcf_api 等）
 ```
 
 ### 前端架构
 ```
-templates/
-├── admin/               # 管理面板模板
-│   ├── base.html       # 管理面板基础模板
-│   ├── dashboard.html  # 仪表盘
-│   ├── tasks.html      # 任务管理
-│   ├── config.html     # 配置管理
-│   └── logs.html       # 日志管理
-└── google_sheet/       # Google Sheet 模块模板
-    ├── base.html       # Google Sheet 基础模板
-    ├── index.html      # 首页
-    ├── create.html     # 创建任务
-    └── detail.html     # 任务详情
+templates/               # 纯静态 HTML 页面（零 Jinja 语法）
+├── admin/               # 管理面板页面
+├── google_sheet/        # C3 参数批量校验页面
+├── backtest_training/   # 回测训练页面
+└── ...
+static/
+├── js/common/           # 共享层（api.js 接口唯一出口、business、components）
+└── js/pages/            # 页面逻辑（普通 script 原位置加载）
+# （Vue 3 SPA frontend/ 已于 2026-10 移除，源码存根目录 frontend.7z）
 ```
 
 ## 安装和配置
@@ -76,24 +73,21 @@ templates/
 pip install -r requirements.txt
 ```
 
-### 3. 初始化数据库
+### 3. 初始化数据库与基础数据
 ```bash
-python run.py init-db
+flask --app run.py init-db               # 建表（或 flask db upgrade 走迁移）
+flask --app run.py init-default-config   # 幂等播种默认配置
+flask --app run.py init-rbac             # RBAC 角色/权限/导航种子
 ```
 
-### 4. 初始化默认配置
-```bash
-python run.py init-config
-```
-
-### 5. 启动应用
+### 4. 启动应用
 ```bash
 python run.py
 ```
 
 应用将在 `http://localhost:5000` 启动。
 
-### 6. Docker 部署（推荐）
+### 5. Docker 部署（推荐）
 
 #### 使用 Docker 直接部署
 ```bash
@@ -160,7 +154,7 @@ APP_ENV=production
 DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
 ```
 
-本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/本地开发指南.md`。
+本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/guides/本地开发指南.md`。
 
 ## 登录与鉴权（前后端）
 
@@ -210,10 +204,9 @@ JWT_SECRET_KEY=请替换为生产随机密钥
 - `PUT /api/auth/password`：修改密码
 
 更多细节见：
-- `docs/登录与鉴权指南.md`
-- `docs/前端Vue工程.md`
-- `docs/架构总览.md`
-- `docs/目录索引.md`（全部文档索引）
+- `docs/guides/登录与鉴权指南.md`
+- `docs/project-memory/架构总览.md`
+- `docs/README.md`（全部文档索引；原 `docs/前端Vue工程.md` 已归档至 `docs/archive/`）
 
 ## 使用指南
 

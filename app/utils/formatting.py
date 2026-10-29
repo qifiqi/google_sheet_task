@@ -6,13 +6,58 @@
 """
 from __future__ import annotations
 
-import json
+from app.utils.json_utils import loads, JSONDecodeError
 import math
+import os
 import re
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from app.utils.value_parser import _convert_pandas_to_native
 
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
+
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+_SERVER_TZ = datetime.now().astimezone().tzinfo
+
+# 默认关闭：保持历史行为（naive isoformat，不带时区偏移），对既有调用方零影响。
+# 需要按北京时间输出时设置环境变量 TIME_OUTPUT_AS_BEIJING=1，或在测试里调用
+# set_time_output_as_beijing(True)。
+_TIME_OUTPUT_AS_BEIJING = os.environ.get("TIME_OUTPUT_AS_BEIJING", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def set_time_output_as_beijing(enabled: bool) -> None:
+    """运行时切换时间输出模式（供部署开关与测试使用）。"""
+    global _TIME_OUTPUT_AS_BEIJING
+    _TIME_OUTPUT_AS_BEIJING = bool(enabled)
+
+
+def is_time_output_as_beijing() -> bool:
+    return _TIME_OUTPUT_AS_BEIJING
+
+
+def to_beijing_iso(value: datetime | None) -> str | None:
+    """把数据库中的服务器本地 naive 时间序列化为北京时间 ISO 字符串。
+
+    开关关闭时退化为历史行为 ``datetime.isoformat()``，输出与改动前逐字节一致。
+
+    开关打开时：生产容器时区为 UTC，直接 isoformat 会被前端当成浏览器本地时间显示，
+    比北京时间早 8 小时。naive 值先按服务器本地时区解释，再统一转 Asia/Shanghai。
+    """
+    if value is None:
+        return None
+    if not _TIME_OUTPUT_AS_BEIJING:
+        return value.isoformat()
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_SERVER_TZ)
+    return value.astimezone(BEIJING_TZ).isoformat()
 
 
 def normalize_scientific_text(text: str) -> str:
@@ -56,6 +101,23 @@ def parse_lenient_json(raw: Any, default: Any) -> Any:
     if isinstance(raw, (dict, list)):
         return raw
     try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
+        return loads(raw) if raw else default
+    except (TypeError, JSONDecodeError):
         return default
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """递归转为严格 JSON 安全形态。
+
+    全库唯一的 NaN/inf→None 清洗出口（收敛此前 base/backtest_api/
+    text_analysis/backfill 四份拷贝）：dict / list,tuple,set / datetime→ISO /
+    numpy·pandas 标量与帧 → 原生类型，叶子浮点经
+    ``value_parser._convert_pandas_to_native(non_finite_to_none=True)`` 处理。
+    """
+    if isinstance(value, dict):
+        return {key: sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_json_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return _convert_pandas_to_native(value, non_finite_to_none=True)

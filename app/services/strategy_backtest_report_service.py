@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from app.utils.json_utils import loads
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -13,13 +14,19 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from app.repositories import task_repository, task_result_repository
-from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.services.strategy_backtest_report_charts import generate_correlation_heatmap, generate_report_charts
+from app.services.strategy_backtest_report_charts import (
+    generate_correlation_heatmap,
+    generate_report_charts,
+    generate_same_direction_heatmap,
+)
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
-from app.utils.backtest_report_metadata import get_backtest_model_version
+from app.services.c_result_metric_cells import PARAMETER_CONFIG_ROWS, extract_parameter_metrics
+from app.utils.model_version import format_model_version
+from app.utils.formatting import parse_lenient_json
+from app.utils.market import normalize_market_type
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int
 from app.services.performance_analysis.portfolio_combiner import (
@@ -28,11 +35,14 @@ from app.services.performance_analysis.portfolio_combiner import (
     daily_to_cumulative,
     normalize_weight,
 )
-from app.services.performance_analysis.return_correlation import aligned_daily_returns, pairwise_correlation_matrix
+from app.services.performance_analysis.return_correlation import (
+    aligned_daily_returns,
+    pairwise_correlation_matrix,
+    pairwise_same_direction_matrix,
+)
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
 from app.utils.etf_total_assets import get_etf_total_assets_detail
-from app.utils.market import normalize_market_type
 from app.utils.number_format import abbreviate_number
 
 logger = get_logger(__name__)
@@ -66,10 +76,19 @@ class StrategyBacktestReportService:
 
         # 每个基准各运行一次 V1 引擎（未选指数时为默认组合基准）：
         # 策略列与基准选择无关，各次运行完全一致；指数/超额列按各自运行结果取值。
-        runs = self._build_benchmark_runs(request)
+        runs, task_stock_code, task_stock_name = self._build_benchmark_runs(request)
         result = runs[0].result
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
+
+        # task 来源 RPT-S 的载荷没有 products：权重表的股票代码/名称取不到，
+        # 平均成交额与 ETF 资产总数也因为没有标的身份而降级 "-"。
+        # 用收益序列上的股票信息 + 任务配置市场口径补位（与 RPT-M 透传口径一致）；
+        # 序列上连代码都没有时无法补位，维持原状。
+        if request.task_id and request.report_type != "RPT-M" and not request.products and task_stock_code:
+            request.products = [self._task_source_product(
+                request.task_id, task_stock_code, task_stock_name, request.return_series_id,
+            )]
 
         # 把 DataFrame 和指标字典转换成通用 Word JSON；图表按基准序列循环渲染。
         chart_data = self._build_chart_data(runs)
@@ -80,29 +99,36 @@ class StrategyBacktestReportService:
         with TemporaryDirectory(prefix="strategy_backtest_report_") as temp_dir:
             # 图片只在临时目录中存在，DOCX 保存时会将图片内容嵌入文件。
             chart_paths = generate_report_charts(chart_data, temp_dir)
-            correlation_image = None
+            heatmap_images: list[dict[str, Any]] = []
             if correlation:
-                heatmap_path = Path(temp_dir) / "权重相关系数热力图.png"
-                generate_correlation_heatmap(correlation["labels"], correlation["matrix"], heatmap_path)
-                correlation_image = {
+                correlation_path = Path(temp_dir) / "权重相关系数热力图.png"
+                generate_correlation_heatmap(correlation["labels"], correlation["matrix"], correlation_path)
+                heatmap_images.append({
                     "type": "image",
                     "title": "权重日涨跌幅相关系数",
-                    "path": str(heatmap_path),
+                    "path": str(correlation_path),
                     "caption": f"各权重日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
-                }
-            report_data = self._build_report_data(request, runs, correlation_image)
+                })
+                same_direction_path = Path(temp_dir) / "权重同向率热力图.png"
+                generate_same_direction_heatmap(
+                    correlation["labels"], correlation["same_direction"], same_direction_path,
+                )
+                heatmap_images.append({
+                    "type": "image",
+                    "title": "权重日涨跌幅同向率",
+                    "path": str(same_direction_path),
+                    "caption": (
+                        "各权重日涨跌幅同向（同涨或同跌）天数占全部共同交易日的比例"
+                        f"（数据区间 {first_date} 至 {last_date}）"
+                    ),
+                })
+            report_data = self._build_report_data(request, runs, heatmap_images)
             report_data["blocks"].extend([
                 {"type": "heading", "text": "九、分析图表", "level": 1},
                 *[
                     {"type": "image", "title": title, "path": path, "caption": f"{title}（基于传入回测数据生成）"}
                     for title, path in chart_paths.items()
                 ],
-                # {"type": "heading", "text": "十、指标计算说明", "level": 1},
-                # {"type": "bullet_list", "items": [
-                #     "净值按每日收益率连续复合计算，月度与年度指标由 performance_analysis 统一计算。",
-                #     "超额收益按策略收益率减指数收益率计算。",
-                #     "市场下跌阶段和上涨阶段阈值通过 runtime_params 传入。",
-                # ]},
                 {"type": "heading", "text": "十、结论", "level": 1},
                 *[{"type": "paragraph", "text": text} for text in self._conclusion(runs, first_date, last_date)],
             ])
@@ -110,7 +136,11 @@ class StrategyBacktestReportService:
             generate_word_document(report_data, output_path)
             raw = output_path.read_bytes()
 
-        filename = request.filename or self._default_filename(request)
+        filename = request.filename or self._default_filename(
+            request,
+            period_text=f"{dates[0]:%Y%m%d}_{dates[-1]:%Y%m%d}",
+            task_stock_code=task_stock_code,
+        )
         if not filename.lower().endswith(".docx"):
             filename = f"{filename}.docx"
         return filename, BytesIO(raw)
@@ -140,23 +170,110 @@ class StrategyBacktestReportService:
             product for product in products if isinstance(product, dict)
         ]
 
-    def _default_filename(self, request: StrategyBacktestReportSchema) -> str:
-        """按报告类型、产品代码和生成时间构造默认下载文件名。
+    def _task_source_product(
+        self,
+        task_id: str,
+        stock_code: str,
+        stock_name: str,
+        return_series_id: Any = None,
+    ) -> dict[str, Any]:
+        """task 来源 RPT-S 的权重表产品行：股票来自收益序列，市场口径来自任务配置。
 
-        比例为 0 的产品不参与代码拼接；有效产品只剩 1 个时前缀按 RPT-S 输出。
+        market_type/exchange_market 与 RPT-M 的透传口径一致（平均成交额取数
+        避免纯数字港股代码被误判为 A 股）；参数配置指标按收益序列定位对应
+        结果实体回读，取不到时留空由报告侧省略该表。
+        """
+        config: dict[str, Any] = {}
+        task = task_repository.get_entity(task_id)
+        if task is not None:
+            try:
+                parsed = loads(task.config) if task.config else {}
+            except (TypeError, ValueError):
+                parsed = {}
+            if isinstance(parsed, dict):
+                config = parsed
+        product = {
+            "stock_code": stock_code,
+            "product_name": stock_name or stock_code,
+            "ratio": "100.00%",
+            "market_type": config.get("market_type"),
+            "exchange_market": config.get("exchange_market"),
+        }
+        series_id = parse_int(return_series_id)
+        if series_id is None:
+            series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
+            series_id = series_ids[0] if len(series_ids) == 1 else None
+        if series_id is not None:
+            result_entity = task_result_repository.get_entity_by_return_series_id(series_id)
+            if result_entity is not None:
+                sheets = config.get("sheets")
+                sheet = sheets[0] if isinstance(sheets, list) and sheets else None
+                product["parameter_metrics"] = extract_parameter_metrics(
+                    parse_lenient_json(result_entity.result, {}), sheet,
+                )
+        return product
+
+    def _default_filename(
+        self,
+        request: StrategyBacktestReportSchema,
+        period_text: str = "",
+        task_stock_code: str = "",
+    ) -> str:
+        """按报告类型、产品代码+权重、方案组、K线范围和生成时间构造默认下载文件名。
+
+        分段规范：段间 `-`、段内 `_`。组合段（RPT-M 现状）为 代码_权重；RPT-S 的
+        task 来源没有 products，用收益序列的股票代码补位；随后是价格/复权段
+        （price_adjust，export_service 按任务配置回填，如 close-qfq / rnd-oc，
+        缺省省略）；RPT-M 附方案组段（G组号）；周期段取组合收益首末交易日
+        （即报告真实 K 线范围）。任意信息缺失逐级回落，
+        最差退回 RPT-<类型>-<时间戳>。比例为 0 的产品不参与代码拼接；有效产品只剩
+        1 个时前缀按 RPT-S 输出，单品权重恒为 100%，不再重复拼接。权重不带 % 后缀：
+        纯 ASCII 文件名经 Content-Disposition 原样下发，前端 decodeURIComponent 遇到
+        裸 % 会抛 URI malformed；也不用括号等附加符号，保持文件名简短。加权形式超长
+        时回落纯代码形式，保护 Windows 路径长度。
         """
         products = self._active_report_products(request.products)
         report_type = (
             "RPT-S" if request.report_type == "RPT-M" and len(products) == 1
             else request.report_type
         )
-        stock_codes = [
-            str(product.get("stock_code") or "").strip().upper()
-            for product in products
-            if str(product.get("stock_code") or "").strip()
-        ]
-        suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
-        return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
+        weighted: list[str] = []
+        plain: list[str] = []
+        for product in products:
+            code = str(product.get("stock_code") or "").strip().upper()
+            if not code:
+                continue
+            plain.append(code)
+            weight_text = self._filename_weight_text(product)
+            weighted.append(f"{code}_{weight_text}" if weight_text else code)
+        fragments = (
+            weighted if len(products) > 1 and len("-".join(weighted)) <= 180 else plain
+        )
+        if not fragments and task_stock_code:
+            fragments = [task_stock_code]
+
+        segments: list[str] = [*fragments]
+        price_adjust = str(getattr(request, "price_adjust", None) or "").strip()
+        if price_adjust:
+            segments.append(price_adjust)
+        group_key = getattr(request, "group_key", None)
+        if request.report_type == "RPT-M" and group_key not in (None, ""):
+            segments.append(f"G{group_key}")
+        if period_text:
+            segments.append(period_text)
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        suffix = "-".join([*segments, timestamp])
+        return f"{report_type}-{suffix}" if suffix else f"{report_type}-{timestamp}"
+
+    @staticmethod
+    def _filename_weight_text(product: dict[str, Any]) -> str:
+        """文件名权重文本（百分比数字去尾零，如 50 / 33.33）；比例缺失或非法时返回空串省略。"""
+        try:
+            weight = normalize_weight(product.get("ratio", product.get("weight")))
+        except ValueError:
+            return ""
+        return StrategyBacktestReportService._weight_percent_text(weight)
 
     @staticmethod
     def _benchmark_entries(payload: StrategyBacktestReportSchema) -> list[tuple[str, Decimal]]:
@@ -171,21 +288,24 @@ class StrategyBacktestReportService:
         """基准代码集合（权重表/标签的 "(指数)" 后缀标记用）。"""
         return {code for code, _weight in StrategyBacktestReportService._benchmark_entries(payload)}
 
-    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> list[_BenchmarkRun]:
+    def _build_benchmark_runs(self, request: StrategyBacktestReportSchema) -> tuple[list[_BenchmarkRun], str, str]:
         """组合收益 + 各基准注入后逐次运行 V1 引擎；未选指数时为单个默认组合基准。
 
         统一日期轴 = 组合共同交易日 ∩ 全部基准序列交易日，整份报告（表格/图表/
         元数据）共用同一条轴；轴不足 2 个交易日由引擎侧统一报错。
         指数注入仅用于 RPT-M；单品/V2 来源保持顶层三选一解析。
         include_composite_benchmark 开关决定组合指数是否与自定义指数并列成列
-        （默认包含，组合列头固定为"指数"）；关闭且未选自定义指数时仍回落组合，
-        保证报告恒有基准。
+        （默认包含，组合列头固定为"组合指数"）；关闭且未选自定义指数时仍回落
+        组合，保证报告恒有基准。
+        第二、三个返回值为 task 来源的股票代码/名称（非 task 来源为空），供
+        权重表补位与默认文件名使用。
         """
         runtime = self._runtime_params(request.runtime_params)
+        task_stock_code = task_stock_name = ""
         if request.report_type == "RPT-M":
             data = self._combine_product_returns(request)
         else:
-            data = self._resolve_source_returns({
+            data, task_stock_code, task_stock_name = self._resolve_source_returns({
                 "returns": request.returns,
                 "task_id": request.task_id,
                 "return_series_id": request.return_series_id,
@@ -216,13 +336,14 @@ class StrategyBacktestReportService:
             runs.append(_BenchmarkRun(
                 code=None,
                 weight=Decimal("1"),
-                label="指数",
+                label=self._composite_benchmark_label(),
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(
                     [rows_by_date[date] for date in axis], runtime),
             ))
         labels = self._benchmark_labels(entries)
         if include_composite and benchmark_series:
-            # 组合指数列头固定为"指数"；自定义基准与之撞名时改用 指数(代码) 消歧。
+            # 组合指数列头为"组合指数"；自定义满配"指数"与之共存时仍改用
+            # 指数(代码) 消歧，避免超额/胜率等派生列头的标记撞车。
             labels = [
                 f"指数({code})" if label == "指数" else label
                 for (code, _weight), label in zip(entries, labels)
@@ -239,7 +360,7 @@ class StrategyBacktestReportService:
                 label=label,
                 result=performance_analyzer.get_calculate_metrics_v1_with_dataframes(rows, runtime),
             ))
-        return runs
+        return runs, task_stock_code, task_stock_name
 
     @staticmethod
     def _weight_percent_text(weight: Decimal) -> str:
@@ -296,10 +417,10 @@ class StrategyBacktestReportService:
         ])
         return {row["date"]: row["index_return"] for row in scaled}
 
-    def _resolve_source_returns(self, source: dict[str, Any]) -> list[dict[str, Any]]:
-        """读取一种收益来源，并规范为按日期升序的累计收益率。"""
+    def _resolve_source_returns(self, source: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+        """读取一种收益来源并规范为按日期升序的累计收益率；附带来源股票代码/名称（非 task 来源为空）。"""
         if source.get("returns"):
-            return self._normalize_returns(source["returns"])
+            return self._normalize_returns(source["returns"]), "", ""
         if source.get("task_id"):
             return self._returns_from_task(
                 str(source["task_id"]),
@@ -310,7 +431,7 @@ class StrategyBacktestReportService:
             spreadsheet_id,
             str(source["google_sheet_name"]),
         )
-        return self._normalize_returns(rows)
+        return self._normalize_returns(rows), "", ""
 
     @staticmethod
     def _spreadsheet_id(source: dict[str, Any]) -> str:
@@ -325,8 +446,8 @@ class StrategyBacktestReportService:
         raise ValueError("google_sheet_url 无法解析 spreadsheet_id")
 
     @staticmethod
-    def _returns_from_task(task_id: str, return_series_id: Any) -> list[dict[str, Any]]:
-        """处理_returns_from_task相关逻辑。"""
+    def _returns_from_task(task_id: str, return_series_id: Any) -> tuple[list[dict[str, Any]], str, str]:
+        """按任务解析收益序列；返回 (收益行, 股票代码, 股票名称) 供权重表与默认文件名使用。"""
         if return_series_id is not None:
             series_id = parse_int(return_series_id)
             if series_id is None:
@@ -334,7 +455,11 @@ class StrategyBacktestReportService:
             series = task_result_repository.get_return_entity(series_id)
             if not series or series.task_id != task_id:
                 raise ValueError("return_series_id 不属于指定 task_id")
-            return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
+            return (
+                StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
+                str(series.stock_code or "").strip().upper(),
+                str(series.stock_name or "").strip(),
+            )
 
         series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
         if not series_ids:
@@ -344,7 +469,11 @@ class StrategyBacktestReportService:
         series = task_result_repository.get_return_entity(series_ids[0])
         if not series:
             raise ValueError("任务收益序列不存在")
-        return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
+        return (
+            StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series)),
+            str(series.stock_code or "").strip().upper(),
+            str(series.stock_name or "").strip(),
+        )
 
     def _combine_product_returns(
         self,
@@ -354,13 +483,13 @@ class StrategyBacktestReportService:
         """将多产品组合委托给统一组合器；比例为 0 的产品不参与组合。"""
         products = request.products
         weighting_mode = request.weighting_mode or "daily_compound"
-        inputs = [
-            {
-                "returns": self._resolve_source_returns(product),
+        inputs = []
+        for product in self._active_report_products(products):
+            rows, _stock_code, _stock_name = self._resolve_source_returns(product)
+            inputs.append({
+                "returns": rows,
                 "ratio": product.get("ratio", product.get("weight")),
-            }
-            for product in self._active_report_products(products)
-        ]
+            })
         return combine_product_returns(inputs, weighting_mode=weighting_mode)
 
     @staticmethod
@@ -406,7 +535,7 @@ class StrategyBacktestReportService:
         self,
         payload: StrategyBacktestReportSchema,
         runs: list[_BenchmarkRun],
-        correlation_image: dict[str, Any] | None = None,
+        heatmap_images: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """将回测指标转换为通用 Word JSON 协议。"""
         report_type = payload.report_type
@@ -417,9 +546,7 @@ class StrategyBacktestReportService:
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
         generated_at = datetime.now()
-        model_version = str(payload.metadata.get("model_version") or "")
-        if not model_version:
-            model_version = get_backtest_model_version(payload.metadata.get("sheet_title"))
+        model_version = format_model_version(payload.metadata.get("model_version"))
         metadata = [
             {"label": "报告编号", "value": f"{report_type}-{generated_at:%Y%m%d}"},
             {"label": "模型版本", "value": model_version},
@@ -429,24 +556,27 @@ class StrategyBacktestReportService:
             {"label": "总交易日", "value": f"{len(result.index_df)} 天"},
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
-        amount_texts = self._weight_metric_texts(payload, first_date, last_date)
+        # 平均成交额窗口终点取导出当天（而非回测数据最后一天），往前推 182 天。
+        amount_texts = self._weight_metric_texts(payload, generated_at.strftime("%Y-%m-%d"))
         asset_texts, etf_flags = self._etf_total_assets_texts(payload)
         # 全部为个股（资产值均来自总市值回退或缺失、无任何 ETF 资产值）时，列头按净资产表述。
         assets_header = "净资产" if asset_texts and not any(etf_flags.values()) else "ETF资产总数"
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
             *self._weight_allocation_blocks(payload, report_type, amount_texts, asset_texts, assets_header),
+            *self._parameter_config_blocks(payload),
         ]
-        # 相关系数热力图紧跟权重表之后、分析图表区之前。
-        if correlation_image is not None:
-            blocks.append(correlation_image)
+        # 相关系数与同向率热力图紧跟权重区之后、分析图表区之前。
+        if heatmap_images:
+            blocks.extend(heatmap_images)
         sections = self._sections(runs)
         for section in sections:
             blocks.append({"type": "heading", "text": section["title"], "level": 1})
             for subsection in section["subsections"]:
                 if subsection.get("title"):
                     blocks.append({"type": "heading", "text": subsection["title"], "level": 2})
-                blocks.append({"type": "table", **subsection["table"]})
+                for table_block in subsection.get("tables") or [subsection["table"]]:
+                    blocks.append({"type": "table", **table_block})
         return {
             "title": payload.title,
             "footer": payload.title,
@@ -470,7 +600,7 @@ class StrategyBacktestReportService:
         """
         amount_texts = amounts or {}
         asset_texts = assets or {}
-        columns = ["股票代码", "股票名", "权重", "平均成交额", assets_header]
+        columns = ["股票代码", "股票名", "权重", "平均成交额 (半年)", assets_header]
         active = StrategyBacktestReportService._active_report_products(payload.products)
         strategy_rows = []
         if isinstance(active, list):
@@ -513,6 +643,48 @@ class StrategyBacktestReportService:
             })
         return blocks
 
+    @classmethod
+    def _parameter_config_blocks(cls, payload: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
+        """构造“参数配置”表：各产品结果区指标按比例加权求和 + 手续费。
+
+        权重口径与组合器一致（normalize_weight，比例按原值参与加总）；参与
+        产品缺任一指标时该行显示 "-"（C3 无杠杆列），不编造部分和。全部产品
+        均无指标（手工收益/Sheet 来源）时整表省略。手续费取首个产品的市场：
+        A 股万3.5，其余（美股等）万2。
+        """
+        products = cls._active_report_products(payload.products)
+        if not products:
+            return []
+        weights: list[float] = []
+        for product in products:
+            if not isinstance(product, dict):
+                return []
+            try:
+                weights.append(float(normalize_weight(product.get("ratio", product.get("weight")))))
+            except (TypeError, ValueError):
+                return []
+        if not any(product.get("parameter_metrics") for product in products):
+            return []
+        rows: list[list[str]] = []
+        for key, label, value_format in PARAMETER_CONFIG_ROWS:
+            total = 0.0
+            complete = True
+            for product, weight in zip(products, weights):
+                value = (product.get("parameter_metrics") or {}).get(key)
+                if value is None:
+                    complete = False
+                    break
+                total += float(value) * weight
+            if complete:
+                rows.append([label, f"{total:.2%}" if value_format == "percent" else f"{total:.2f}"])
+            else:
+                rows.append([label, "-"])
+        first_market = normalize_market_type(products[0].get("market_type"))
+        rows.append(["手续费", "0.035%" if first_market == "cn" else "0.02%"])
+        return [{
+            "type": "table", "title": "参数配置", "columns": ["参数", "数值"], "rows": rows,
+        }]
+
     @staticmethod
     def _weight_text(product: dict[str, Any], report_type: str) -> str:
         """权重列展示文本；单品报告缺省 100.00%，纯数值自动补百分号。"""
@@ -522,9 +694,9 @@ class StrategyBacktestReportService:
         return weight if not weight or weight.endswith("%") else f"{weight}%"
 
     def _correlation_matrix(self, payload: StrategyBacktestReportSchema, result: Any) -> dict[str, Any] | None:
-        """构造相关系数热力图数据；有效对齐产品不足 2 个时不输出。
+        """构造相关系数与同向率热力图数据；有效对齐产品不足 2 个时不输出。
 
-        日涨跌幅还原与 Pearson 计算统一走 performance_analysis
+        日涨跌幅还原与 Pearson/同向率计算统一走 performance_analysis
         （口径与组合收益一致），本方法只负责产品筛选与标签组装。
         """
         products = self._active_report_products(payload.products)
@@ -539,28 +711,29 @@ class StrategyBacktestReportService:
         indexes = sorted(aligned)
         if len(indexes) < 2:
             return None
+        series_list = [aligned[index] for index in indexes]
         return {
             "labels": [self._product_code_label(payload, products[index]) for index in indexes],
-            "matrix": pairwise_correlation_matrix([aligned[index] for index in indexes]),
+            "matrix": pairwise_correlation_matrix(series_list),
+            "same_direction": pairwise_same_direction_matrix(series_list),
         }
 
     def _weight_metric_texts(
         self,
         payload: StrategyBacktestReportSchema,
-        first_date: str,
-        last_date: str,
+        end_date: str,
     ) -> dict[str, str]:
         """单次 K 线取数产出权重表的平均成交额文本映射。
 
         同一标的只取数一次（同码的策略行/指数行/多比例行共享结果），
-        指数行标签为 "代码 (指数)"。
+        统计窗口为导出日往前推近半年，指数行标签为 "代码 (指数)"。
         """
         amount_texts: dict[str, str] = {}
         kline_texts: dict[str, str] = {}
 
         def amount_text_for(code: str, product: dict[str, Any]) -> str:
             if code not in kline_texts:
-                kline_texts[code] = self._kline_average_amount_text(product, first_date, last_date)
+                kline_texts[code] = self._kline_average_amount_text(product, end_date)
             return kline_texts[code]
 
         for product in self._active_report_products(payload.products):
@@ -570,7 +743,7 @@ class StrategyBacktestReportService:
             if not code or code in kline_texts:
                 continue
             amount_texts[code] = kline_texts[code] = self._kline_average_amount_text(
-                product, first_date, last_date,
+                product, end_date,
             )
         for code, _weight in self._benchmark_entries(payload):
             label = f"{code} (指数)"
@@ -589,29 +762,27 @@ class StrategyBacktestReportService:
     def _kline_average_amount_text(
         self,
         product: dict[str, Any],
-        first_date: str,
-        last_date: str,
+        end_date: str,
     ) -> str:
         """单次 K 线取数计算权重表平均成交额展示文本；失败降级 "-"。
 
-        K 线行缺成交额（如 Yahoo 源未返回）时按 成交量×收盘价 逐行估算。
-        market_type 取任务配置透传值并作为 get_kline_data 的推断缺省：
-        标准代码后缀推断优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
+        只统计导出日往前 182 天（近半年）窗口内的 K 线。K 线行缺成交额
+        （如 Yahoo 源未返回）时按 成交量×收盘价 逐行估算。market_type 取
+        任务配置透传值并作为 get_kline_data 的推断缺省：标准代码后缀推断
+        优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
         """
         stock_code = str(product.get("stock_code") or "").strip()
         if not stock_code:
             return "-"
         try:
             market_type = str(product.get("market_type") or "").strip() or "cn"
-            calendar_days = max(1, (parse_date(last_date) - parse_date(first_date)).days)
-            trading_days_per_year = 250 if normalize_market_type(market_type) == "cn" else 252
-            limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
+            start_date = (parse_date(end_date) - timedelta(days=182)).isoformat()
             klines = _report_kline_service().get_kline_data(
                 stock_code,
                 market_type,
-                limit,
-                start_date=first_date,
-                end_date=last_date,
+                300,  # 半年窗口约 130 根 K 线，300 条已留足余量
+                start_date=start_date,
+                end_date=end_date,
                 exchange_market=product.get("exchange_market"),
             )
             rows = klines or []
@@ -713,31 +884,46 @@ class StrategyBacktestReportService:
         """各次引擎运行的指标字典；约定首元素为策略列取值来源。"""
         return [run.result.metrics for run in runs]
 
+    @staticmethod
+    def _composite_benchmark_label() -> str:
+        """默认组合基准列头：全部产品按比例组合的基准列，统一带"组合"前缀。"""
+        return "组合指数"
+
+    @staticmethod
+    def _strategy_label() -> str:
+        """策略列头：与组合基准列头同规则，统一带"组合"前缀。"""
+        return "组合策略"
+
     def _benchmark_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
-        """指数列头：单基准保持现状文案"指数"，多基准用 指数(代码) 自描述。"""
+        """指数列头：直接消费各 run 的 label（组合基准为"组合指数"，自定义基准按 指数(代码) 自描述）。"""
         return [run.label for run in runs]
 
     def _benchmark_tag(self, runs: list[_BenchmarkRun], run: _BenchmarkRun) -> str:
         """多基准场景的区分标记：取指数列头"指数(...)"括号内的内容。
 
         与指数列头规则严格对称（同股只展示比例，异股展示 代码 比例%），
-        供超额/胜率/月度超额等派生列头统一消费；组合指数列头为无标记的
-        "指数"，此处返回空串，派生列头随之省略括号标记。
+        供超额/胜率/月度超额等派生列头统一消费；默认组合基准（code=None，
+        列头"组合指数"）返回空串，派生列头随之省略括号标记。
         """
+        if run.code is None:
+            return ""
         if not run.label.startswith("指数"):
             return f"{run.code} {self._weight_percent_text(run.weight)}%"
         tag = run.label[len("指数"):].strip()
         return tag[1:-1] if tag.startswith("(") and tag.endswith(")") else ""
 
     def _tagged_header(self, prefix: str, runs: list[_BenchmarkRun], run: _BenchmarkRun) -> str:
-        """前缀 + 区分标记的派生列头；标记为空（组合指数）时仅返回前缀。"""
+        """前缀 + 区分标记的派生列头；默认组合基准统一以"组合指数"前缀自描述。"""
         tag = self._benchmark_tag(runs, run)
-        return f"{prefix}({tag})" if tag else prefix
+        if not tag:
+            return f"{self._composite_benchmark_label()}{prefix}"
+        return f"{prefix}({tag})"
 
     def _excess_headers(self, runs: list[_BenchmarkRun]) -> list[str]:
-        """超额列头：单基准保持现状文案"超额(策略-指数)"；多基准同股只展示比例。"""
+        """超额列头：单基准为 超额(策略-基准)；多基准同股只展示比例。"""
         if len(runs) <= 1:
-            return ["超额(策略-指数)"]
+            benchmark_label = runs[0].label if runs else self._composite_benchmark_label()
+            return [f"超额({self._strategy_label()}-{benchmark_label})"]
         return [self._tagged_header("超额", runs, run) for run in runs]
 
     def _return_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -764,12 +950,16 @@ class StrategyBacktestReportService:
             self._rolling_row(runs, months)
             for months in (3, 6, 12)
         ]
-        rolling_index_headers = [f"{run.label}平均收益" for run in runs] if len(runs) > 1 else ["指数平均收益"]
-        rolling_win_headers = ([f"策略胜率(跑赢{self._benchmark_tag(runs, run) or '组合'})" for run in runs]
-                               if len(runs) > 1 else ["策略胜率(跑赢指数)"])
-        return [
+        rolling_index_headers = [f"{run.label}平均收益" for run in runs]
+        rolling_win_headers = (
+            [f"{self._strategy_label()}胜率(跑赢{self._benchmark_tag(runs, run) or self._composite_benchmark_label()})"
+             for run in runs]
+            if len(runs) > 1
+            else [f"{self._strategy_label()}胜率(跑赢{runs[0].label})"]
+        )
+        subsections = [
             {"title": "1.1 核心收益", "table": self._table(
-                ["指标", *benchmark_headers, "策略", *excess_headers], [
+                ["指标", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     ["累计回报率", *[self._pct(value) for value in index_cumulatives],
                      self._pct(strategy_cumulative),
                      *[self._pct(value) for value in excess_cumulatives]],
@@ -781,7 +971,7 @@ class StrategyBacktestReportService:
                      *[self._pct(self._num(strategy_volatility) - self._num(value)) for value in index_volatilities]],
                 ])},
             {"title": "1.2 分年度收益率", "table": self._table(
-                ["年份", *benchmark_headers, "策略", *excess_headers], [
+                ["年份", *benchmark_headers, self._strategy_label(), *excess_headers], [
                     [year,
                      *[self._pct(index_returns.get(year)) for index_returns in index_returns_list],
                      self._pct(strategy_returns.get(year)),
@@ -789,9 +979,57 @@ class StrategyBacktestReportService:
                        for index_returns in index_returns_list]]
                     for year in years
                 ])},
-            {"title": "1.3 滚动收益（月度窗口）", "table": self._table(
-                ["滚动周期", *rolling_index_headers, "策略平均收益", *rolling_win_headers], rolling_rows)},
         ]
+        monthly_subsection = self._monthly_returns_subsection(runs)
+        if monthly_subsection is not None:
+            subsections.append(monthly_subsection)
+        subsections.append({"title": f"1.{len(subsections) + 1} 滚动收益（月度窗口）", "table": self._table(
+            ["滚动周期", *rolling_index_headers, f"{self._strategy_label()}平均收益", *rolling_win_headers],
+            rolling_rows)})
+        return subsections
+
+    def _monthly_returns_subsection(self, runs: list[_BenchmarkRun]) -> dict[str, Any] | None:
+        """构造 1.3 分月度收益小节：每年一个子标题 + 该年逐月收益表。
+
+        列结构与 1.2 分年度收益率对称（基准/策略/超额按 runs 循环展开），
+        数值取各 run 的 monthly_excess_returns 逐月配对记录；整段无数据
+        时返回 None（小节整体省略，滚动收益编号随之顺延）。
+        """
+        metrics_list = self._run_metrics_list(runs)
+        benchmark_headers = self._benchmark_headers(runs)
+        excess_headers = self._excess_headers(runs)
+        index_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "index_monthly_return")
+            for m in metrics_list
+        ]
+        # 策略月序列在各 run 中同值，但配对帧按基准覆盖裁剪；跨 run 合并取并集，避免
+        # 首基准历史较短时策略列整列缺月。
+        strategy_by_year: dict[str, dict[int, Any]] = {}
+        for metrics in metrics_list:
+            for year, months in self._monthly_by_year(
+                    metrics.get("monthly_excess_returns"), "start_monthly_return").items():
+                target = strategy_by_year.setdefault(year, {})
+                for month, value in months.items():
+                    target.setdefault(month, value)
+        excess_by_year_list = [
+            self._monthly_by_year(m.get("monthly_excess_returns"), "monthly_excess_return_diff")
+            for m in metrics_list
+        ]
+        years = sorted(set().union(*(set(item) for item in index_by_year_list)) | set(strategy_by_year))
+        if not years:
+            return None
+        columns = ["月份", *benchmark_headers, self._strategy_label(), *excess_headers]
+        tables = [
+            {"title": f"{year}年", "title_level": 3, **self._table(columns, [
+                [f"{month}月",
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in index_by_year_list],
+                 self._pct_or_dash(strategy_by_year.get(year, {}).get(month)),
+                 *[self._pct_or_dash(item.get(year, {}).get(month)) for item in excess_by_year_list]]
+                for month in range(1, 13)
+            ])}
+            for year in years
+        ]
+        return {"title": "1.3 分月度收益", "tables": tables}
 
     @classmethod
     def _rolling_row(cls, runs: list[_BenchmarkRun], months: int) -> list[str]:
@@ -839,15 +1077,14 @@ class StrategyBacktestReportService:
         if daily_drawdown_threshold is None:
             daily_drawdown_threshold = MetricsRuntimeParamsDTO().daily_drawdown_threshold
         drawdown_excess_headers = ([self._tagged_header("超额回撤", runs, run) for run in runs]
-                                   if len(runs) > 1 else ["超额回撤(策略-指数)"])
+                                   if len(runs) > 1
+                                   else [f"超额回撤({self._strategy_label()}-{runs[0].label})"])
         return [
             {"title": "2.1 回撤指标", "table": self._table(
-                ["指标", *benchmark_headers, "策略"], [
+                ["指标", *benchmark_headers, self._strategy_label()], [
                     ["最大回撤(MDD)", *[self._pct(-self._num(value)) for value in index_drawdowns],
                      self._pct(-self._num(strategy_drawdown))],
                     ["最大回撤修复天数(年度最大)",
-                    #  self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
-                    #  self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
                     *[self._integer(max((m.get("year_index_yearly_max_repair_days") or {}).values(), default=0))
                       for m in metrics_list],
                     self._integer(max((strategy.get("year_start_yearly_max_repair_days") or {}).values(), default=0))],
@@ -857,7 +1094,8 @@ class StrategyBacktestReportService:
                      self._integer(strategy.get("start_dd_count"))],
                 ])},
             {"title": "2.2 分年度最大回撤", "table": self._table(
-                ["年份", *[f"{run.label}回撤" for run in runs], "策略回撤", *drawdown_excess_headers],
+                ["年份", *[f"{run.label}回撤" for run in runs],
+                 f"{self._strategy_label()}回撤", *drawdown_excess_headers],
                 drawdown_rows)},
         ]
 
@@ -866,9 +1104,16 @@ class StrategyBacktestReportService:
         metrics_list = self._run_metrics_list(runs)
         strategy = metrics_list[0]
         benchmark_headers = self._benchmark_headers(runs)
-        excess_row_suffixes = ([f"({tag})" if (tag := self._benchmark_tag(runs, run)) else ""
-                                for run in runs]
-                               if len(runs) > 1 else [""])
+        def excess_row_suffix(run: _BenchmarkRun) -> str:
+            """超额行的基准区分后缀：自定义带 (标记)，组合基准带 (组合指数)。"""
+            tag = self._benchmark_tag(runs, run)
+            if tag:
+                return f"({tag})"
+            if run.code is None:
+                return f"({self._composite_benchmark_label()})"
+            return ""
+
+        excess_row_suffixes = ([excess_row_suffix(run) for run in runs] if len(runs) > 1 else [""])
         rows = [
             ["夏普比率",
              *[self._decimal(self._year_all(m.get("index_sharpe_ratios"), "sharpe_ratio")) for m in metrics_list],
@@ -884,7 +1129,7 @@ class StrategyBacktestReportService:
             # 行占位与列数联动：指标 + N 个指数列占位 + 该基准的超额值。
             rows.append([f"超额夏普比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sharpe"))])
             rows.append([f"超额索提诺比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sortino"))])
-        return [{"table": self._table(["指标", *benchmark_headers, "策略"], rows)}]
+        return [{"table": self._table(["指标", *benchmark_headers, self._strategy_label()], rows)}]
 
     def _monthly_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """构造四、月度收益分布章节的全部表格；数值统一取自 V1 指标结果。"""
@@ -926,16 +1171,14 @@ class StrategyBacktestReportService:
             ["月收益率峰度", *[self._decimal(m.get("index_monthly_return_kurtosis")) for m in metrics_list],
              self._decimal(strategy.get("start_monthly_return_kurtosis"))],
         ]
-        if len(runs) > 1:
-            distribution_headers = [header for run in runs
-                                    for header in (f"{run.label}月数", f"{run.label}占比")]
-        else:
-            distribution_headers = ["指数月数", "指数占比"]
+        distribution_headers = [header for run in runs
+                                for header in (f"{run.label}月数", f"{run.label}占比")]
         return [
             {"title": "4.1 月度统计总览", "table": self._table(
-                ["指标", *self._benchmark_headers(runs), "策略"], summary_rows)},
+                ["指标", *self._benchmark_headers(runs), self._strategy_label()], summary_rows)},
             {"title": "4.2 月度收益区间分布", "table": self._table(
-                ["收益区间", *distribution_headers, "策略月数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers,
+                 f"{self._strategy_label()}月数", f"{self._strategy_label()}占比"], distribution_rows)},
         ]
 
     def _daily_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -986,17 +1229,15 @@ class StrategyBacktestReportService:
             ["单笔最大盈利/最大亏损", *[self._decimal(m.get("index_max_profit_loss_ratio")) for m in metrics_list],
              self._decimal(strategy.get("start_max_profit_loss_ratio"))],
         ]
-        if len(runs) > 1:
-            distribution_headers = [header for run in runs
-                                    for header in (f"{run.label}天数", f"{run.label}占比")]
-        else:
-            distribution_headers = ["指数天数", "指数占比"]
-        overview_headers = ["指标", *self._benchmark_headers(runs), "策略"]
+        distribution_headers = [header for run in runs
+                                for header in (f"{run.label}天数", f"{run.label}占比")]
+        overview_headers = ["指标", *self._benchmark_headers(runs), self._strategy_label()]
         return [
             {"title": "5.1 日度统计总览", "table": self._table(overview_headers, summary_rows)},
             {"title": "5.2 盈亏比分析", "table": self._table(overview_headers, profit_loss_rows)},
             {"title": "5.3 日度收益区间分布", "table": self._table(
-                ["收益区间", *distribution_headers, "策略天数", "策略占比"], distribution_rows)},
+                ["收益区间", *distribution_headers,
+                 f"{self._strategy_label()}天数", f"{self._strategy_label()}占比"], distribution_rows)},
         ]
 
     def _excess_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
@@ -1015,7 +1256,7 @@ class StrategyBacktestReportService:
                             self._pct(self._pick(pcts, index) / 100))]]
             for index, label in enumerate(distribution_labels)]
         excess_rows = [
-            ["累计超额(策略-指数)", *[self._pct(m.get("excess_cumulative_return")) for m in metrics_list]],
+            [f"累计超额({self._strategy_label()}-指数)", *[self._pct(m.get("excess_cumulative_return")) for m in metrics_list]],
             ["年化超额", *[self._pct(value) for value in annualized_list]],
             ["月超额收益均值", *[self._pct(m.get("average_monthly_excess_return")) for m in metrics_list]],
             ["月超额收益波动率", *[self._pct(m.get("monthly_excess_return_standard_deviation")) for m in metrics_list]],
@@ -1031,8 +1272,10 @@ class StrategyBacktestReportService:
                                              for header in (self._tagged_header("平均超额", runs, run),
                                                             self._tagged_header("正超额概率", runs, run))]]
         else:
-            distribution_headers = ["月数", "占比"]
-            rolling_headers = ["滚动窗口", "平均超额", "正超额概率"]
+            # 单基准：派生表头同样以基准列名自描述（默认组合 → "组合指数月数" 等）。
+            benchmark_label = runs[0].label if runs else self._composite_benchmark_label()
+            distribution_headers = [f"{benchmark_label}月数", f"{benchmark_label}占比"]
+            rolling_headers = ["滚动窗口", f"{benchmark_label}平均超额", f"{benchmark_label}正超额概率"]
         return [
             {"title": "6.1 超额收益统计", "table": self._table(
                 ["指标", *value_headers], excess_rows)},
@@ -1087,24 +1330,20 @@ class StrategyBacktestReportService:
         if daily_extreme_threshold is None:
             daily_extreme_threshold = MetricsRuntimeParamsDTO().daily_extreme_threshold
         daily_extreme_label = self._percent_label(daily_extreme_threshold)
-        downturn_rows = [
-            ["阶段月数", *[self._integer(m.get("index_downfall_months_len")) for m in metrics_list],
-             self._integer(strategy.get("start_downfall_months_len")), *["-"] * len(runs)],
-            ["平均收益", *[self._pct(m.get("index_downfall_avg_return")) for m in metrics_list],
-             self._pct(strategy.get("start_downfall_avg_return")),
-             *[self._pct(m.get("downfall_excess_avg_return")) for m in metrics_list]],
-            ["策略跑赢次数", *["-"] * len(runs),
-             self._integer(strategy.get("downfall_outperform_count")),
-             *[self._pct(m.get("downfall_win_rate")) for m in metrics_list]]]
-        upturn_rows = [
-            ["阶段月数", *[self._integer(m.get("index_upward_months_len")) for m in metrics_list],
-             self._integer(strategy.get("start_upward_months_len")), *["-"] * len(runs)],
-            ["平均收益", *[self._pct(m.get("index_upward_avg_return")) for m in metrics_list],
-             self._pct(strategy.get("start_upward_avg_return")),
-             *[self._pct(m.get("upward_excess_avg_return")) for m in metrics_list]],
-            ["策略跑赢次数", *["-"] * len(runs),
-             self._integer(strategy.get("upward_outperform_count")),
-             *[self._pct(m.get("upward_win_rate")) for m in metrics_list]]]
+        def _stage_rows(prefix: str):
+            """下跌(downfall)/上涨(upward) 两段同构表格行，仅字段前缀不同。"""
+            return [
+                ["阶段月数", *[self._integer(m.get(f"index_{prefix}_months_len")) for m in metrics_list],
+                 self._integer(strategy.get(f"start_{prefix}_months_len")), *["-"] * len(runs)],
+                ["平均收益", *[self._pct(m.get(f"index_{prefix}_avg_return")) for m in metrics_list],
+                 self._pct(strategy.get(f"start_{prefix}_avg_return")),
+                 *[self._pct(m.get(f"{prefix}_excess_avg_return")) for m in metrics_list]],
+                [f"{self._strategy_label()}跑赢次数", *["-"] * len(runs),
+                 self._integer(strategy.get(f"{prefix}_outperform_count")),
+                 *[self._pct(m.get(f"{prefix}_win_rate")) for m in metrics_list]]]
+
+        downturn_rows = _stage_rows("downfall")
+        upturn_rows = _stage_rows("upward")
         extreme_rows = [
             ["最大单日涨幅", *[self._pct(m.get("index_max_daily_gain")) for m in metrics_list],
              self._pct(strategy.get("start_max_daily_gain"))],
@@ -1117,14 +1356,14 @@ class StrategyBacktestReportService:
             [f"涨跌比(涨>{daily_extreme_label}/跌>{daily_extreme_label})",
              *[self._decimal(m.get("index_daily_gain_loss_ratio")) for m in metrics_list],
              self._decimal(strategy.get("start_daily_gain_loss_ratio"))]]
-        stage_headers = ["指标", *benchmark_headers, "策略", *stage_excess_headers]
+        stage_headers = ["指标", *benchmark_headers, self._strategy_label(), *stage_excess_headers]
         return [
             {"title": f"7.1 市场下跌阶段（指数月收益 < {self._threshold_label(downturn_threshold)}）",
              "table": self._table(stage_headers, downturn_rows)},
             {"title": f"7.2 市场上涨阶段（指数月收益 > {self._threshold_label(upturn_threshold)}）",
              "table": self._table(stage_headers, upturn_rows)},
             {"title": "7.3 极端单日表现", "table": self._table(
-                ["指标", *benchmark_headers, "策略"], extreme_rows)},
+                ["指标", *benchmark_headers, self._strategy_label()], extreme_rows)},
         ]
 
     @staticmethod
@@ -1157,7 +1396,7 @@ class StrategyBacktestReportService:
              self._integer(start_consecutive.get("max_loss_months"))],
             ["创新高平均间隔月", *[self._decimal(m.get("index_new_high_avg_interval_months"), 1) for m in metrics_list],
              self._decimal(strategy.get("start_new_high_avg_interval_months"), 1)]]
-        return [{"table": self._table(["指标", *self._benchmark_headers(runs), "策略"], rows)}]
+        return [{"table": self._table(["指标", *self._benchmark_headers(runs), self._strategy_label()], rows)}]
 
     @classmethod
     def _metric_by_year(cls, items: Any, field: str) -> dict[str, Any]:
@@ -1167,6 +1406,24 @@ class StrategyBacktestReportService:
             for item in items or []
             if isinstance(item, dict) and item.get("year") not in (None, "all")
         }
+
+    @staticmethod
+    def _monthly_by_year(records: Any, field: str) -> dict[str, dict[int, Any]]:
+        """把月度记录（year_month="YYYY-MM"）整理为 {年: {月: 值}}，畸形记录跳过。"""
+        result: dict[str, dict[int, Any]] = {}
+        for item in records or []:
+            if not isinstance(item, dict):
+                continue
+            year, _, month = str(item.get("year_month") or "").partition("-")
+            if not (len(year) == 4 and year.isdigit() and month.isdigit()):
+                continue
+            result.setdefault(year, {})[int(month)] = item.get(field)
+        return result
+
+    @classmethod
+    def _pct_or_dash(cls, value: Any) -> str:
+        """百分比展示；None 为缺月（首尾年份不满 12 个月），显示 "-" 而非 0.00%。"""
+        return "-" if value is None else cls._pct(value)
 
     @classmethod
     def _net_values(cls, frame: Any, return_column: str) -> list[float]:
@@ -1237,23 +1494,26 @@ class StrategyBacktestReportService:
 
     def _conclusion(self, runs: list[_BenchmarkRun], first_date: str, last_date: str) -> list[str]:
         """按基准循环生成结论；累计回报与累计超额直接取自 V1 指标结果。"""
+        strategy_label = self._strategy_label()
         strategy_return = self._num(runs[0].result.metrics.get("start_cumulative_return"))
         if len(runs) <= 1:
             index_return = self._num(runs[0].result.metrics.get("index_cumulative_return"))
             excess_return = self._num(runs[0].result.metrics.get("excess_cumulative_return"))
+            benchmark_label = runs[0].label
             return [
-                f"本报告覆盖 {first_date} 至 {last_date}，指数累计回报率为 {index_return:.2%}，策略累计回报率为 {strategy_return:.2%}。",
-                f"策略相对指数的累计超额回报为 {excess_return:.2%}。",
+                f"本报告覆盖 {first_date} 至 {last_date}，{benchmark_label}累计回报率为 {index_return:.2%}，"
+                f"{strategy_label}累计回报率为 {strategy_return:.2%}。",
+                f"{strategy_label}相对{benchmark_label}的累计超额回报为 {excess_return:.2%}。",
             ]
         paragraphs = [
-            f"本报告覆盖 {first_date} 至 {last_date}，策略累计回报率为 {strategy_return:.2%}，"
+            f"本报告覆盖 {first_date} 至 {last_date}，{strategy_label}累计回报率为 {strategy_return:.2%}，"
             f"基准指数为 {'、'.join(run.label for run in runs)}。"
         ]
         for run in runs:
             index_return = self._num(run.result.metrics.get("index_cumulative_return"))
             excess_return = self._num(run.result.metrics.get("excess_cumulative_return"))
             paragraphs.append(
-                f"{run.label}累计回报率为 {index_return:.2%}，策略相对其的累计超额回报为 {excess_return:.2%}。")
+                f"{run.label}累计回报率为 {index_return:.2%}，{strategy_label}相对其的累计超额回报为 {excess_return:.2%}。")
         return paragraphs
 
     @staticmethod
@@ -1309,12 +1569,22 @@ class StrategyBacktestReportService:
             })
             daily_panels.append({"label": run.label, "values": daily_returns})
             tag = self._benchmark_tag(runs, run)
+            if run.code is None:
+                # 组合基准的超额序列以"组合指数"自描述，不再输出裸"超额"。
+                excess_label = f"超额({self._composite_benchmark_label()})"
+                monthly_title = f"月度超额分布（{self._composite_benchmark_label()}）"
+            elif tag:
+                excess_label = f"超额({tag})"
+                monthly_title = f"月度超额分布（{tag}）"
+            else:
+                excess_label = "超额"
+                monthly_title = "月度超额分布"
             excess_series.append({
-                "label": f"超额({tag})" if tag else ("累计超额收益" if len(runs) <= 1 else "超额"),
+                "label": excess_label,
                 "values": run_result.excess_df["excess_return"].tolist(),
             })
             monthly_excess.append({
-                "title": f"月度超额分布（{tag}）" if tag else "月度超额分布",
+                "title": monthly_title,
                 "values": [self._num(item.get("monthly_excess_return_diff")) for item in
                            run_result.metrics.get("monthly_excess_returns") or [] if isinstance(item, dict)],
             })
@@ -1326,21 +1596,25 @@ class StrategyBacktestReportService:
         years = sorted(set().union(*(set(item["values_by_year"]) for item in benchmark_annuals)) | set(annual_strategy))
         if not years:
             years = sorted({str(value.year) for value in dates})
+        strategy_label = self._strategy_label()
         return {
             "dates": dates,
             "benchmarks": benchmarks,
+            "strategy_label": strategy_label,
             "strategy_nav": strategy_nav,
             "strategy_drawdown": self._drawdown_series(strategy_nav),
             "strategy_daily_returns": strategy_daily,
             "excess_series": excess_series,
             "annual_returns": {
                 "years": years,
+                "strategy_label": strategy_label,
                 "benchmarks": [{"label": item["label"],
                                 "values": [item["values_by_year"].get(year, 0) for year in years]}
                                for item in benchmark_annuals],
                 "strategy": [annual_strategy.get(year, 0) for year in years],
             },
-            "daily_distribution": {"benchmarks": daily_panels, "strategy": strategy_daily},
+            "daily_distribution": {"benchmarks": daily_panels, "strategy": strategy_daily,
+                                   "strategy_label": strategy_label},
             "monthly_excess_by_benchmark": monthly_excess,
         }
 

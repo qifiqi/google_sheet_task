@@ -19,7 +19,7 @@ function init(V) {
             backLink.href = '/google-sheet/?version=' + encodeURIComponent(versionParam);
         }
     }
-    const GOOGLE_SHEET_TABLE_TYPE = 'c7';
+    const GOOGLE_SHEET_TABLE_TYPE = V.tableType || 'c7';
 
     // 表单共享状态（token 列表/待回填选择/产品代码）由 Biz.formState 持有，本页经其 API 访问
     let currentTaskId = null;
@@ -141,7 +141,7 @@ function init(V) {
             googleSheetIdInput: item.querySelector('#google_sheet_id'),
             spreadsheetHelp: item.querySelector('#spreadsheet-help'),
             modelVersionSelect: V.modelVersion.enabled
-                ? (item.querySelector('.c7-model-version-select') || item.querySelector('#c7_model_version'))
+                ? (item.querySelector('.model-version-select') || item.querySelector('#model_version'))
                 : null,
             titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
             worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
@@ -250,7 +250,7 @@ function init(V) {
     function validateC7ModelVersionSet(sheets, showMessage = true) {
         const versions = new Set(
             sheets
-                .map(sheet => sheet.c7_model_version || 'c7_0_2')
+                .map(sheet => sheet.model_version || 'c7_0_2')
                 .filter(Boolean)
         );
         if (versions.size <= 1) {
@@ -482,8 +482,8 @@ function init(V) {
 
     // 加载模板列表
     function loadTemplates() {
-        // 只加载 c7 类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
-        Api.endpoints.template.list('task_type=google_sheet_c7')
+        // 只加载本任务类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
+        Api.endpoints.template.list('task_type=' + (V.templateTaskType || 'google_sheet_c7'))
             .then(data => {
                 if (!data || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
@@ -571,8 +571,8 @@ function init(V) {
             if (titleInput && sheetCfg.title !== undefined) {
                 titleInput.value = sheetCfg.title || '';
             }
-            if (modelVersionSelect && sheetCfg.c7_model_version) {
-                modelVersionSelect.value = sheetCfg.c7_model_version;
+            if (modelVersionSelect && sheetCfg.model_version) {
+                modelVersionSelect.value = sheetCfg.model_version;
                 modelVersionSelect.dataset.manual = 'true';
             }
             if (worksheetInput && sheetCfg.sheet_name) {
@@ -664,6 +664,12 @@ function init(V) {
         if (randomRangeSelect) randomRangeSelect.value = normalized.random_price_range || 'high_low';
         const randomGroupInput = document.getElementById('random_group_count');
         if (randomGroupInput) randomGroupInput.value = normalized.random_group_count || 1;
+        const randomSeriesModeSelect = document.getElementById('random_series_mode');
+        if (randomSeriesModeSelect) randomSeriesModeSelect.value = normalized.random_series_mode || 'per_window';
+        const vwapSwitch = document.getElementById('c1_1_vwap_enabled');
+        if (vwapSwitch && normalized.c1_1_vwap_enabled !== undefined && normalized.c1_1_vwap_enabled !== null) {
+            vwapSwitch.checked = !!normalized.c1_1_vwap_enabled;
+        }
         if (normalized.market_type) document.getElementById('market_type').value = normalized.market_type;
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
@@ -755,6 +761,23 @@ function init(V) {
 
     function isCustomKlineMode() {
         return document.querySelector('input[name="kline_source"]:checked')?.value === 'custom';
+    }
+
+    // 市场联动 K 线数据源：akshare/dfcf/qq/tdx 仅覆盖 A股行情，
+    // 用户把市场切换为非 A股（en/hk/...）时，数据源自动切到 Yahoo；切回 A股不自动还原。
+    function linkKlineSourceToMarket(marketType) {
+        const sourceSelect = document.getElementById('kline_data_source');
+        if (!sourceSelect) {
+            return;
+        }
+        const market = String(marketType || '').trim().toLowerCase();
+        if (!market || market === 'cn') {
+            return;
+        }
+        if (sourceSelect.value !== 'yahoo') {
+            sourceSelect.value = 'yahoo';
+            showNotification('非A股市场：K线数据源已联动切换为 Yahoo', 'info');
+        }
     }
 
     function setControlDisabled(element, disabled) {
@@ -982,7 +1005,7 @@ function init(V) {
         // 为所有输入字段添加自动保存
         const inputFields = [
             'token_file', 'token_json', 'proxy_url',
-            'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'kline_adjustment'
+            'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'random_series_mode', 'kline_adjustment'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -997,7 +1020,10 @@ function init(V) {
             bindSheetConfigItemEvents(item, debouncedSaveFormData);
         });
 
-        document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
+        document.getElementById('market_type')?.addEventListener('change', function() {
+            linkKlineSourceToMarket(this.value);
+            debouncedSaveFormData();
+        });
         const priceModeSelect = document.getElementById('price_mode');
         if (priceModeSelect && V.modelVersion.enabled) {
             priceModeSelect.addEventListener('change', function() {
@@ -1175,10 +1201,100 @@ function init(V) {
     }
 
     // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
+    // C1.1 vwap 开关：元素仅存在于 C1.1 页面，其他版本不下发该字段（后端缺省 True）
+    function readVwapEnabled() {
+        const el = document.getElementById('c1_1_vwap_enabled');
+        return el ? !!el.checked : null;
+    }
+
+    function vwapEnabledField() {
+        const vwapEnabled = readVwapEnabled();
+        return vwapEnabled === null ? {} : { c1_1_vwap_enabled: vwapEnabled };
+    }
+
+    function readParamValue(id) {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    }
+
+    // ===== 组合数服务端精算 =====
+    // total/custom 本地公式即精确（单K线窗口）；N+1 会按整年/近年拆出多个K线窗口，
+    // 只有服务端按真实展开逻辑计数才准，故仅该场景异步精算并覆盖徽标。
+    let estimateTimer = null;
+    let estimateSequence = 0;
+
+    function estimateNeedsServer(countMode, count) {
+        return !!(V.serverEstimate && count > 0 && countMode === 'n_plus_1' && !isCustomKlineMode());
+    }
+
+    function buildEstimatePayload() {
+        const spreadsheetInput = document.getElementById('spreadsheet');
+        const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
+        const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
+        const parameters = [param1];
+        if (param2.length) parameters.push(param2);
+        if (param3.length) parameters.push(param3);
+        return {
+            task_type: V.taskType,
+            config: {
+                kline_source: 'auto',
+                sheets: [{ spreadsheet_id: spreadsheetId }],
+                parameters: parameters,
+                count_mode: 'n_plus_1',
+                price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
+                random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
+                random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+                random_series_mode: document.getElementById('random_series_mode')?.value || 'per_window',
+                market_type: document.getElementById('market_type')?.value || 'cn',
+                kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+                kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
+                date_range_mode: getSelectedDateRangeModes(),
+                exclude_recent_years: getExcludedRecentYears(),
+                start_date: document.getElementById('start_date')?.value || null,
+                end_date: document.getElementById('end_date')?.value || null,
+            },
+        };
+    }
+
+    function setEstimateNote(text) {
+        const countSpan = document.getElementById('combination-count');
+        if (!countSpan) return;
+        let note = document.getElementById('combination-count-note');
+        if (!note) {
+            note = document.createElement('span');
+            note.id = 'combination-count-note';
+            note.className = 'small text-muted ms-2';
+            countSpan.insertAdjacentElement('afterend', note);
+        }
+        note.textContent = text || '';
+    }
+
+    function refineCombinationEstimate() {
+        const seq = ++estimateSequence;
+        setEstimateNote('精算中…');
+        Api.endpoints.googleSheet.combinationEstimate(buildEstimatePayload()).then(function (data) {
+            if (seq !== estimateSequence) return;
+            const countSpan = document.getElementById('combination-count');
+            if (data && data.available === false) {
+                setEstimateNote('行情不可用，显示本地估算');
+                return;
+            }
+            if (countSpan && data && Number.isFinite(Number(data.estimated_count))) {
+                countSpan.textContent = data.estimated_count;
+                setEstimateNote('服务端精算（含多K线窗口）');
+            }
+        }).catch(function () {
+            if (seq !== estimateSequence) return;
+            setEstimateNote('精算失败，显示本地估算');
+        });
+    }
+
     function calculateCombinations() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
 
         const spreadsheetInput = document.getElementById('spreadsheet');
         const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
@@ -1205,14 +1321,24 @@ function init(V) {
         } else {
             infoDiv.classList.add('d-none');
         }
+
+        const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        if (estimateNeedsServer(countMode, count)) {
+            if (estimateTimer) clearTimeout(estimateTimer);
+            estimateTimer = setTimeout(refineCombinationEstimate, 600);
+        } else if (estimateTimer) {
+            clearTimeout(estimateTimer);
+            estimateTimer = null;
+            setEstimateNote('');
+        }
         return count;
     }
 
     // 显示参数组合预览
     function showCombinationPreview() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param2 = parseJsonArray(readParamValue('param2')) || [];
+        const param3 = parseJsonArray(readParamValue('param3')) || [];
 
         const parameters = [param1];
         if (param2.length) parameters.push(param2);
@@ -1288,13 +1414,13 @@ function init(V) {
             return;
         }
 
-        // 获取参数配置
+        // 获取参数配置（V.noParams 页面无 param2/3 元素，参数只送产品代码）
         const param1 = parseJsonArray(document.getElementById('param1').value);
-        const param2 = parseJsonArray(document.getElementById('param2').value);
-        const param3 = parseJsonArray(document.getElementById('param3').value);
+        const param2 = parseJsonArray(readParamValue('param2'));
+        const param3 = parseJsonArray(readParamValue('param3'));
 
         // 检查是否有解析错误
-        if (param1 === null || param2 === null || param3 === null) {
+        if (param1 === null || (!V.noParams && (param2 === null || param3 === null))) {
             showNotification('参数格式错误，请检查 JSON 数组格式', 'error');
             return;
         }
@@ -1332,7 +1458,7 @@ function init(V) {
                     const sheetConfig = {
                         spreadsheet_id: sid,
                         title: stitle,
-                        ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
+                        ...(V.modelVersion.enabled ? { model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                     };
                     if (worksheetInput && worksheetInput.value.trim()) {
                         sheetConfig.sheet_name = worksheetInput.value.trim();
@@ -1346,7 +1472,7 @@ function init(V) {
         if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
             return;
         }
-        if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+        if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.model_version === 'c7_0_3')) {
             priceMode = 'ohlc_price';
         }
 
@@ -1362,6 +1488,8 @@ function init(V) {
             price_mode: priceMode,
             random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
             random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+            random_series_mode: priceMode === 'random_price' ? (document.getElementById('random_series_mode')?.value || 'per_window') : null,
+            ...vwapEnabledField(),
             market_type: marketType,
             kline_adjustment: klineAdjustment,
             kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1409,7 +1537,7 @@ function init(V) {
 
             // 延迟1秒后跳转到详情页面（c7 模式）
             setTimeout(function() {
-                window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c7`;
+                window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=${V.versionQuery || 'c7'}`;
             }, 1000);
         }).catch(function(err) {
             executeBtn.disabled = false;
@@ -1448,14 +1576,16 @@ function init(V) {
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
             random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
+            random_series_mode: document.getElementById('random_series_mode')?.value || 'per_window',
+            ...vwapEnabledField(),
             market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
-            param1: document.getElementById('param1').value,
-            param2: document.getElementById('param2').value,
-            param3: document.getElementById('param3').value
+            param1: readParamValue('param1'),
+            param2: readParamValue('param2'),
+            param3: readParamValue('param3')
         };
         if (V.modelVersion.enabled) {
             formData.sheet_configs = Array.from(document.querySelectorAll('#sheet-config-list .sheet-config-item')).map(item => {
@@ -1464,7 +1594,7 @@ function init(V) {
                     spreadsheet_id: extractSpreadsheetId(spreadsheetSelect?.value || ''),
                     title: titleInput?.value || '',
                     sheet_name: worksheetInput?.value || '',
-                    c7_model_version: modelVersionSelect?.value || 'c7_0_2'
+                    model_version: modelVersionSelect?.value || 'c7_0_2'
                 };
             }).filter(item => item.spreadsheet_id);
         }
@@ -1480,7 +1610,7 @@ function init(V) {
     // 从localStorage加载表单数据
     function loadSavedFormData() {
         try {
-            const savedData = localStorage.getItem('google_sheet_c7_form_data');
+            const savedData = localStorage.getItem(V.formStorageKey || 'google_sheet_c7_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
 
@@ -1538,6 +1668,11 @@ function init(V) {
                 }
                 if (formData.random_price_range) document.getElementById('random_price_range').value = formData.random_price_range;
                 if (formData.random_group_count) document.getElementById('random_group_count').value = formData.random_group_count;
+                if (formData.random_series_mode) document.getElementById('random_series_mode').value = formData.random_series_mode;
+                if (formData.c1_1_vwap_enabled !== undefined) {
+                    const draftVwapSwitch = document.getElementById('c1_1_vwap_enabled');
+                    if (draftVwapSwitch) draftVwapSwitch.checked = !!formData.c1_1_vwap_enabled;
+                }
 
                 if (formData.date_range_mode !== undefined) {
                     Biz.formState.applyDateRangeModes(formData.date_range_mode);
@@ -1561,7 +1696,7 @@ function init(V) {
     // 清除保存的表单数据（仅清理 c7 自己的缓存）
     function clearSavedFormData() {
         try {
-            localStorage.removeItem('google_sheet_c7_form_data');
+            localStorage.removeItem(V.formStorageKey || 'google_sheet_c7_form_data');
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
@@ -1621,13 +1756,13 @@ function init(V) {
                 return null;
             }
 
-            // 获取参数配置
+            // 获取参数配置（V.noParams 页面无 param2/3 元素）
             const param1 = parseJsonArray(document.getElementById('param1').value) || [];
-            const param2 = parseJsonArray(document.getElementById('param2').value) || [];
-            const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+            const param2 = parseJsonArray(readParamValue('param2')) || [];
+            const param3 = parseJsonArray(readParamValue('param3')) || [];
 
             // 检查是否有解析错误
-            if (param1 === null || param2 === null || param3 === null) {
+            if (param1 === null || (!V.noParams && (param2 === null || param3 === null))) {
                 Biz.formState.showError('参数格式错误，请检查 JSON 数组格式');
                 return null;
             }
@@ -1659,7 +1794,7 @@ function init(V) {
                         const sheetConfig = {
                             spreadsheet_id: sid,
                             title: stitle,
-                            ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
+                            ...(V.modelVersion.enabled ? { model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                         };
                         if (sheetNameValue) {
                             sheetConfig.sheet_name = sheetNameValue;
@@ -1673,7 +1808,7 @@ function init(V) {
             if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
                 return null;
             }
-            if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+            if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.model_version === 'c7_0_3')) {
                 priceMode = 'ohlc_price';
             }
 
@@ -1696,6 +1831,8 @@ function init(V) {
                 price_mode: priceMode,
                 random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
                 random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
+                random_series_mode: priceMode === 'random_price' ? (document.getElementById('random_series_mode')?.value || 'per_window') : null,
+                ...vwapEnabledField(),
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
                 kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
@@ -1745,6 +1882,8 @@ function init(V) {
             price_mode: raw.price_mode || 'vwap_price',
             random_price_range: raw.random_price_range || 'high_low',
             random_group_count: raw.random_group_count || 1,
+            random_series_mode: raw.random_series_mode || 'per_window',
+            c1_1_vwap_enabled: raw.c1_1_vwap_enabled === undefined ? true : !!raw.c1_1_vwap_enabled,
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',

@@ -125,13 +125,15 @@ def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
 def test_default_dfcf_source_uses_eastmoney_after_search():
     dfcf = _DfcfApi()
     service = KlineService(dfcf_api=dfcf)
-    service.read_internal_kline_data = lambda **_kwargs: _rows("2024-01-01", "2024-01-31")
+    # 内置库无数据（不桩会真实请求内网服务），走 dfcf 外部链路
+    service.read_internal_kline_data = lambda **_kwargs: []
 
+    # 默认数据源已切换 akshare；本用例针对 dfcf 链路（搜索→东财回退），显式钉回。
     rows = service.get_kline_data(
-        "600000", "cn", 100, start_date="2024-01-01", end_date="2024-01-31"
+        "600000", "cn", 100, data_source="dfcf", start_date="2024-01-01", end_date="2024-01-31"
     )
 
-    assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
+    assert dfcf.calls == [("600000", "1", 100, {"kline_type": "101", "adjust_type": None})]
     assert {row["data_source"] for row in rows} == {"dfcf"}
 
 
@@ -146,7 +148,7 @@ def test_database_source_falls_back_to_dfcf_and_persists_external_rows():
         "600000", "cn", 100, data_source="database", start_date="2024-01-01", end_date="2024-01-31"
     )
 
-    assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
+    assert dfcf.calls == [("600000", "1", 100, {"kline_type": "101", "adjust_type": None})]
     assert rows[0]["stock_name"] == "浦发银行"
     assert rows[0]["data_source"] == "dfcf"
     assert persisted[0][1]["source"] == "dfcf"
@@ -156,11 +158,13 @@ def test_external_source_is_normalized_and_persisted():
     dfcf = _DfcfApi()
     service = KlineService(dfcf_api=dfcf)
     persisted = []
+    # 内置K线库不桩会真实请求内网服务；单测隔离在桩边界。
+    service.read_internal_kline_data = lambda **_kwargs: []
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
     rows = service.get_kline_data("600000.SS", "cn", 100, data_source="dfcf")
 
-    assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
+    assert dfcf.calls == [("600000", "1", 100, {"kline_type": "101", "adjust_type": None})]
     assert rows[0]["stock_code"] == "600000.SH"
     assert rows[0]["stock_name"] == "浦发银行"
     assert rows[0]["open"] == 10.0
@@ -261,6 +265,7 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
     _TdxClient.calls = []
     persisted = []
     service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: []
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
     rows = service.get_kline_data("600519.SS", "cn", 1, data_source="tdx", adjust_type="forward")
@@ -276,6 +281,7 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
 
 def test_tdx_source_rejects_non_cn_market():
     service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: []
 
     with pytest.raises(ValueError, match="仅支持 A股"):
         service.get_kline_data("AAPL", "en", 10, data_source="tdx")
@@ -292,12 +298,249 @@ def test_qq_source_passes_us_market_type_to_qq_api():
 
     qq_api = _QqApi()
     service = KlineService(dfcf_api=_DfcfApi(), qq_api=qq_api)
+    service.read_internal_kline_data = lambda **_kwargs: []
 
     rows = service.get_kline_data("AAPL.US", "en", 2, data_source="qq", exchange_market="105", stock_name="Apple")
 
     assert qq_api.request == (
         "AAPL",
         "105",
-        {"limit": 2, "adjust_type": None, "market_type": "en"},
+        {"limit": 2, "kline_type": "101", "adjust_type": None, "market_type": "en"},
     )
     assert {row["stock_code"] for row in rows} == {"AAPL.US"}
+
+
+def test_kline_type_is_forwarded_to_dfcf_and_qq():
+    dfcf = _DfcfApi()
+    service = KlineService(dfcf_api=dfcf)
+
+    service.get_kline_data("600000", "cn", 5, data_source="dfcf", kline_type="30")
+
+    assert dfcf.calls[-1][3]["kline_type"] == "30"
+
+    class _QqRecorder:
+        def __init__(self):
+            self.kwargs = None
+
+        def get_stock_kline_data(self, stock_code, exchange, **kwargs):
+            self.kwargs = kwargs
+            return _rows("2024-01-01", "2024-01-31")
+
+    recorder = _QqRecorder()
+    service = KlineService(dfcf_api=_DfcfApi(), qq_api=recorder)
+    service.get_kline_data("600000", "cn", 5, data_source="qq", kline_type="5")
+
+    assert recorder.kwargs["kline_type"] == "5"
+
+
+def test_minute_kline_skips_internal_read_and_write():
+    dfcf = _DfcfApi()
+    service = KlineService(dfcf_api=dfcf)
+    service.read_internal_kline_data = lambda **_kwargs: (_ for _ in ()).throw(
+        AssertionError("分钟周期不应读内部K线库")
+    )
+    service.write_internal_kline_data = lambda rows, **kwargs: (_ for _ in ()).throw(
+        AssertionError("分钟周期不应写内部K线库")
+    )
+
+    rows = service.get_kline_data("600000", "cn", 5, data_source="dfcf", kline_type="5")
+
+    assert dfcf.calls[-1][3]["kline_type"] == "5"
+    assert rows
+
+
+def test_minute_kline_keeps_root_datetime():
+    class _MinuteDfcfApi:
+        def get_search_list_by_stock_code(self, stock_code, _page_size):
+            return [{"code": stock_code, "market": "1", "shortName": "浦发银行"}]
+
+        def get_stock_kline_data(self, stock_code, market, limit, **kwargs):
+            return [
+                {"stock_date": "2024-01-01 09:30", "open": 10, "close": 11, "high": 12, "low": 9,
+                 "volume": 100, "amount": 1100, "vwap": 11.0},
+                {"stock_date": "2024-01-01 10:00", "open": 11, "close": 12, "high": 13, "low": 10,
+                 "volume": 100, "amount": 1150, "vwap": 11.5},
+            ]
+
+    service = KlineService(dfcf_api=_MinuteDfcfApi())
+
+    rows = service.get_kline_data("600000", "cn", 5, data_source="dfcf", kline_type="1")
+
+    assert [row["stock_datetime"] for row in rows] == ["2024-01-01 09:30", "2024-01-01 10:00"]
+    assert {row["stock_date"] for row in rows} == {"2024-01-01"}
+
+
+def test_normalize_stock_date_supports_compact_datetime():
+    assert KlineService._normalize_stock_date("202609301500") == "2026-09-30"
+    assert KlineService._normalize_stock_date("20260930") == "2026-09-30"
+    assert KlineService._normalize_stock_datetime("202609301500") == "2026-09-30 15:00"
+    assert KlineService._normalize_stock_datetime("20260930150030") == "2026-09-30 15:00"
+    assert KlineService._normalize_stock_datetime("2026-09-30") == ""
+    assert KlineService._normalize_stock_datetime("2026-09-30 15:00") == "2026-09-30 15:00"
+
+
+def _daily_rows_for_aggregation():
+    """两周日线：09-21~09-25（周一至周五）、09-28~09-30（周一至周三）。"""
+    rows = []
+    for date, open_, close_, high, low, volume, amount in [
+        ("2026-09-21", 10.0, 10.5, 10.8, 9.9, 100, 1050),
+        ("2026-09-22", 10.5, 10.4, 10.6, 10.2, 110, 1140),
+        ("2026-09-23", 10.4, 10.8, 11.0, 10.3, 120, 1290),
+        ("2026-09-24", 10.8, 11.0, 11.2, 10.7, 130, 1420),
+        ("2026-09-25", 11.0, 11.2, 11.5, 10.9, 140, 1560),
+        ("2026-09-28", 11.2, 11.5, 11.6, 11.1, 150, 1700),
+        ("2026-09-29", 11.5, 11.4, 11.7, 11.3, 160, 1830),
+        ("2026-09-30", 11.4, 11.6, 11.8, 11.3, 170, 1960),
+    ]:
+        rows.append({
+            "stock_code": "600000.SH",
+            "stock_name": "浦发银行",
+            "stock_date": date,
+            "open": open_,
+            "close": close_,
+            "high": high,
+            "low": low,
+            "volume": volume,
+            "amount": amount,
+        })
+    return rows
+
+
+def test_week_kline_is_aggregated_from_daily_for_daily_only_source():
+    class _AkshareApi:
+        def __init__(self):
+            self.calls = []
+
+        def get_stock_kline_data(self, stock_code, exchange, limit=None, adjust_type=None,
+                                 market_type=None, start_date=None, end_date=None):
+            self.calls.append(limit)
+            return _daily_rows_for_aggregation()
+
+    akshare = _AkshareApi()
+    service = KlineService(dfcf_api=_DfcfApi())
+    service._akshare_api = akshare
+
+    rows = service.get_kline_data("600000", "cn", 3, data_source="akshare", kline_type="102")
+
+    # 日线拉取条数按周放大（3×7），akshare 不接收周K周期
+    assert akshare.calls[-1] == 21
+    assert len(rows) == 2
+    first = rows[0]
+    assert first["stock_date"] == "2026-09-25"  # 组内最后交易日
+    assert first["open"] == 10.0
+    assert first["close"] == 11.2
+    assert first["high"] == 11.5
+    assert first["low"] == 9.9
+    assert first["volume"] == 600.0
+    assert first["amount"] == 6460.0
+    assert first["vwap"] == round(6460.0 / 600.0, 3)
+
+
+def test_month_kline_is_aggregated_from_daily_for_daily_only_source():
+    class _AkshareApi:
+        def get_stock_kline_data(self, stock_code, exchange, limit=None, adjust_type=None,
+                                 market_type=None, start_date=None, end_date=None):
+            return _daily_rows_for_aggregation()
+
+    service = KlineService(dfcf_api=_DfcfApi())
+    service._akshare_api = _AkshareApi()
+
+    rows = service.get_kline_data("600000", "cn", 5, data_source="akshare", kline_type="103")
+
+    assert len(rows) == 1  # 两天跨月数据全在 9 月 → 一个月K
+    only = rows[0]
+    assert only["stock_date"] == "2026-09-30"
+    assert only["open"] == 10.0
+    assert only["close"] == 11.6
+    assert only["high"] == 11.8
+    assert only["low"] == 9.9
+
+
+def test_week_kline_is_native_for_dfcf_without_aggregation():
+    dfcf = _DfcfApi()
+    service = KlineService(dfcf_api=dfcf)
+
+    service.get_kline_data("600000", "cn", 5, data_source="dfcf", kline_type="102")
+
+    # 原生源直传周K：条数不放大、kline_type 透传 102
+    assert dfcf.calls[-1][2] == 5
+    assert dfcf.calls[-1][3]["kline_type"] == "102"
+
+
+class _YahooApi:
+    def __init__(self, name=""):
+        self._name = name
+        self.name_calls = []
+
+    def get_kline_data(self, ticker, *args, **kwargs):
+        return _rows("2024-01-01", "2024-01-31")
+
+    def get_stock_name(self, ticker):
+        self.name_calls.append(ticker)
+        return self._name
+
+
+def _prepare_us_yahoo_service(service, yahoo_api):
+    service.yahoo_api = yahoo_api
+    # 美股不走内部K线库，显式隔离避免测试环境差异
+    service.read_internal_kline_data = lambda **_kwargs: []
+    service.write_internal_kline_data = lambda *args, **kwargs: None
+
+
+def _fetch_us_yahoo(service):
+    return service.get_kline_data(
+        "AAPL.US", "en", 100, data_source="yahoo",
+        start_date="2024-01-01", end_date="2024-01-31",
+    )
+
+
+def test_yahoo_source_resolves_stock_name_via_dfcf_search():
+    service = KlineService(dfcf_api=_DfcfApi())
+    _prepare_us_yahoo_service(service, _YahooApi())
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {"Apple"}
+
+
+def test_yahoo_source_falls_back_to_yahoo_long_name_when_search_fails():
+    dfcf = _DfcfApi()
+    dfcf.get_search_list_by_stock_code = lambda code, size: {"error": "上游不可用"}
+    service = KlineService(dfcf_api=dfcf)
+    _prepare_us_yahoo_service(service, _YahooApi(name="Invesco QQQ Trust"))
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {"Invesco QQQ Trust"}
+
+
+def test_yahoo_source_keeps_empty_name_when_all_resolvers_fail():
+    dfcf = _DfcfApi()
+    dfcf.get_search_list_by_stock_code = lambda code, size: {"error": "上游不可用"}
+    service = KlineService(dfcf_api=dfcf)
+    _prepare_us_yahoo_service(service, _YahooApi(name=""))
+
+    rows = _fetch_us_yahoo(service)
+
+    assert rows
+    assert {row["stock_name"] for row in rows} == {""}
+
+
+def test_stock_name_soft_resolver_caches_result_per_code_and_market():
+    dfcf = _DfcfApi()
+    search_calls = []
+
+    def _search(stock_code, page_size):
+        search_calls.append(stock_code)
+        return [{"code": stock_code, "market": "105", "shortName": "Apple"}]
+
+    dfcf.get_search_list_by_stock_code = _search
+    service = KlineService(dfcf_api=dfcf)
+
+    first = service._resolve_stock_name_soft("AAPL.US", "en")
+    second = service._resolve_stock_name_soft("AAPL.US", "en")
+
+    assert first == second == "Apple"
+    assert len(search_calls) == 1  # 第二次命中进程内缓存，不再发起搜索

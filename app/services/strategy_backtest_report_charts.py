@@ -20,7 +20,9 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, MultipleLocator
+from matplotlib.ticker import (
+    FixedLocator, FuncFormatter, LogLocator, MaxNLocator, MultipleLocator, NullFormatter,
+)
 from numpy import isnan, linspace, ma
 
 from app.utils.value_parser import parse_float
@@ -51,22 +53,30 @@ def _benchmark_color(index: int) -> str:
 
 
 def benchmark_label(benchmark: dict[str, Any], index: int) -> str:
-    """基准图例文案；服务端已按单基准"指数"/多基准"指数(代码)"填好 label。"""
+    """基准图例文案；服务端已按 组合基准"组合指数"/自定义"指数(代码)" 填好 label。"""
     return str(benchmark.get("label") or f"指数{index + 1}")
 # 相关系数热力图配色：0 附近为标准蓝，向 +1/-1 两端渐变为白（相关性越强越浅）。
 CORRELATION_CMAP = LinearSegmentedColormap.from_list(
     "correlation_blue_white",
     [(0.0, "#FFFFFF"), (0.5, BLUE), (1.0, "#FFFFFF")],
 ).with_extremes(bad="#F0F0F0")
+# 同向率热力图配色：同向率通常集中在 40%~60%，中段保持近白以突出文字，
+# 仅高同向率（≥80%）逐步加深，避免整片中间蓝导致发闷。
+SAME_DIRECTION_CMAP = LinearSegmentedColormap.from_list(
+    "same_direction_white_blue",
+    [(0.0, "#FFFFFF"), (0.5, "#EAF0FA"), (0.8, "#A8BFE0"), (1.0, BLUE)],
+).with_extremes(bad="#F0F0F0")
 # 折线主线条宽（pt）：CHART_DPI=240 下 1pt ≈ 3.3 物理像素，视觉粗细按此换算。
 LINE_WIDTH = 0.8
 # 回撤面积图的描边线宽（pt），细于主折线以突出填充主体。
 AREA_EDGE_WIDTH = LINE_WIDTH
 # 使用项目根目录定位字体，避免依赖部署机器的 Windows 字体目录。
+# 复用 Word/PDF 报告同一套 Noto Sans SC（app/assets/fonts），字形与旧 CJKsc 一致，
+# 不再额外随 static 分发 32MB 的全量 CJK 字体副本。
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FONTS_DIR = PROJECT_ROOT / "static" / "fonts"
-FONT_REGULAR_PATH = FONTS_DIR / "NotoSansCJKsc-Regular.otf"
-FONT_BOLD_PATH = FONTS_DIR / "NotoSansCJKsc-Bold.otf"
+FONTS_DIR = PROJECT_ROOT / "app" / "assets" / "fonts"
+FONT_REGULAR_PATH = FONTS_DIR / "NotoSansSC-Regular.otf"
+FONT_BOLD_PATH = FONTS_DIR / "NotoSansSC-Bold.otf"
 
 
 def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -> dict[str, str]:
@@ -87,6 +97,8 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应；
     # 全部序列（含回撤）由服务端 _build_chart_data 预先算好，这里只负责渲染。
     benchmarks = chart_data.get("benchmarks") or []
+    # 策略图例与报告表格的策略列头同源（_strategy_label），缺省回落历史文案。
+    strategy_label = str(chart_data.get("strategy_label") or "策略")
     strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
     strategy_drawdown = _numeric_series(chart_data.get("strategy_drawdown"), len(dates), 0.0)
     nav_series = [
@@ -109,6 +121,7 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
 
     charts = {
         "累计净值曲线": output_dir / "累计净值曲线.png",
+        "累计净值曲线（对数）": output_dir / "累计净值曲线（对数）.png",
         "最大回撤曲线": output_dir / "最大回撤曲线.png",
         "超额收益曲线": output_dir / "超额收益曲线.png",
         "分年度收益": output_dir / "分年度收益.png",
@@ -116,17 +129,18 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     }
     _draw_line_chart(
         charts["累计净值曲线"], "累计净值曲线", dates,
-        [*nav_series, ("策略", strategy_nav, ORANGE)], "净值",
+        [*nav_series, (strategy_label, strategy_nav, ORANGE)], "净值",
+    )
+    # 对数净值图与线性图同序列同配色，紧跟其后；插入顺序即 Word 插图顺序。
+    _draw_line_chart(
+        charts["累计净值曲线（对数）"], "累计净值曲线（对数）", dates,
+        [*nav_series, (strategy_label, strategy_nav, ORANGE)], "净值", log_y=True,
     )
     # 最大回撤曲线按面积图渲染；与折线变体保持相同签名，便于一键切换。
     _draw_drawdown_area_chart(
         charts["最大回撤曲线"], "最大回撤曲线", dates,
-        [*drawdown_series, ("策略回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
+        [*drawdown_series, (f"{strategy_label}回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     )
-    # _draw_excess_line_bar_chart(
-    #     charts["超额收益曲线"], "累计超额收益曲线", dates,
-    #     _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
-    # )
     _draw_line_chart(
         charts["超额收益曲线"], "累计超额收益曲线", dates,
         excess_line_series, "超额收益（%）", percent=True,
@@ -183,6 +197,55 @@ def generate_correlation_heatmap(
                 color=color, fontproperties=_font(cell_font_size),
             )
     colorbar = figure.colorbar(image, ax=axis, shrink=0.85, pad=0.02)
+    colorbar.ax.tick_params(colors=TEXT, labelsize=8)
+    for label in colorbar.ax.get_yticklabels():
+        label.set_fontproperties(_font(8))
+    colorbar.outline.set_edgecolor("#9EADBD")
+    figure.tight_layout()
+    _save_figure(figure, Path(output_path))
+
+
+def generate_same_direction_heatmap(
+    labels: list[str],
+    matrix: list[list[Any]],
+    output_path: str | Path,
+) -> None:
+    """权重日涨跌幅同向率热力图：N×N 方阵，单元格内直接标注同向天数占比。
+
+    同向 = 双方同日同涨或同跌，分母为全部共同交易日；缺失（无共同交易日）
+    的格子以灰色底与 "-" 展示，对角线恒为 100%。
+    """
+    _ensure_fonts_available()
+    count = len(labels)
+    # 边长规则与相关系数热力图一致，保证两张图并排/上下呈现时观感统一。
+    size = min(9.0, max(4.0, 0.62 * count + 1.8))
+    figure = Figure(figsize=(size, size * 0.94), dpi=CHART_DPI, facecolor=BACKGROUND)
+    FigureCanvasAgg(figure)
+    axis = figure.subplots()
+    values = [[float("nan") if cell is None else float(cell) for cell in row] for row in matrix]
+    image = axis.imshow(
+        ma.masked_invalid(values), cmap=SAME_DIRECTION_CMAP, vmin=0.0, vmax=1.0, origin="lower",
+    )
+    axis.set_xticks(range(count), labels, rotation=45, ha="right", fontproperties=_font(8))
+    axis.set_yticks(range(count), labels, fontproperties=_font(8))
+    axis.tick_params(colors=TEXT, length=0)
+    cell_font_size = 8 if count <= 8 else 7
+    for row_index, row in enumerate(values):
+        for column_index, value in enumerate(row):
+            if isnan(value):
+                text, color = "-", "#8C8C8C"
+            else:
+                # 仅最深蓝（高同向率）区域用白字，其余保持正文灰保证对比度。
+                text = f"{value:.1%}"
+                color = "#FFFFFF" if value >= 0.92 else TEXT
+            axis.text(
+                column_index, row_index, text, ha="center", va="center",
+                color=color, fontproperties=_font(cell_font_size),
+            )
+    colorbar = figure.colorbar(
+        image, ax=axis, shrink=0.85, pad=0.02,
+        format=FuncFormatter(lambda value, _position: f"{value:.0%}"),
+    )
     colorbar.ax.tick_params(colors=TEXT, labelsize=8)
     for label in colorbar.ax.get_yticklabels():
         label.set_fontproperties(_font(8))
@@ -297,6 +360,15 @@ def _set_percent_axis(axis: Any, axis_name: str) -> None:
     (axis.xaxis if axis_name == "x" else axis.yaxis).set_major_formatter(formatter)
 
 
+def _set_log_axis(axis: Any) -> None:
+    # 主刻度取 1/2/5 系列并显示普通数字；次要刻度不标注，
+    # 避免小数净值区间出现 4×10⁻¹ 这类嘈杂标签。
+    axis.set_yscale("log")
+    axis.yaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
+    axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _position: f"{value:g}"))
+    axis.yaxis.set_minor_formatter(NullFormatter())
+
+
 def _draw_line_chart(
     path: Path,
     title: str,
@@ -305,6 +377,7 @@ def _draw_line_chart(
     y_label: str,
     *,
     percent: bool = False,
+    log_y: bool = False,
 ) -> None:
     _columns, height, _top = _legend_layout(len(series))
     figure = _new_figure(height=height)
@@ -319,6 +392,8 @@ def _draw_line_chart(
     axis.margins(x=0.01, y=0.12)
     if percent:
         _set_percent_axis(axis, "y")
+    if log_y:
+        _set_log_axis(axis)
     _style_axis(axis)
     # 图表标题由 Word 模板的 Heading 2 提供，PNG 内不重复绘制标题。
     legend_top = _place_legend(figure, axis, len(series))
@@ -431,7 +506,8 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
          _numeric_series(benchmark.get("values"), len(years), 0.0), _benchmark_color(index))
         for index, benchmark in enumerate(benchmarks)
     ]
-    entries.append(("策略", _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
+    entries.append((str(data.get("strategy_label") or "策略"),
+                    _numeric_series(data.get("strategy"), len(years), 0.0), ORANGE))
     count = len(entries)
     bar_width = 0.8 / count
     _columns, height, _top = _legend_layout(count)
@@ -450,15 +526,6 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, Any]) -> Non
     legend_top = _place_legend(figure, axis, count)
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=legend_top)
     _save_figure(figure, path)
-
-
-def _histogram_limits(values: list[float]) -> tuple[float, float]:
-    minimum, maximum = min(values), max(values)
-    if minimum == maximum:
-        # 常数序列需要人为扩展范围，否则 Matplotlib 无法生成可见的柱形。
-        padding = max(abs(minimum) * 0.12, 0.01)
-        return minimum - padding, maximum + padding
-    return minimum, maximum
 
 
 def _symmetric_histogram_limit(values: list[float]) -> float:
@@ -605,7 +672,7 @@ def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> No
         (benchmark_label(benchmark, index), _finite_values(benchmark.get("values")), _benchmark_color(index))
         for index, benchmark in enumerate(benchmarks)
     ]
-    panels.append(("策略", _finite_values(data.get("strategy")), ORANGE))
+    panels.append((str(data.get("strategy_label") or "策略"), _finite_values(data.get("strategy")), ORANGE))
     values = [value for _, series, _ in panels for value in series]
     # 全部面板共用、以 0 为中心的核心区间和分箱边界，便于左右对比。
     symmetric_limit = _symmetric_histogram_limit(values)
@@ -627,19 +694,11 @@ def _draw_daily_distribution(path: Path, title: str, data: dict[str, Any]) -> No
         axis.set_xlim(-symmetric_limit, symmetric_limit)
         # 0% 是收益率分布的关键参照点，使用浅色细线避免喧宾夺主。
         axis.axvline(0, color="#9EADBD", linewidth=0.8)
-        # 面板小标题自明：指数 / 指数(代码) / 策略 日收益分布。
+        # 面板小标题自明：组合指数 / 指数(代码) / 组合策略 日收益分布。
         axis.set_title(f"{panel_label}日收益分布", color=TEXT, fontproperties=_font(9), pad=8)
         _set_axis_labels(axis, x_label="日收益率（%）")
         _apply_symmetric_percent_ticks(axis, symmetric_limit, mark_overflow=overflow_count > 0)
         _style_axis(axis)
-    if overflow_count:
-        # 归并需在图内说明，否则读者会把边缘柱当成普通分箱。
-        # axes[-1].text(
-        #     0.98, 0.96, f"{overflow_count} 笔超出 ±{symmetric_limit * 100:.1f}% 已并入两端",
-        #     transform=axes[-1].transAxes, color="#8C8C8C", fontproperties=_font(7),
-        #     ha="right", va="top",
-        # )
-        pass
     _set_axis_labels(axes[0], y_label="频数")
     figure.tight_layout(rect=(0, 0, 1, 0.98))
     _save_figure(figure, path)

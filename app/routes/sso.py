@@ -20,5 +20,7 @@ sso_bp = Blueprint('sso', __name__)
 def sso_exchange():
     token = request.headers.get('Token', '').strip()
     if not token:
+        token = request.form.get('token', '').strip()
+    if not token:
         raise UnauthorizedError('未提供主服务令牌')
     return success(data=sso_service.exchange_sso_token(token))

@@ -22,10 +22,17 @@ class TokenImportSchema(APIModel):
 
 
 class WorksheetsQuerySchema(APIModel):
-    """POST /api/google-sheet/worksheets。"""
+    """POST /api/google-sheets/worksheets。"""
 
     spreadsheet_id: str = ""
     proxy_url: str | None = None
+
+
+class CombinationEstimateSchema(APIModel):
+    """POST /api/google-sheet/combination-estimate（C5/C7/C1.1 组合数精算）。"""
+
+    task_type: str = ""
+    config: dict = {}
 
 
 class SheetCreateSchema(APIModel):

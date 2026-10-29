@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+from app.utils.json_utils import dumps, loads
 import math
 import sys
 from pathlib import Path
@@ -38,6 +38,7 @@ from app import create_app
 from app.extensions import db
 from app.models import Task, TaskResult, TaskResultReturn
 from app.services.performance_analysis.facade import calculate_v1_metrics
+from app.utils.formatting import sanitize_json_value
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
 from app.utils.return_series import parse_return_series_fields
 from app.utils.task_types import normalize_task_type
@@ -63,17 +64,6 @@ PREVIEW_TASK_TYPES = (
 )
 
 CHUNK_SIZE = 100
-
-
-def _sanitize(value):
-    """递归把 NaN/inf 转 None，保证 allow_nan=False 的 JSON 序列化不报错。"""
-    if isinstance(value, dict):
-        return {key: _sanitize(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_sanitize(item) for item in value]
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    return value
 
 
 def _missing_keys(metrics) -> list[str]:
@@ -109,7 +99,7 @@ def backfill_result(task_result: TaskResult, force: bool, recompute: bool = True
 
     ``recompute=False`` 为快速普查模式：只诊断缺键，不做重算（--all dry-run 用）。
     """
-    payload = json.loads(task_result.result) if task_result.result else {}
+    payload = loads(task_result.result) if task_result.result else {}
     if not isinstance(payload, dict) or not payload:
         return "skipped: result JSON 为空"
 
@@ -147,8 +137,8 @@ def backfill_result(task_result: TaskResult, force: bool, recompute: bool = True
     if still_missing:
         print(f"  [警告] 重算后仍缺失（数据形态导致，如除零）: {still_missing}")
 
-    task_result.result = json.dumps(
-        _sanitize(payload), ensure_ascii=False, allow_nan=False, default=str
+    task_result.result = dumps(
+        sanitize_json_value(payload), ensure_ascii=False, allow_nan=False, default=str
     )
     return "recomputed"
 

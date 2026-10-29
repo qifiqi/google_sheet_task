@@ -281,23 +281,52 @@
             hk: '香港', uk: '伦敦', fr: '法国', de: '德国', sg: '新加坡',
             au: '澳大利亚', my: '马来西亚', futures: '期货', fund: '场外基金',
         };
+        // 数据源/取价/复权为逐产品生效值（products[]），顶层同名字段不读（多品任务无顶层权威值）。
+        const klineDataSourceLabels = {
+            akshare: 'AKShare', dfcf: '东方财富', qq: '腾讯',
+            yahoo: 'Yahoo', tdx: '通达信', database: '内置K线库',
+        };
+        const priceModeLabels = {
+            vwap_price: '加权平均价', kp_price: '开盘价',
+            sp_price: '收盘价', ohlc_price: 'OHLC（开高低收）',
+        };
+        const klineAdjustmentLabels = { forward: '前复权', back: '后复权', none: '不复权' };
+        const tokenTypeLabels = { file: '文件', json: 'JSON' };
+        // 逐产品字段聚合展示：去重后按产品顺序以「、」连接，空值不计入
+        const summarizeProductField = (field, labels) => {
+            const values = [];
+            const seen = new Set();
+            products.forEach((product) => {
+                const raw = String(product?.[field] ?? '').trim();
+                if (!raw || seen.has(raw)) return;
+                seen.add(raw);
+                values.push(labels[raw] || raw);
+            });
+            return values.length ? values.join('、') : null;
+        };
         const markets = [...new Set(products
             .map((product) => String(product.market_type || '').trim().toLowerCase())
             .filter(Boolean))].sort();
         const marketText = markets.length
             ? markets.map((market) => marketLabels[market] || market).join('、')
             : null;
+        const dataSourceText = summarizeProductField('kline_data_source', klineDataSourceLabels)
+            || (config.kline_data_source ? (klineDataSourceLabels[config.kline_data_source] || config.kline_data_source) : null);
+        const priceModeText = summarizeProductField('price_mode', priceModeLabels);
+        const adjustmentText = summarizeProductField('kline_adjustment', klineAdjustmentLabels);
         const items = [
             { label: 'K线开始日期', value: config.start_date },
             { label: 'K线结束日期', value: config.end_date },
             { label: '产品数量', value: products.length },
             { label: '市场', value: marketText },
             { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
-            { label: 'K线数据源', value: config.kline_data_source },
+            { label: 'K线数据源', value: dataSourceText },
+            { label: '取价模式', value: priceModeText },
+            { label: 'K线复权', value: adjustmentText },
             { label: '固定产品批次', value: config.fixed_product_batch_id },
             { label: 'Token ID', value: config.token_id },
             { label: 'Token 名称', value: config.token_name },
-            { label: 'Token 类型', value: config.token_type },
+            { label: 'Token 类型', value: config.token_type ? (tokenTypeLabels[config.token_type] || config.token_type) : null },
             { label: 'Token 任务类型', value: config.token_task_type },
             { label: 'Token 文件', value: config.token_file },
         ];
@@ -308,6 +337,74 @@
                 <div class="task-config-value">${formatConfigDisplayValue(item.value)}</div>
             </div>
         `).join('');
+    }
+
+    // 产品 Sheet 卡片：拼接标准谷歌 Sheet 地址，点击新窗口跳转（与 Vue 版 Detail.vue sheetCards 同步）。
+    function buildGoogleSheetUrl(spreadsheetId) {
+        return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+    }
+
+    function renderSheetCards(config) {
+        const section = document.getElementById('taskSheetSection');
+        const grid = document.getElementById('taskSheetGrid');
+        if (!section || !grid) {
+            return;
+        }
+
+        const products = Array.isArray(config.products) ? config.products : [];
+        if (!products.length) {
+            section.classList.add('d-none');
+            grid.innerHTML = '';
+            return;
+        }
+
+        section.classList.remove('d-none');
+        // 每品 K线取数配置标签（数据源/取价/复权均为产品级生效值，与 renderTaskConfig 口径一致）
+        const cardKlineDataSourceLabels = {
+            akshare: 'AKShare', dfcf: '东方财富', qq: '腾讯',
+            yahoo: 'Yahoo', tdx: '通达信', database: '内置K线库',
+        };
+        const cardPriceModeLabels = {
+            vwap_price: '加权平均价', kp_price: '开盘价',
+            sp_price: '收盘价', ohlc_price: 'OHLC（开高低收）',
+        };
+        const cardKlineAdjustmentLabels = { forward: '前复权', back: '后复权', none: '不复权' };
+        grid.innerHTML = products.map((product, index) => {
+            const sheet = product.sheet || {};
+            const spreadsheetId = sheet.spreadsheet_id || '';
+            const name = escapeHtml(product.product_name || product.name || `产品 ${index + 1}`);
+            const modelLabel = escapeHtml(inferProductModelVersion(product).toUpperCase());
+            const stockMarket = `${escapeHtml(product.stock_code || '-')} / ${escapeHtml(product.market_type || '-')}`;
+            const hasRatio = !(product.ratio === undefined || product.ratio === null || product.ratio === '');
+            const ratio = hasRatio ? `${escapeHtml(product.ratio)}%` : '-';
+            const sheetTitle = escapeHtml(sheet.title || sheet.sheet_name || spreadsheetId || '-');
+            const sheetName = escapeHtml(sheet.sheet_name || '-');
+            const klineSettingText = [
+                product.kline_data_source ? (cardKlineDataSourceLabels[product.kline_data_source] || product.kline_data_source) : '',
+                product.price_mode ? (cardPriceModeLabels[product.price_mode] || product.price_mode) : '',
+                product.kline_adjustment ? (cardKlineAdjustmentLabels[product.kline_adjustment] || product.kline_adjustment) : '',
+            ].filter(Boolean).join(' · ');
+            const klineSettingLine = klineSettingText
+                ? `<div class="task-sheet-card__sub">${escapeHtml(klineSettingText)}</div>`
+                : '';
+            const inner = `
+                <div class="task-sheet-card__head">
+                    <span class="task-sheet-card__name" title="${name}">${name}</span>
+                    <span class="badge text-bg-info">${modelLabel}</span>
+                </div>
+                <div class="task-sheet-card__meta">${stockMarket} · ${ratio}</div>
+                <div class="task-sheet-card__sheet" title="${sheetTitle}">${sheetTitle}</div>
+                <div class="task-sheet-card__sub">工作表：${sheetName}</div>
+                ${klineSettingLine}
+                <div class="task-sheet-card__cta ${spreadsheetId ? '' : 'task-sheet-card__cta--empty'}">
+                    ${spreadsheetId ? '打开 Google Sheet <i class="bi bi-box-arrow-up-right"></i>' : '缺少 spreadsheet_id，无法跳转'}
+                </div>
+            `;
+            if (spreadsheetId) {
+                return `<a class="task-sheet-card" href="${escapeHtml(buildGoogleSheetUrl(spreadsheetId))}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+            }
+            return `<div class="task-sheet-card">${inner}</div>`;
+        }).join('');
     }
 
     function renderParameterTable(config) {
@@ -847,7 +944,7 @@
             const hiddenKeys = [
                 'stock_code',
                 'year',
-                'Kline_key',
+                'kline_key',
                 'kline',
                 'parameter',
                 'product_name',
@@ -1111,6 +1208,7 @@
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
             renderTaskConfig(currentTaskConfig);
+            renderSheetCards(currentTaskConfig);
             renderParameterTable(currentTaskConfig);
             updateTaskResultSectionMode(currentTaskConfig);
             loadTaskResults({ silent });
@@ -1150,21 +1248,40 @@
         });
     }
 
+    // 日志增量拉取游标：首载全量，其后每 tick 只取 after_id 之后的新增行做追加
+    let lastTaskLogId = null;
+
     function loadTaskLogs(options = {}) {
         const { silent = false } = options;
-        Api.endpoints.task.logs(currentTaskId).then(function(data) {
+        const incremental = lastTaskLogId != null;
+        Api.endpoints.task.logs(currentTaskId, incremental ? `after_id=${lastTaskLogId}` : '').then(function(data) {
             const logContainer = document.getElementById('log-container');
             if (!logContainer) {
                 return;
             }
 
-            const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
-            logContainer.innerHTML = renderTaskLogs((data && data.logs) || []);
-            if (wasNearBottom) {
-                logContainer.scrollTop = logContainer.scrollHeight;
+            const logs = (data && data.logs) || [];
+            if (incremental && logs.length > 0) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.insertAdjacentHTML('beforeend', renderTaskLogs(logs));
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            } else if (!incremental) {
+                const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+                logContainer.innerHTML = renderTaskLogs(logs);
+                if (wasNearBottom) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            }
+            const maxId = logs.reduce((acc, log) => (log.id != null && log.id > acc ? log.id : acc), lastTaskLogId || 0);
+            if (maxId > 0) {
+                lastTaskLogId = maxId;
             }
             updateRefreshTime();
         }).catch(function(err) {
+            // 出错即丢弃游标，下一 tick 回落全量加载自愈
+            lastTaskLogId = null;
             const logContainer = document.getElementById('log-container');
             if (logContainer) {
                 logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
@@ -1183,16 +1300,16 @@
 
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             refreshPageData({ silent: true });
         }, AUTO_REFRESH_INTERVAL);
     }
 
     function stopAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }

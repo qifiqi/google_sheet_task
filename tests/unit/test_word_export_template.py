@@ -1,11 +1,14 @@
 """通用 Word JSON 导出器测试。"""
 
+import zipfile
+from pathlib import Path
+
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pytest
 
-from app.services.word_export_template import generate_word_document
+from app.services.word_export_template import WORD_TEMPLATE_PATH, generate_word_document
 
 
 def test_generate_word_document_applies_table_alignment_and_font(tmp_path):
@@ -53,3 +56,48 @@ def test_generate_word_document_rejects_legacy_report_json(tmp_path):
     """旧回测专用 JSON 不再被通用渲染器接受。"""
     with pytest.raises(ValueError, match="title"):
         generate_word_document({"report_type": "RPT-S", "sections": []}, tmp_path / "legacy.docx")
+
+
+@pytest.mark.skipif(not WORD_TEMPLATE_PATH.is_file(), reason="缺少 Word 模板底板文件")
+def test_generate_word_document_uses_template_and_replaces_footer_text(tmp_path):
+    """模板模式：水印、页眉免责声明与页码域随模板保留，页脚报告名替换为当前标题。"""
+    output_path = tmp_path / "templated.docx"
+
+    generate_word_document({"title": "自定义组合回测报告", "blocks": []}, output_path)
+
+    with zipfile.ZipFile(output_path) as archive:
+        names = archive.namelist()
+        chrome_text = "".join(
+            archive.read(name).decode("utf-8")
+            for name in names
+            if name.startswith(("word/header", "word/footer")) and name.endswith(".xml")
+        )
+    assert "word/media/image7.png" in names
+    assert "WordPictureWatermark" in chrome_text
+    assert "免责声明" in chrome_text
+    assert "PAGE" in chrome_text
+    assert "自定义组合回测报告" in chrome_text
+    assert "量化策略回测绩效分析报告" not in chrome_text
+
+    document = Document(output_path)
+    assert document.core_properties.title == "自定义组合回测报告"
+    assert document.core_properties.author == "迦柏资本"
+
+
+def test_generate_word_document_falls_back_to_blank_document_without_template(tmp_path):
+    """模板缺失时回退空白文档：页面与页脚由导出器自管，无水印部件。"""
+    output_path = tmp_path / "fallback.docx"
+
+    generate_word_document(
+        {"title": "回退文档", "blocks": []},
+        output_path,
+        template_path=tmp_path / "missing.docx",
+    )
+
+    document = Document(output_path)
+    assert document.sections[0].footer.paragraphs[0].text == "回退文档"
+    assert document.core_properties.author == "迦柏资本"
+    with zipfile.ZipFile(output_path) as archive:
+        names = archive.namelist()
+    assert not any(name.startswith("word/media/") for name in names)
+    assert not any(Path(name).name.startswith("header") for name in names)

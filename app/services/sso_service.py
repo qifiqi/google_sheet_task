@@ -26,9 +26,9 @@ import requests
 from flask import current_app
 from werkzeug.security import generate_password_hash
 
-from app.config import SSO_ROLE
 from app.exceptions import ServiceError, UnauthorizedError
 from app.repositories import auth_repository
+from app.seeds.rbac_seeds import SSO_ROLE
 from app.utils.auth import create_access_token, create_refresh_token
 from app.utils.logger import get_logger
 

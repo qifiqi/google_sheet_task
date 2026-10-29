@@ -20,23 +20,31 @@ class TaskResultMixin:
         传入分页参数时返回分页结构，否则返回完整结果列表。
         """
         if page is not None and per_page is not None:
-            counts = task_result_repository.count_by_task_success(task_id)
-            page_data = task_result_repository.list_by_task_paginated(task_id, page, per_page)
-            return {
-                "items": page_data["items"],
-                "total": page_data["total"],
-                "pages": page_data["pages"],
-                "current_page": page_data["current_page"],
-                "per_page": page_data["per_page"],
-                "total_success": counts["total_success"],
-                "total_failed": counts["total_failed"],
-            }
+            # list_by_task_paginated 已含 total/success/failed 计数，不再重复聚合
+            return task_result_repository.list_by_task_paginated(task_id, page, per_page)
 
         return task_result_repository.list_by_task(task_id)
 
-    def get_results_paginated(self, page: int, per_page: int, task_id: str | None = None):
-        """跨任务结果分页列表（/results GET）。"""
-        return task_result_repository.list_paginated(page, per_page, task_id=task_id)
+    def get_task_results_fields(self, task_id: str, fields: list[str]) -> list[dict]:
+        """字段白名单投影的任务结果列表（fields 查询参数；下拉/索引类消费方）。"""
+        return task_result_repository.list_by_task_fields(task_id, fields)
+
+    def get_results_paginated(
+        self,
+        page: int,
+        per_page: int,
+        task_id: str | None = None,
+        success: bool | None = None,
+        keyword: str | None = None,
+    ):
+        """跨任务结果分页列表（/results GET），支持 success/keyword 过滤。"""
+        return task_result_repository.list_paginated(
+            page,
+            per_page,
+            task_id=task_id,
+            success=success,
+            keyword=keyword,
+        )
 
     def get_result_detail(self, result_id: int):
         """结果详情（含 task_type 投影）；不存在返回 None。"""

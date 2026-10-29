@@ -25,13 +25,15 @@ def test_extract_task_result_payload_handles_metadata_outside_sheet_payload(app_
             result=json.dumps({
                 "return_series_id": 99,
                 "sheet__title": {
-                    "calculate_metrics": {
-                        "excess_returns": [
-                            {
-                                "year": "all",
-                                "start_annualized_return": 0.12,
-                            }
-                        ]
+                    "metrics_payload": {
+                        "metrics": {
+                            "excess_returns": [
+                                {
+                                    "year": "all",
+                                    "start_annualized_return": 0.12,
+                                }
+                            ]
+                        }
                     },
                     "D2": "12%",
                 },
@@ -74,7 +76,7 @@ def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}"
+            f"/api/backtest-training/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200
@@ -89,7 +91,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
             name="C7 units",
             task_type="backtest_training",
             status="completed",
-            config=json.dumps({"sheet": {"title": "C7 model"}}),
+            config=json.dumps({"sheets": [{"title": "C7 model", "model_version": "c7_0_2"}]}),
         )
         db.session.add(task)
         task_result = TaskResult(
@@ -97,7 +99,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
             step_index=0,
             parameters="{}",
             result=json.dumps({"sheet__title": {
-                "calculate_metrics": {"excess_returns": []},
+                "metrics_payload": {"metrics": {"excess_returns": []}},
                 "D10": "-0.14",
                 "D18": "0.01",
                 "D22": "122.95%",
@@ -109,7 +111,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
         response = app.test_client().get(
-            f"/backtest-training/api/task-result/{task_result.id}"
+            f"/api/backtest-training/task-result/{task_result.id}"
         )
 
         assert response.status_code == 200
@@ -166,14 +168,14 @@ def test_backtest_training_keeps_price_mode_in_config(app_factory):
         manager = TaskManager()
 
         normalized_default = manager._normalize_task_config_for_type("backtest_training", {
-            "sheet": {"spreadsheet_id": "sheet-1"},
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
         })
         normalized_custom = manager._normalize_task_config_for_type("backtest_training", {
-            "sheet": {"spreadsheet_id": "sheet-1"},
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
             "price_mode": "kp_price",
         })
         normalized_vwap = manager._normalize_task_config_for_type("backtest_training", {
-            "sheet": {"spreadsheet_id": "sheet-1"},
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
             "price_mode": "vwap_price",
         })
 
@@ -201,7 +203,7 @@ def test_backtest_training_normalizes_six_parameter_rows_on_create(app_factory):
         manager = TaskManager()
 
         normalized = manager._normalize_task_config_for_type("backtest_training", {
-            "sheet": {"spreadsheet_id": "sheet-1", "title": "C3"},
+            "sheets": [{"spreadsheet_id": "sheet-1", "title": "C3"}],
             "parameters": [["4", "0.8", "1", "0", "0.6", "0.4"]],
         })
 
@@ -224,7 +226,7 @@ def test_backtest_training_preserves_complete_c3_parameter_rows(app_factory):
         complete_row = ["0.02%", "4", "0.8", "1.1", "1", "0", "0.6", "0.4"]
 
         normalized = manager._normalize_task_config_for_type("backtest_training", {
-            "sheet": {"spreadsheet_id": "sheet-1", "title": "C3"},
+            "sheets": [{"spreadsheet_id": "sheet-1", "title": "C3"}],
             "parameters": [complete_row],
         })
 

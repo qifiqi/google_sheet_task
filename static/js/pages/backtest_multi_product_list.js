@@ -3,7 +3,7 @@
 // 接口调用经 common/api.js。
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_multi_product';
-const BATCH_EXPORT_API = '/api/exports/global-previews/batch';
+const BATCH_EXPORT_API = '/api/exports/global-previews/batch-export';
 const DEFAULT_PAGE_SIZE = 20;
 const BATCH_EXPORT_MAX_TASKS = 10;
 const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
@@ -19,6 +19,9 @@ let paginationState = {
 };
 let isLoadingTasks = false;
 let currentPageTasks = [];
+let stockCodeFilter = '';
+let statusFilter = '';
+let keywordFilter = '';
 const selectedBatchExportTaskIds = new Set();
 
 function readStoredListPaginationState() {
@@ -79,6 +82,83 @@ function inferModelVersion(task) {
     return products.length ? `${versionText} · ${products.length}品` : versionText;
 }
 
+// 产品 chip 折叠阈值：超出后收敛为 +N，悬停 title 查看剩余全量。
+const PRODUCT_CHIPS_MAX_VISIBLE = 3;
+
+function getTaskProducts(task) {
+    return Array.isArray(task.config?.products) ? task.config.products : [];
+}
+
+// chip 口径与详情页产品卡一致：主文本 product_name，title 补 stock_code / market_type。
+function buildProductChipLabel(product) {
+    return String(product.product_name || product.name || product.stock_code || '').trim();
+}
+
+function buildProductChipTitle(product) {
+    const name = String(product.product_name || product.name || '').trim();
+    const details = [String(product.stock_code || '').trim(), String(product.market_type || '').trim()].filter(Boolean);
+    if (name && details.length) {
+        return `${name}（${details.join(' · ')}）`;
+    }
+    return name || details.join(' · ');
+}
+
+function buildProductChipItems(task) {
+    return getTaskProducts(task)
+        .map((product) => ({ label: buildProductChipLabel(product), title: buildProductChipTitle(product) }))
+        .filter((item) => item.label);
+}
+
+function buildProductDetailText(task) {
+    return buildProductChipItems(task)
+        .map((item) => item.title || item.label)
+        .join('；');
+}
+
+function buildProductChipsHtml(task) {
+    const items = buildProductChipItems(task);
+    if (!items.length) {
+        return '-';
+    }
+    // 任一 chip 点击打开产品清单表格弹窗（title 只承载单个产品的快捷信息）。
+    const taskId = Biz.escapeHtml(String(task.id || ''));
+    const chips = items.slice(0, PRODUCT_CHIPS_MAX_VISIBLE).map((item) =>
+        `<span class="product-chip product-chip--toggle" role="button" tabindex="0" aria-haspopup="dialog" data-task-id="${taskId}" title="${Biz.escapeHtml(item.title || item.label)}">${Biz.escapeHtml(item.label)}</span>`
+    );
+    const restCount = items.length - PRODUCT_CHIPS_MAX_VISIBLE;
+    if (restCount > 0) {
+        chips.push(`<span class="product-chip product-chip--more product-chip--toggle" role="button" tabindex="0" aria-haspopup="dialog" data-task-id="${taskId}">+${restCount}</span>`);
+    }
+    return chips.join('');
+}
+
+// 产品清单弹窗行：名称 / 股票代码 / 市场 三列（口径与 chip title 一致）。
+function buildProductListRows(task) {
+    return getTaskProducts(task).map((product, index) => ({
+        name: String(product.product_name || product.name || '').trim() || `产品 ${index + 1}`,
+        code: String(product.stock_code || '').trim() || '-',
+        market: String(product.market_type || '').trim() || '-',
+    }));
+}
+
+function openProductListModal(taskId) {
+    const task = currentPageTasks.find((item) => String(item.id || '') === String(taskId));
+    if (!task) {
+        return;
+    }
+    const rows = buildProductListRows(task);
+    document.getElementById('productListTaskName').textContent = ` · ${task.name || '未命名任务'}`;
+    document.getElementById('productListCount').textContent = `共 ${rows.length} 个产品`;
+    document.getElementById('productListTableBody').innerHTML = rows.map((row) => `
+        <tr>
+            <td>${Biz.escapeHtml(row.name)}</td>
+            <td>${Biz.escapeHtml(row.code)}</td>
+            <td>${Biz.escapeHtml(row.market)}</td>
+        </tr>
+    `).join('');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('productListModal')).show();
+}
+
 function buildKlineRangeText(task) {
     const config = task.config || {};
     if (!config.start_date && !config.end_date) {
@@ -129,12 +209,10 @@ function buildExecutionParamsHtml(task) {
 function renderTaskCell(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const taskName = task.name || '未命名任务';
-    const products = Array.isArray(task.config?.products) ? task.config.products : [];
-    const productNames = products.map((item) => item.product_name || item.stock_code).filter(Boolean).join(' / ') || '-';
 
     return `
         <div class="fw-semibold" title="${Biz.escapeHtml(task.id || '')}">${Biz.escapeHtml(taskName)}</div>
-        <div class="task-meta text-body-secondary">ID: ${Biz.escapeHtml(shortId)} · 产品: ${Biz.escapeHtml(productNames)}</div>
+        <div class="task-meta text-body-secondary">ID: ${Biz.escapeHtml(shortId)} · 产品: <span class="product-chip-wrap">${buildProductChipsHtml(task)}</span></div>
     `;
 }
 
@@ -199,7 +277,7 @@ function renderBatchExportTaskList() {
                 <input class="form-check-input mt-1" type="checkbox" tabindex="-1" ${isSelected ? 'checked' : ''} ${isCompleted ? '' : 'disabled'} aria-label="选择任务">
                 <span class="text-start">
                     <span class="d-block fw-semibold batch-export-task-title">${Biz.escapeHtml(task.name || '未命名任务')}</span>
-                    <span class="d-block small text-body-secondary mt-1">${Biz.escapeHtml(getTaskSecondaryText(task))}</span>
+                    <span class="d-block small text-body-secondary mt-1" title="${Biz.escapeHtml(buildProductDetailText(task))}">${Biz.escapeHtml(getTaskSecondaryText(task))}</span>
                     <span class="d-block small text-body-secondary mt-1">模型版本：${Biz.escapeHtml(inferModelVersion(task))} · 创建：${Biz.escapeHtml(Biz.formatTime(task.created_at))}</span>
                     ${disabledReason}
                 </span>
@@ -225,14 +303,12 @@ function clearBatchExportSelection() {
 
 async function exportSelectedBatchTasks() {
     const button = document.getElementById('confirmBatchExportBtn');
-    const originalHtml = button.innerHTML;
     const taskIds = [...selectedBatchExportTaskIds];
     if (!taskIds.length) {
         return;
     }
 
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+    setButtonBusy(button, true, '导出中…');
     try {
         const response = await Api.endpoints.export.globalPreviewsBatch(taskIds);
         if (!response.ok) {
@@ -264,7 +340,7 @@ async function exportSelectedBatchTasks() {
     } catch (error) {
         alert(error.message || '导出失败');
     } finally {
-        button.innerHTML = originalHtml;
+        setButtonBusy(button, false);
         updateBatchExportSummary();
     }
 }
@@ -365,6 +441,16 @@ async function loadTasks(options = {}) {
         page: String(nextPage),
         per_page: String(nextPerPage)
     });
+    const code = stockCodeFilter.trim();
+    if (code) {
+        query.set('stock_code', code);
+    }
+    if (statusFilter) {
+        query.set('status', statusFilter);
+    }
+    if (keywordFilter.trim()) {
+        query.set('keyword', keywordFilter.trim());
+    }
     isLoadingTasks = true;
     try {
         const data = await Api.endpoints.task.list(query.toString());
@@ -438,6 +524,12 @@ async function loadTasks(options = {}) {
 }
 
 document.addEventListener('click', (event) => {
+    const productChip = event.target.closest('.product-chip--toggle');
+    if (productChip) {
+        openProductListModal(productChip.dataset.taskId);
+        return;
+    }
+
     const exportCard = event.target.closest('.batch-export-task-card');
     if (exportCard && exportCard.dataset.disabled !== 'true') {
         event.preventDefault();
@@ -462,6 +554,12 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+    const productChip = event.target.closest('.product-chip--toggle');
+    if (productChip) {
+        event.preventDefault();
+        openProductListModal(productChip.dataset.taskId);
         return;
     }
     const exportCard = event.target.closest('.batch-export-task-card');
@@ -489,6 +587,52 @@ document.getElementById('pageSizeSelect').addEventListener('change', (event) => 
     loadTasks({ page: 1, perPage: nextPerPage });
 });
 
+// 股票代码筛选：服务端按 config 内 stock_code 过滤（分页/统计同步收敛）。
+function applyStockCodeFilter() {
+    stockCodeFilter = document.getElementById('stockCodeFilterInput').value;
+    document.getElementById('clearStockCodeFilterBtn').disabled = !stockCodeFilter.trim();
+    loadTasks({ page: 1 });
+}
+
+document.getElementById('applyStockCodeFilterBtn').addEventListener('click', applyStockCodeFilter);
+document.getElementById('stockCodeFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        applyStockCodeFilter();
+    }
+});
+document.getElementById('clearStockCodeFilterBtn').addEventListener('click', () => {
+    document.getElementById('stockCodeFilterInput').value = '';
+    stockCodeFilter = '';
+    document.getElementById('clearStockCodeFilterBtn').disabled = true;
+    loadTasks({ page: 1 });
+});
+
+// 状态 / 关键字筛选：与股票代码筛选同样走服务端过滤（分页/统计同步收敛）。
+document.getElementById('statusFilterSelect').addEventListener('change', (event) => {
+    statusFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        keywordFilter = document.getElementById('keywordFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('keywordFilterInput').addEventListener('change', (event) => {
+    keywordFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('resetAllFiltersBtn').addEventListener('click', () => {
+    document.getElementById('stockCodeFilterInput').value = '';
+    document.getElementById('keywordFilterInput').value = '';
+    document.getElementById('statusFilterSelect').value = '';
+    stockCodeFilter = '';
+    keywordFilter = '';
+    statusFilter = '';
+    document.getElementById('clearStockCodeFilterBtn').disabled = true;
+    loadTasks({ page: 1 });
+});
+
 document.getElementById('openBatchExportBtn').addEventListener('click', () => {
     renderBatchExportTaskList();
     bootstrap.Modal.getOrCreateInstance(document.getElementById('batchExportModal')).show();
@@ -505,4 +649,5 @@ const initialListPagination = getInitialListPaginationState();
 paginationState.page = initialListPagination.page;
 paginationState.per_page = initialListPagination.per_page;
 loadTasks();
-setInterval(loadTasks, 5000);
+// 列表自动刷新：1 分钟一次（与详情页 AUTO_REFRESH_INTERVAL 对齐，仅页面可见时）。
+setIntervalVisible(loadTasks, 60 * 1000);

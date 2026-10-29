@@ -4,14 +4,13 @@
 分析入口所需的数据；具体绩效指标仍复用本包的计算组件。
 """
 
-import json
-import math
+from app.utils.json_utils import dumps
 import re
 from typing import Any, Dict, List
 
-import numpy as np
 import pandas as pd
 
+from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
 from app.utils.value_parser import _convert_pandas_to_native
 
@@ -19,54 +18,8 @@ logger = get_logger(__name__)
 
 
 class TextReturnAnalysisMixin:
-    def get_performance_analysis(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
-        """根据日期和日收益数据计算 绩效分析 指标。"""
-        if not data:
-            return {}
-
-        try:
-            # 转换为DataFrame便于计算
-            # Convert to DataFrame for calculation
-            df = pd.DataFrame(data)
-            df['date'] = pd.to_datetime(df[date])
-            df = df.sort_values('date')
-
-            # 1. 计算净值
-            # Calculate net value
-            df['net_value'] = 1 * (1 + df[val])
-
-            # 2. 提取年份信息
-            # Extract year and month information
-            df['year'] = df['date'].dt.year
-            df['month'] = df['date'].dt.month
-            df['year_month'] = df['date'].dt.strftime('%Y-%m')
-
-            # 计算月度收益率数据
-            # Calculate monthly return data
-            monthly_data = self.calculate_monthly_return_data(df)
-
-            # 创建月度收益率DataFrame
-            # Create monthly return DataFrame
-            monthly_df = pd.DataFrame(monthly_data)
-
-            # 记录数据范围信息
-            # Record data range information
-            start_date = df['date'].min()
-            end_date = df['date'].max()
-            total_months = len(monthly_df)
-
-            logger.info(f"数据时间范围/Data time range: {start_date.date()} 到/to {end_date.date()}")
-            logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
-            # 计算全部数据的夏普比率
-            # Calculate Sharpe ratio for all data
-            res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
-            return res
-
-        except Exception as e:
-            logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
-            return {}
-
-    def analyze(self, data, time_format: str = 'auto', runtime_params=None) -> Dict[str, Any]:
+    def analyze(self, data, time_format: str = 'auto', runtime_params=None,
+                include_series: bool = False) -> Dict[str, Any]:
         """
         分析输入的Excel数据并返回结果和指标
 
@@ -74,6 +27,7 @@ class TextReturnAnalysisMixin:
             data: 输入的文本数据
             time_format: 时间格式，默认为'auto'自动检测
             runtime_params: 市场阶段指标运行参数（``MetricsRuntimeParamsDTO`` 或原始字典）
+            include_series: 是否随响应导出净值序列（dual 模式才有；single 模式 series 为 null）
 
         Returns:
             Dict[str, Any]: 包含分析结果和指标的字典
@@ -89,24 +43,31 @@ class TextReturnAnalysisMixin:
                 raise ValueError("无法解析输入数据")
 
             # 计算指标
+            v1_result = None
             if self._has_dual_return_columns(parsed_data):
                 from app.services.performance_analysis.facade import calculate_v1_metrics
 
-                metrics = calculate_v1_metrics(
+                v1_result = calculate_v1_metrics(
                     parsed_data, runtime_params=runtime_params, analyzer=self
-                ).metrics
+                )
+                metrics = v1_result.metrics
                 metrics["analysis_mode"] = "dual"
             else:
                 metrics = self._calculate_metrics(parsed_data)
                 metrics["analysis_mode"] = "single"
-            metrics = self._sanitize_for_json(_convert_pandas_to_native(metrics))
+            metrics = sanitize_json_value(metrics)
 
             # 准备返回结果
-            return {
+            payload = {
                 'status': 'success',
                 'results': metrics,
                 # 'metrics': metrics
             }
+            if include_series:
+                from app.services.performance_analysis.facade import build_series_payload
+
+                payload['series'] = build_series_payload(v1_result)
+            return payload
 
         except Exception as e:
             logger.error(f"分析数据时出错: {str(e)}", exc_info=True)
@@ -161,7 +122,7 @@ class TextReturnAnalysisMixin:
                     "start_return": start_return,  # 模型收益率 Start return
                 })
 
-            except (ValueError, IndexError) as e:
+            except (ValueError, IndexError):
                 logger.warning(f"解析行 {i + 1} 时出错: {line}")
                 continue
 
@@ -186,21 +147,6 @@ class TextReturnAnalysisMixin:
             else:
                 value = float(value)
         return round(float(value), 4)
-
-    @classmethod
-    def _sanitize_for_json(cls, value: Any) -> Any:
-        """递归清理 NaN、时间对象和 NumPy 标量，使分析结果可 JSON 编码。"""
-        if isinstance(value, dict):
-            return {key: cls._sanitize_for_json(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [cls._sanitize_for_json(item) for item in value]
-        if isinstance(value, tuple):
-            return [cls._sanitize_for_json(item) for item in value]
-        if isinstance(value, np.generic):
-            value = value.item()
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        return value
 
     def _calculate_metrics(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -251,9 +197,9 @@ class TextReturnAnalysisMixin:
 
             # 打印调试信息
             # Print debug information
-            logger.debug("Maximum Drawdown: %s", json.dumps(maximum_drawdown, indent=4, default=str))
-            logger.debug("Monthly Returns: %s", json.dumps(returns_rate, indent=4, default=str))
-            logger.debug("Sharpe Ratios: %s", json.dumps(sharpe_ratios, indent=4, default=str))
+            logger.debug("Maximum Drawdown: %s", dumps(maximum_drawdown, indent=4, default=str))
+            logger.debug("Monthly Returns: %s", dumps(returns_rate, indent=4, default=str))
+            logger.debug("Sharpe Ratios: %s", dumps(sharpe_ratios, indent=4, default=str))
 
             return result
 

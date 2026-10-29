@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from app.models import Task
+from app.models import Task, TaskStatus
 from app.repositories import task_repository
+from app.utils.formatting import to_beijing_iso
 
 
 class TaskDashboardQueryService:
@@ -20,14 +21,6 @@ class TaskDashboardQueryService:
             for task_type in task_repository.list_distinct_task_types()
             if task_type
         ]
-
-    def get_dashboard_counts(self) -> dict[str, int]:
-        """admin 首页仪表盘四连 count：{total, completed, running, error}。"""
-        return task_repository.summary_counts()
-
-    def get_recent_tasks(self, limit: int = 10) -> list[dict]:
-        """admin 首页最近任务列表（dict 形态，created_at 倒序）。"""
-        return task_repository.list_recent(limit)
 
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
         daily_trend = self._build_empty_daily_trend(now, days=days)
@@ -46,7 +39,7 @@ class TaskDashboardQueryService:
             "daily_trend": daily_trend,
             "recent_tasks": [],
             "active_tasks": [],
-            "checked_at": now.isoformat(),
+            "checked_at": to_beijing_iso(now),
         }
 
     def get_recent_task_models(
@@ -66,7 +59,7 @@ class TaskDashboardQueryService:
         return task_repository.list_recent_entities(
             allowed_task_types,
             limit=limit,
-            status="running",
+            status=TaskStatus.RUNNING.value,
         )
 
     def get_status_distribution(self, allowed_task_types: Iterable[str]) -> dict[str, int]:

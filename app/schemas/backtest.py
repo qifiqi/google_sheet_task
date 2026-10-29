@@ -3,13 +3,34 @@
 import math
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import APIModel
+from app.utils.request_parsing import parse_query
 
 
 class CalculateRatiosSchema(APIModel):
     ratios: list[Any]
+    # 预览运行参数（当前仅无风险利率）：按当前比例实时重算的指标需要它，
+    # 缺省表示沿用默认口径（rf=0，与回测执行时一致）。
+    runtime_params: dict[str, Any] | None = None
+
+
+class GlobalPreviewQuery(APIModel):
+    """全局预览查询参数（GET 预览 / 预览导出共用）。
+
+    只承载预览侧可调口径，当前仅无风险利率；取值范围与 DTO 校验互补：
+    这里拦"按百分比误传"的笔误，DTO 负责数值合法性。
+    """
+
+    # 无风险利率：年化、小数形式（3% 传 0.03）。前端按 0~100% 输入后转小数发送。
+    risk_free_rate: float | None = Field(default=None, ge=-1, le=1)
+
+    @field_validator("risk_free_rate", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value):
+        """空字符串与缺省同义（前端未填时不带该参数）。"""
+        return None if isinstance(value, str) and not value.strip() else value
 
 
 SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
@@ -63,11 +84,15 @@ class StrategyBacktestReportSchema(APIModel):
     # 市场阶段阈值交给 performance_analysis 的运行参数对象。
     runtime_params: dict[str, Any] = {}
     # RPT-M 组合指数开关：是否把全部产品按比例组合作为一个基准列（列头固定为
-    # "指数"，无任何标记）；关闭且未选自定义指数时仍回落组合，保证报告恒有基准。
+    # "组合指数"，无括号标记）；关闭且未选自定义指数时仍回落组合，保证报告恒有基准。
     include_composite_benchmark: bool = True
-    # group_key 形态专用字段（仅 export_service 消费，generate_word 不使用）。
+    # group_key 形态专用字段：export_service 按任务构建 products 后回填到载荷，
+    # generate_word 的默认文件名方案段（G组号）消费。
     group_key: str | None = None
     ratios: Any = None
+    # 默认文件名价格/复权段（统一 slug，如 close-qfq / rnd-oc）；不由前端传入，
+    # export_service 按 task_id 回查任务配置后回填，缺省时文件名省略该段。
+    price_adjust: str | None = None
 
     @field_validator("report_type", mode="before")
     @classmethod
@@ -202,13 +227,15 @@ class StrategyBacktestReportSchema(APIModel):
 
 
 class UpdateRatiosSchema(APIModel):
-    """PUT /backtest-multi-product/api/global-preview/<task_id>/ratios。"""
+    """PUT /api/backtest-multi-product/global-preview/<task_id>/ratios。"""
 
     ratios: list[Any]
+    # 保存比例后返回的预览载荷按同一口径重算，语义同 CalculateRatiosSchema。
+    runtime_params: dict[str, Any] | None = None
 
 
 class ReturnSeriesExportSchema(APIModel):
-    """POST /backtest-multi-product/api/global-preview/<task_id>/return-series。
+    """POST /api/backtest-multi-product/global-preview/<task_id>/return-series。
 
     纯数据载荷：直查 t_param_task_results_return 返回累计收益序列；
     ratios 覆盖产品比例（未传用任务默认比例），group_key 过滤参数方案。
@@ -220,6 +247,17 @@ class ReturnSeriesExportSchema(APIModel):
 
 
 class PreviewGroupSchema(APIModel):
-    """POST /global-preview/api/tasks/<task_id>/preview-group。"""
+    """POST /api/global-preview/tasks/<task_id>/preview-group。"""
 
     result_ids: list[int] = []
+
+
+def parse_preview_runtime_params() -> dict[str, Any] | None:
+    """全局预览的运行参数（当前仅无风险利率，年化小数形式）。
+
+    GET 预览与预览导出共用：与页面读同一组查询参数
+    （``GlobalPreviewQuery``），保证导出的 Excel 与页面看到的指标同源；
+    None 表示未指定 → 沿用默认口径（rf=0）。
+    """
+    risk_free_rate = parse_query(GlobalPreviewQuery).risk_free_rate
+    return None if risk_free_rate is None else {"risk_free_rate": risk_free_rate}

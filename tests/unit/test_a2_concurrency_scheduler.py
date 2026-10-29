@@ -84,6 +84,26 @@ def test_submit_task_execution_registers_handle_before_runner(app_factory):
         assert handle.is_alive() is False
 
 
+def test_submit_task_execution_trims_memory_after_runner(app_factory, monkeypatch):
+    """任务收尾在 runner 返回后归还 arena 内存（线上 RSS 不回落修复）。"""
+    from app.services.task import facade
+
+    app = app_factory
+    with app.app_context():
+        manager = TaskManager()
+        trimmed = []
+        monkeypatch.setattr(
+            facade, "_trim_worker_memory", lambda task_id: trimmed.append(task_id)
+        )
+
+        handle = manager.submit_task_execution(
+            "t-trim", app, lambda _task_id, _app: None
+        )
+        handle.join(timeout=5.0)
+
+        assert trimmed == ["t-trim"]
+
+
 def test_force_detach_running_task_atomic(app_factory):
     app = app_factory
     with app.app_context():

@@ -56,7 +56,10 @@ def test_template_crud_envelope(auth_client):
     resp = client.post(
         "/api/templates",
         headers=headers,
-        json={"name": "tpl-a", "description": "d", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-a", "description": "d", "config": {
+            "task_type": "google_sheet",
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
+        }},
     )
     assert resp.status_code == 200
     body = resp.get_json()
@@ -79,7 +82,10 @@ def test_template_crud_envelope(auth_client):
     resp = client.put(
         f"/api/templates/{template_id}",
         headers=headers,
-        json={"name": "tpl-b", "config": {"task_type": "google_sheet"}},
+        json={"name": "tpl-b", "config": {
+            "task_type": "google_sheet",
+            "sheets": [{"spreadsheet_id": "sheet-1"}],
+        }},
     )
     assert resp.get_json()["data"]["template"]["name"] == "tpl-b"
 
@@ -95,10 +101,11 @@ def test_template_crud_envelope(auth_client):
 def test_results_endpoints_envelope(auth_client):
     client, headers = auth_client
 
-    # 空列表
+    # 空列表（/results 附带成功/失败计数，形状对齐单任务 results 分页分支）
     resp = client.get("/api/results", headers=headers)
     assert resp.get_json()["data"] == {
         "items": [], "total": 0, "pages": 0, "current_page": 1, "per_page": 20,
+        "total_success": 0, "total_failed": 0,
     }
 
     # 准备任务与结果
@@ -111,13 +118,28 @@ def test_results_endpoints_envelope(auth_client):
         db.session.commit()
         result_id = result.id
 
-    # 列表：精简投影键不变，整体移入 data
+    # 列表：原有精简键不变，扩展任务名/类型与预览投影
     resp = client.get("/api/results", headers=headers)
     body = resp.get_json()["data"]
     assert body["total"] == 1
-    assert set(body["items"][0].keys()) == {
+    assert body["total_success"] == 1 and body["total_failed"] == 0
+    assert {
         "id", "task_id", "step_index", "success", "timestamp",
-    }
+    } <= set(body["items"][0].keys())
+    assert body["items"][0]["task_name"] == "result task"
+    assert body["items"][0]["task_type"] == "google_sheet"
+
+    # success 过滤：命中与落空
+    resp = client.get("/api/results?success=true", headers=headers)
+    assert resp.get_json()["data"]["total"] == 1
+    resp = client.get("/api/results?success=false", headers=headers)
+    assert resp.get_json()["data"]["total"] == 0
+
+    # keyword 模糊匹配任务名称
+    resp = client.get("/api/results?keyword=result", headers=headers)
+    assert resp.get_json()["data"]["total"] == 1
+    resp = client.get("/api/results?keyword=不存在关键字", headers=headers)
+    assert resp.get_json()["data"]["total"] == 0
 
     # 按 task_id 过滤：任务不存在返回空页
     resp = client.get("/api/results?task_id=missing", headers=headers)
@@ -135,3 +157,28 @@ def test_results_endpoints_envelope(auth_client):
     resp = client.delete(f"/api/results/{result_id}", headers=headers)
     assert resp.status_code == 404
     assert resp.get_json()["message"] == "结果不存在"
+
+
+def test_task_results_paginated_desc_by_step(auth_client):
+    """C 系列详情页执行结果：分页按 step_index 倒序，跨页保持全局倒序。"""
+    client, headers = auth_client
+
+    with client.application.app_context():
+        db.session.add(Task(id="t-r-desc", name="desc task", status="completed"))
+        db.session.commit()
+        db.session.add_all([
+            TaskResult(task_id="t-r-desc", step_index=step, success=True)
+            for step in range(3)
+        ])
+        db.session.commit()
+
+    first = client.get(
+        "/api/tasks/t-r-desc/results?page=1&per_page=2", headers=headers
+    ).get_json()["data"]
+    assert [item["step_index"] for item in first["items"]] == [2, 1]
+    assert first["total"] == 3
+
+    second = client.get(
+        "/api/tasks/t-r-desc/results?page=2&per_page=2", headers=headers
+    ).get_json()["data"]
+    assert [item["step_index"] for item in second["items"]] == [0]

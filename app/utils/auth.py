@@ -1,18 +1,29 @@
 """JWT 认证、权限装饰器与密码策略"""
 import os
+import secrets
 from datetime import datetime, timedelta
 from functools import wraps
 
 import jwt
-from flask import request, g, redirect
+from flask import request, g, redirect, current_app
 
 from app.exceptions import ForbiddenError, UnauthorizedError
 from app.repositories import auth_repository
+from app.repositories.stock_sdk import get_user_info
 from app.services.config_manager import get_config_manager
+from app.utils.logger import get_logger
 
-# 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
+# 公开默认 secret 保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
+# 该常量只是"显式误配置"的识别标记：_get_secret 的任何解析路径都不会再
+# 使用它（等于该值一律视为未配置）；生产环境环境变量显式等于该值时拒绝启动。
 DEFAULT_JWT_SECRET = 'change-me-in-production-secure-key'
 SAFE_AUTH_DISABLED_ENVS = {'development'}
+
+# 进程内随机兜底密钥：环境变量与数据库都未配置 JWT_SECRET_KEY 时使用。
+# 模块导入时生成一次（无 IO，进程内恒定，签名/校验天然一致），从根上杜绝
+# 公开常量被用于签名（旧版在此场景 fail-open 回退默认值，令牌可伪造）。
+# 代价：进程重启后所有存量令牌失效（用户需重新登录，SSO 用户重新走换票即可）。
+_RUNTIME_SECRET = secrets.token_hex(32)
 
 # 页面导航请求无法携带 Authorization 头，登录后由前端把访问令牌同步写入该 cookie，
 # 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
@@ -22,18 +33,23 @@ ACCESS_TOKEN_COOKIE = 'gsc_access_token'
 
 
 def _get_secret():
-    """JWT 签名密钥：优先环境变量（部署时固定，重启/换库不变），其次数据库配置，最后默认值。
+    """JWT 签名密钥解析：环境变量 → 数据库配置 → 进程内随机密钥。
 
-    启动期 validate_auth_runtime_settings 与本函数读取同一环境变量，
-    避免出现"校验用 A、签名用 B"的断裂。
+    - 环境变量优先（部署时固定，重启/换库不变），生产推荐的唯一配置方式；
+    - 数据库配置次之（属受保护配置键，HTTP 配置接口无法写入，仅供运维
+      经服务端脚本显式设置，可跨重启保持令牌有效）；
+    - 两者皆缺省时回退进程内随机密钥。任何路径解析结果等于公开默认常量时
+      一律视为未配置，继续向后回退。
     """
     env_secret = os.environ.get('JWT_SECRET_KEY', '').strip()
-    if env_secret:
+    if env_secret and env_secret != DEFAULT_JWT_SECRET:
         return env_secret
-    cm = get_config_manager()
-    # 环境变量未配置时回退数据库配置/默认值（生产环境应由
-    # validate_auth_runtime_settings 在启动期拒绝默认密钥）。
-    return cm.get_config('JWT_SECRET_KEY', DEFAULT_JWT_SECRET)
+
+    db_secret = str(get_config_manager().get_config('JWT_SECRET_KEY', '') or '').strip()
+    if db_secret and db_secret != DEFAULT_JWT_SECRET:
+        return db_secret
+
+    return _RUNTIME_SECRET
 
 
 def is_auth_enabled() -> bool:
@@ -53,6 +69,10 @@ def validate_auth_runtime_settings(
 
     This validation only uses startup-time configuration (environment variables),
     so it can run before Flask extensions and database-backed config are ready.
+
+    环境变量显式等于公开默认值 → 非开发环境拒绝启动；环境变量未设置 → 不再
+    拒绝启动（旧版在此放行、运行期却回退默认密钥，构成 fail-open），改由
+    _get_secret 回退进程内随机密钥，这里只输出告警提示运维显式配置。
     """
     resolved_env = (app_env or get_app_env()).strip().lower() or 'development'
     resolved_secret = secret if secret is not None else os.environ.get('JWT_SECRET_KEY')
@@ -67,6 +87,16 @@ def validate_auth_runtime_settings(
         raise RuntimeError(
             'JWT_SECRET_KEY must be configured outside development; '
             'refusing to use the default insecure secret.'
+        )
+
+    if (
+        resolved_env not in SAFE_AUTH_DISABLED_ENVS
+        and not (resolved_secret or '').strip()
+    ):
+        get_logger('app.auth').warning(
+            'JWT_SECRET_KEY 环境变量未设置：JWT 将使用进程内随机密钥签名，'
+            '进程重启后所有已签发令牌失效（用户需重新登录）。'
+            '生产部署建议显式设置 JWT_SECRET_KEY。'
         )
 
     if resolved_env not in SAFE_AUTH_DISABLED_ENVS and not resolved_auth_enabled:
@@ -188,32 +218,102 @@ def _extract_request_token():
     return request.cookies.get(ACCESS_TOKEN_COOKIE) or None
 
 
-def _resolve_request_user():
-    """解析并校验当前请求的用户。
-
-    成功返回 (user, None)；失败返回 (None, 用户可见的错误文案)。
-    """
-    token = _extract_request_token()
-    if not token:
-        return None, '未提供认证令牌'
-
+def _resolve_local_token_user(token):
+    """本站 JWT 校验：成功返回 (user, None)，失败返回 (None, 用户可见错误文案)。"""
     try:
         payload = decode_token(token)
         if payload.get('type') != 'access':
-            raise UnauthorizedError('令牌类型错误')
+            return None, '令牌类型错误'
         token_version = extract_token_version(payload)
     except jwt.ExpiredSignatureError:
         return None, '令牌已过期'
     except jwt.InvalidTokenError:
         return None, '无效令牌'
 
-    user = auth_repository.get_user_entity(payload['user_id'])
+    user = auth_repository.get_user_entity(payload.get('user_id'))
     if not user or not user.is_active:
         return None, '用户不存在或已禁用'
     if int(user.token_version or 0) != token_version:
         return None, '登录状态已失效，请重新登录'
 
     return user, None
+
+
+class _ExternalTokenUser:
+    """外部 Token（stock_sdk GetUserInfo 校验通过）的请求身份：只读，无本地角色/权限。"""
+
+    def __init__(self, identity):
+        self.id = None
+        self.username = identity.get('username') or ''
+        self.main_userid = identity.get('userid')
+        self.is_active = True
+        self.roles = []
+
+    def get_permissions(self):
+        return set()
+
+    def to_dict(self, include_permissions=False):
+        data = {
+            'id': self.id,
+            'username': self.username,
+            'is_active': True,
+            'created_at': None,
+            'last_login': None,
+            'roles': [],
+            'external': True,
+        }
+        if include_permissions:
+            data['permissions'] = []
+        return data
+
+
+def _resolve_external_token_user(token):
+    """Token 头不是本站 JWT 时回落 stock_sdk GetUserInfo 校验。
+
+    通过返回外部身份，未通过（含网络/HTTP 异常）返回 None；异常详情只进
+    日志，令牌本身不落日志。
+    """
+    try:
+        base_url = str(current_app.config.get('STOCK_AUTH_BASE_URL') or '').strip()
+        timeout = float(current_app.config.get('STOCK_AUTH_TIMEOUT') or 5)
+    except RuntimeError:
+        return None
+    if not base_url:
+        return None
+
+    try:
+        identity = get_user_info(token, base_url=base_url, timeout=timeout)
+    except Exception as exc:
+        get_logger('app.auth').warning('外部令牌校验请求失败: %s', exc)
+        return None
+    if not identity:
+        return None
+    return _ExternalTokenUser(identity)
+
+
+def _resolve_request_user():
+    """解析并校验当前请求的用户。
+
+    本站令牌（Authorization Bearer / cookie）优先，语义不变；无本站令牌时
+    接受 ``Token`` 头：先按本站 JWT 校验，非本站签发（key 不存在）再经
+    stock_sdk GetUserInfo 校验，通过即放行本站接口。
+    """
+    token = _extract_request_token()
+    if token:
+        return _resolve_local_token_user(token)
+
+    external_token = request.headers.get('Token', '').strip()
+    if not external_token:
+        return None, '未提供认证令牌'
+
+    user, error = _resolve_local_token_user(external_token)
+    if user is not None:
+        return user, None
+
+    external_user = _resolve_external_token_user(external_token)
+    if external_user is not None:
+        return external_user, None
+    return None, error
 
 
 def login_required(f):

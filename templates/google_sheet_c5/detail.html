@@ -8,6 +8,8 @@
 <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
 <link href="/static/css/template-auth.css" rel="stylesheet">
 <link href="/static/css/common/base.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
+    <link href="/static/css/common/components.css" rel="stylesheet">
 <link href="/static/css/pages/google_sheet_c5_detail.css" rel="stylesheet">
     <script src="/static/js/bootstrap.bundle.min.js"></script>
 </head>
@@ -26,11 +28,11 @@
     <div class="col-md-12">
         <!-- 任务概览卡片 -->
         <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h4 class="card-title mb-0">
                     <i class="bi bi-info-circle"></i> 任务概览
                 </h4>
-                <div class="btn-group" role="group">
+                <div class="d-flex flex-wrap gap-2" role="group">
                     <button class="btn btn-warning btn-sm d-none" id="cancel-task-btn">
                         <i class="bi bi-stop-circle"></i> 停止任务
                     </button>
@@ -57,6 +59,9 @@
                     <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
                         <i class="bi bi-search"></i> 检查状态
                     </button>
+                    <a id="global-preview-link" href="/global-preview/single-product" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
+                        <i class="bi bi-eye"></i> 全局预览
+                    </a>
                     <a href="/google-sheet/?version=c5" class="btn btn-secondary btn-sm">
                         <i class="bi bi-arrow-left"></i> 返回首页
                     </a>
@@ -145,7 +150,7 @@
 
         <!-- 配置信息卡片 -->
         <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h4 class="card-title mb-0">
                     <i class="bi bi-gear"></i> 配置信息
                 </h4>
@@ -191,7 +196,7 @@
 
         <!-- 执行结果卡片 -->
         <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h4 class="card-title mb-0">
                     <i class="bi bi-list-check"></i> 执行结果
                 </h4>
@@ -199,8 +204,14 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
-                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV(this)">
                         <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="openTaskKlineSnapshots()">
+                        <i class="bi bi-eye"></i> 查看随机K线
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportTaskKlineSnapshots(this)">
+                        <i class="bi bi-download"></i> 导出随机K线
                     </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
@@ -243,21 +254,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div id="result-detail-meta" class="mb-3 small text-muted"></div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered mb-0">
-                        <thead>
-                        <tr>
-                            <th style="width: 130px;">字段</th>
-                            <th>值</th>
-                            <th style="width: 130px;">字段</th>
-                            <th>值</th>
-                        </tr>
-                        </thead>
-                        <tbody id="result-detail-body">
-                        </tbody>
-                    </table>
-                </div>
+                <div id="result-detail-meta" class="mb-3"></div>
+                <div id="result-detail-body"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
@@ -324,6 +322,72 @@
                         </div>
                     </div>
 
+                    <!-- K线与价格设置卡片 -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-graph-up"></i> K线与价格设置</h6>
+                            <div class="row">
+                                <div class="col-md-3 mb-3">
+                                    <label for="edit-kline-source" class="form-label">K线来源 kline_source</label>
+                                    <select class="form-select" id="edit-kline-source" disabled>
+                                        <option value="auto">自动K线</option>
+                                        <option value="custom">自定义K线</option>
+                                    </select>
+                                    <div class="form-text">创建后不可切换，如需切换请新建任务</div>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="edit-price-mode" class="form-label">价格类型 price_mode</label>
+                                    <select class="form-select" id="edit-price-mode">
+                                        <option value="vwap_price">加权平均价</option>
+                                        <option value="kp_price">开盘价</option>
+                                        <option value="sp_price">收盘价</option>
+                                        <option value="random_price">随机价</option>
+                                        <option value="ohlc_price" disabled>OHLC（开高低收）</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="edit-kline-adjustment" class="form-label">K线复权 kline_adjustment</label>
+                                    <select class="form-select" id="edit-kline-adjustment">
+                                        <option value="forward">前复权</option>
+                                        <option value="back">后复权</option>
+                                        <option value="none">不复权</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="edit-kline-data-source" class="form-label">K线数据源 kline_data_source</label>
+                                    <select class="form-select" id="edit-kline-data-source">
+                                        <option value="akshare">AKShare</option>
+                                        <option value="dfcf">东方财富</option>
+                                        <option value="qq">腾讯</option>
+                                        <option value="yahoo">Yahoo</option>
+                                        <option value="tdx">通达信</option>
+                                        <option value="database">内置K线库</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row d-none" id="edit-random-price-fields">
+                                <div class="col-md-4 mb-3">
+                                    <label for="edit-random-price-range" class="form-label">随机价格范围 random_price_range</label>
+                                    <select class="form-select" id="edit-random-price-range">
+                                        <option value="high_low">最高价 - 最低价</option>
+                                        <option value="open_close">开盘价 - 收盘价</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="edit-random-group-count" class="form-label">随机组数 random_group_count</label>
+                                    <input type="number" class="form-control" id="edit-random-group-count" min="1" step="1">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="edit-random-series-mode" class="form-label">随机序列模式 random_series_mode</label>
+                                    <select class="form-select" id="edit-random-series-mode">
+                                        <option value="per_window">各窗口独立随机</option>
+                                        <option value="full_truncate">全区间生成后按窗口截断</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Google Sheets 与更多参数卡片 -->
                     <div class="card mb-0">
                         <div class="card-body">
@@ -386,6 +450,15 @@
                                         <div class="col-md-3 mb-3">
                                             <label for="edit-end-date" class="form-label">结束日期 end_date</label>
                                             <input type="date" class="form-control" id="edit-end-date">
+                                        </div>
+                                    </div>
+
+                                    <div class="row mb-3 d-none" id="edit-exclude-years-container">
+                                        <div class="col-12">
+                                            <label class="form-label d-block text-danger">移除的近年区间
+                                                exclude_recent_years</label>
+                                            <div id="edit-exclude-years-options" class="d-flex flex-wrap gap-3"></div>
+                                            <div class="form-text">仅在“N+1 + 近年”模式下生效；取消勾选“近年”时保存为空。</div>
                                         </div>
                                     </div>
 
@@ -457,6 +530,7 @@
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
         <script src="/static/js/common/business/task-polling.js"></script>
+    <script src="/static/js/common/business/kline-snapshot.js"></script>
     <script src="/static/js/common/business/config-edit.js"></script>
 <script src="/static/js/pages/google_sheet_c5_detail.js"></script>
 </body>

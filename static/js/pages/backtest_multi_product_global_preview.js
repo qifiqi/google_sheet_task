@@ -18,6 +18,89 @@ let hasUnsavedRatioPreview = false;
 let ratioInputsDirty = false;
 let appliedRatioSignature = "";
 
+// ===== 无风险利率（页面唯一入口，单位：百分比，如 3 = 3%）=====
+// 口径：影响后端按当前比例实时重算的指标（比例后列、比例计算列）与导出报告
+// （Excel / Word）；单品「指数 / 模型结果」列是回测执行结果，不参与重算。
+// 页面填百分比，请求统一转小数（0.03）——与 runtime_params.risk_free_rate 一致。
+
+function riskFreeInputEl() {
+  return document.getElementById("riskFreeRateInput");
+}
+
+// 严格读取：非法输入抛错，交由调用方 alert（计算预览 / 保存比例 / 导出前调用）。
+function readRiskFreePercent() {
+  const raw = riskFreeInputEl()?.value?.trim();
+  if (!raw) {
+    return 0;
+  }
+  const percent = Number(raw);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new Error("无风险利率需为 0～100 之间的数字（百分比）");
+  }
+  return percent;
+}
+
+// 宽松读取：脏标记计算用，非法输入返回 NaN 以便与已应用值判为不同。
+function riskFreePercentForSignature() {
+  const raw = riskFreeInputEl()?.value?.trim();
+  return raw ? Number(raw) : 0;
+}
+
+function riskFreeDecimal() {
+  return readRiskFreePercent() / 100;
+}
+
+// 0 值不带参数：默认口径下请求 URL 与历史行为逐字一致。非法输入抛错（同严格读取）。
+function riskFreeQuerySuffix() {
+  const percent = readRiskFreePercent();
+  if (percent === 0) {
+    return "";
+  }
+  return `risk_free_rate=${encodeURIComponent(percent / 100)}`;
+}
+
+function riskFreeRuntimeParams() {
+  return { risk_free_rate: riskFreeDecimal() };
+}
+
+// 提交路径统一入口：非法输入 alert 后返回 null，调用方直接中断。
+function riskFreeRuntimeParamsOrAlert() {
+  try {
+    return riskFreeRuntimeParams();
+  } catch (error) {
+    alert(error.message);
+    return null;
+  }
+}
+
+// 回填输入框：以后端回显的口径为准，保证「显示值 = 计算值」。
+function applyRiskFreeFromPayload(payload) {
+  const raw = payload?.runtime_params?.risk_free_rate;
+  const decimal = Number(raw);
+  const input = riskFreeInputEl();
+  if (!input || !Number.isFinite(decimal)) {
+    return;
+  }
+  input.value = String(Number((decimal * 100).toFixed(6)));
+}
+
+// 「比例 + 无风险利率」联合签名：任一变化都要求重新计算预览。
+function inputSignature(values, riskFreePercent) {
+  return `${ratioSignatureFromValues(values)}|rf=${normalizeRatioForSignature(riskFreePercent)}`;
+}
+
+function currentInputSignature() {
+  return inputSignature(collectRatioValues(), riskFreePercentForSignature());
+}
+
+function payloadInputSignature(payload) {
+  const decimal = Number(payload?.runtime_params?.risk_free_rate || 0);
+  return inputSignature(
+    (payload?.products || []).map((product) => product.ratio),
+    decimal * 100,
+  );
+}
+
 function buildExcelDownloadName() {
   const taskName = String(previewPayload?.task?.name || TASK_ID).trim();
   const safeName = taskName
@@ -93,6 +176,7 @@ function renderRatios() {
       (product, index) => `
         <tr>
             <td>${escapeHtml(product.product_name || product.stock_code || `产品 ${index + 1}`)}</td>
+            <td class="ratio-code-cell">${escapeHtml(product.stock_code || "-")} / ${escapeHtml(product.market_type || "-")}</td>
             <td>
                 <div class="ratio-input-cell">
                     <input class="form-control form-control-sm ratio-input" type="number" min="0" step="0.0001" data-index="${index}" value="${escapeHtml(product.ratio || 0)}">
@@ -146,14 +230,18 @@ async function applyRatioPreview() {
     alert("产品比例必须是大于等于 0 的数字");
     return;
   }
+  const runtimeParams = riskFreeRuntimeParamsOrAlert();
+  if (!runtimeParams) {
+    return;
+  }
   if (!previewPayload) {
     return;
   }
-  const signature = ratioSignatureFromValues(ratios);
+  const signature = currentInputSignature();
   if (signature === appliedRatioSignature) {
     ratioInputsDirty = false;
     updateRatioStatus();
-    alert("比例未变化，无需重新计算");
+    alert("比例与无风险利率均未变化，无需重新计算");
     return;
   }
 
@@ -164,11 +252,13 @@ async function applyRatioPreview() {
       encodeURIComponent(TASK_ID),
       {
         ratios: ratios.map((ratio, index) => ({ product_index: index, ratio })),
+        runtime_params: runtimeParams,
       },
     );
     hasUnsavedRatioPreview = true;
     ratioInputsDirty = false;
-    appliedRatioSignature = signature;
+    applyRiskFreeFromPayload(previewPayload);
+    appliedRatioSignature = payloadInputSignature(previewPayload);
     renderSummary();
     renderGroupOptions();
     renderRatios();
@@ -275,12 +365,12 @@ async function loadGlobalPreview() {
   try {
     previewPayload = await Api.endpoints.backtestMulti.globalPreview(
       encodeURIComponent(TASK_ID),
+      riskFreeQuerySuffix(),
     );
     hasUnsavedRatioPreview = false;
     ratioInputsDirty = false;
-    appliedRatioSignature = ratioSignatureFromProducts(
-      previewPayload.products || [],
-    );
+    applyRiskFreeFromPayload(previewPayload);
+    appliedRatioSignature = payloadInputSignature(previewPayload);
     activeGroupKey =
       previewPayload.groups && previewPayload.groups.length
         ? previewPayload.groups[0].group_key
@@ -370,7 +460,7 @@ function takeRatiosFromUrlQuery() {
 
 async function saveRatios() {
   if (ratioInputsDirty) {
-    alert("比例已修改，请先点击“计算预览”确认结果，再保存比例。");
+    alert("比例或无风险利率已修改，请先点击“计算预览”确认结果，再保存比例。");
     return;
   }
   const ratios = Array.from(document.querySelectorAll(".ratio-input")).map(
@@ -388,18 +478,21 @@ async function saveRatios() {
     alert("产品比例必须是大于等于 0 的数字");
     return;
   }
+  const runtimeParams = riskFreeRuntimeParamsOrAlert();
+  if (!runtimeParams) {
+    return;
+  }
   const button = document.getElementById("saveRatiosBtn");
   button.disabled = true;
   try {
     previewPayload = await Api.endpoints.backtestMulti.updateRatios(
       encodeURIComponent(TASK_ID),
-      { ratios },
+      { ratios, runtime_params: runtimeParams },
     );
     hasUnsavedRatioPreview = false;
     ratioInputsDirty = false;
-    appliedRatioSignature = ratioSignatureFromProducts(
-      previewPayload.products || [],
-    );
+    applyRiskFreeFromPayload(previewPayload);
+    appliedRatioSignature = payloadInputSignature(previewPayload);
     renderSummary();
     renderGroupOptions();
     renderRatios();
@@ -412,14 +505,33 @@ async function saveRatios() {
 }
 
 async function exportPreview() {
-  let exportQuery = "";
+  // 与 openExportWordModal 同款守卫：输入已改未重算时导出的仍是旧比例，
+  // 此前 XLSX 路径缺拦截，ratios 会被静默丢弃、按已存储旧值导出
+  if (ratioInputsDirty) {
+    alert('比例或无风险利率已修改，请先点击“计算预览”确认结果，再导出 Excel。');
+    return;
+  }
+  const query = [];
   if (hasUnsavedRatioPreview && !ratioInputsDirty) {
     const ratios = collectRatioValues().map((ratio, index) => ({
       product_index: index,
       ratio,
     }));
-    exportQuery = `?ratios=${encodeURIComponent(JSON.stringify(ratios))}`;
+    query.push(`ratios=${encodeURIComponent(JSON.stringify(ratios))}`);
   }
+  // 无风险利率与比例同为页面口径：导出必须带上，否则 Excel 里的夏普/索提诺
+  // 会退回默认口径，与页面看到的不一致。
+  let riskFreeQuery = "";
+  try {
+    riskFreeQuery = riskFreeQuerySuffix();
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+  if (riskFreeQuery) {
+    query.push(riskFreeQuery);
+  }
+  const exportQuery = query.length ? `?${query.join("&")}` : "";
   const response = await Api.endpoints.export.globalPreview(
     encodeURIComponent(TASK_ID),
     exportQuery,
@@ -510,10 +622,41 @@ function exportReturnSeries() {
 const benchmarkEntries = [];
 const DEFAULT_BENCHMARK_RATIO = 100;
 
-// 组合指数开关：默认开启；开启时全部产品按比例组合为一个基准列，列头固定"指数"。
+// 组合指数开关：默认开启；开启时全部产品按比例组合为一个基准列，列头固定"组合指数"。
 function includeCompositeEnabled() {
     const toggle = document.getElementById('includeCompositeBenchmark');
     return !toggle || toggle.checked;
+}
+
+// 价格类型取值 → 报告"价格类型"展示行文案（与后端 get_price_type 一致）。
+const EXPORT_WORD_PRICE_TYPE_LABELS = {
+    kp_price: '开盘价',
+    sp_price: '收盘价',
+    vwap_price: '加权平均价',
+    ohlc_price: 'OHLC（开高低收）',
+    random_price: '随机价',
+};
+
+// 读取弹窗配置：无风险利率按百分比填写（如 3 = 3%），payload 统一转小数
+// （0.03）双通道（metadata 展示 + runtime_params 重算）；价格类型仅展示，
+// 留空表示跟随任务配置。非法输入抛错交由调用方 alert。
+function readExportWordOptions() {
+    const raw = document.getElementById('export-word-risk-free-rate')?.value?.trim();
+    let percent = 0;
+    if (raw !== '' && raw !== undefined) {
+        percent = Number(raw);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            throw new Error('无风险利率需为 0～100 之间的数字（百分比）');
+        }
+    }
+    const priceValue = document.getElementById('export-word-price-type')?.value || '';
+    return {
+        metadata: {
+            ...(priceValue ? { price_type: EXPORT_WORD_PRICE_TYPE_LABELS[priceValue] } : {}),
+            risk_free_rate: `${percent.toFixed(2)}%`,
+        },
+        runtime_params: { risk_free_rate: percent / 100 },
+    };
 }
 
 // ---- 公共导出函数（不弹窗时也用它）----
@@ -530,6 +673,9 @@ async function exportWordDirectly(benchmarks) {
         if (Array.isArray(benchmarks) && benchmarks.length) {
             payload.index_benchmarks = benchmarks;
         }
+        // 弹窗配置随请求透传：后端把请求 metadata/runtime_params 覆盖到按
+        // 任务重建的载荷上（价格类型展示行 + 无风险利率重算）。
+        Object.assign(payload, readExportWordOptions());
 
         const response = await Api.endpoints.export.wordReport(payload);
 
@@ -559,7 +705,7 @@ async function exportWordDirectly(benchmarks) {
 // ---- 打开弹窗（或直接导出）----
 function openExportWordModal() {
     if (ratioInputsDirty) {
-        alert('比例已修改，请先点击“计算预览”确认结果，再导出 Word。');
+        alert('比例或无风险利率已修改，请先点击“计算预览”确认结果，再导出 Word。');
         return;
     }
     if (!previewPayload || !activeGroupKey) {
@@ -575,6 +721,12 @@ function openExportWordModal() {
     //     return;
     // }
 
+    // 页面上的无风险利率是默认口径：打开弹窗时同步当前值，仍可在弹窗内临时覆盖
+    // （覆盖只影响本次导出，不回写页面）。
+    const modalRiskFreeInput = document.getElementById('export-word-risk-free-rate');
+    if (modalRiskFreeInput) {
+        modalRiskFreeInput.value = String(riskFreePercentForSignature());
+    }
     benchmarkEntries.length = 0;
     renderSelectedBenchmarks();
     renderStockList();
@@ -687,31 +839,151 @@ function renderSelectedBenchmarks() {
 // ---- 确认导出 ----
 document.getElementById('confirmExportWordBtn')?.addEventListener('click', async function () {
     const btn = this;
-    btn.disabled = true;
-    const original = btn.innerHTML;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>导出中...';
+    setButtonBusy(btn, true, '导出中…');
 
     try {
         await exportWordDirectly(benchmarkEntries.map(entry => ({
             stock_code: entry.code,
-            ratio: Number(entry.ratio) || DEFAULT_BENCHMARK_RATIO,
+            // 输入框单位是 %，显式带 % 提交（同 readExportWordOptions 的利率写法）：
+            // 裸数字 ≤1 会被后端 _normalize_index_benchmarks 判为小数比例 ×100（0.5 → 50%）
+            ratio: `${Number(entry.ratio) || DEFAULT_BENCHMARK_RATIO}%`,
         })));
         bootstrap.Modal.getInstance(document.getElementById('exportWordModal'))?.hide();
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = original;
+        setButtonBusy(btn, false);
     }
 });
 
+
+// ===== 填表复制（导出 Word 后人工填表用）=====
+
+// 与后端 split_stock_code 同规则：仅剥离标准市场后缀得到裸代码，
+// 数据源自带的非标准点号（如 BRK.B）不受影响。
+const FILL_STANDARD_CODE_SUFFIXES = new Set([
+  ".SS", ".SH", ".SZ", ".BJ", ".US", ".TO", ".KS", ".T", ".HK",
+  ".L", ".PA", ".DE", ".SI", ".AX", ".KL",
+]);
+
+function stripMarketSuffix(stockCode) {
+  const code = String(stockCode || "").trim().toUpperCase();
+  const dot = code.lastIndexOf(".");
+  if (dot <= 0) {
+    return code;
+  }
+  const suffix = code.slice(dot);
+  return FILL_STANDARD_CODE_SUFFIXES.has(suffix) ? code.slice(0, dot) : code;
+}
+
+// 与后端 get_backtest_model_version 同规则：从产品 Sheet 标题解析模型版本，
+// 展示为大写（C7 家族保留小版本号，与 Word 报告 metadata 口径一致）。
+function resolveProductModelLabel(product) {
+  const sheet = product.sheet && typeof product.sheet === "object" ? product.sheet : {};
+  const title = String(sheet.title || product.title || "").toUpperCase();
+  if (title.includes("C7.0.3")) return "C7.0.3";
+  if (title.includes("C7")) return "C7.0.2";
+  if (title.includes("C5")) return "C5";
+  if (title.includes("C4")) return "C4";
+  if (title.includes("C3") || title.includes("CHARTING:3")) return "C3";
+  return "";
+}
+
+// 比例取页面上当前输入框的实时值（与用户看到的一致），只保留比例 > 0 的产品。
+function collectActiveFillEntries() {
+  if (!previewPayload) {
+    return null;
+  }
+  const products = Array.isArray(previewPayload.products)
+    ? previewPayload.products
+    : [];
+  const ratios = collectRatioValues();
+  return products
+    .map((product, index) => {
+      const ratio = Number(ratios[index] ?? product.ratio ?? 0);
+      return {
+        code: stripMarketSuffix(product.stock_code),
+        ratio: Number.isFinite(ratio) ? ratio : 0,
+        model: resolveProductModelLabel(product),
+      };
+    })
+    .filter((item) => item.code && item.ratio > 0);
+}
+
+// 剪贴板写入：HTTPS/localhost 走异步 API；内网 HTTP 无 secure context，降级 execCommand。
+async function copyTextForFill(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("当前浏览器不支持复制到剪贴板");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyFillContent(button, buildText) {
+  const entries = collectActiveFillEntries();
+  if (!entries) {
+    alert("预览数据尚未加载");
+    return;
+  }
+  if (!entries.length) {
+    alert("没有比例大于 0 的产品可复制");
+    return;
+  }
+  try {
+    await copyTextForFill(buildText(entries));
+    const original = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-check2 me-1"></i>已复制';
+    setTimeout(() => {
+      button.innerHTML = original;
+    }, 1200);
+  } catch (error) {
+    alert(error.message || "复制失败");
+  }
+}
+
+async function copyActiveStockCodes() {
+  await copyFillContent(this, (entries) =>
+    entries.map((item) => item.code).join("/"),
+  );
+}
+
+// 单行 TSV（Tab 分列）：代码\t比例%\t模型 × N，贴入 Excel 直接成一行各列。
+async function copyActiveRatioModelTsv() {
+  await copyFillContent(this, (entries) =>
+    entries
+      .map(
+        (item) =>
+          `${item.code}\t${String(Number(item.ratio.toFixed(6)))}%\t${item.model}`,
+      )
+      .join("\t"),
+  );
+}
 
 document.getElementById("groupSelect").addEventListener("change", (event) => {
   activeGroupKey = event.target.value;
   renderActiveGroup();
 });
-document.getElementById("ratioListBody").addEventListener("input", () => {
-  ratioInputsDirty = currentRatioSignature() !== appliedRatioSignature;
+// 比例输入框在渲染后被重建，事件委托到容器的 input 上；
+// 无风险利率输入框是静态节点，单独绑定。任一变化都标记"需计算预览"。
+function markInputsDirty() {
+  ratioInputsDirty = currentInputSignature() !== appliedRatioSignature;
   updateRatioStatus();
-});
+}
+document.getElementById("ratioListBody").addEventListener("input", markInputsDirty);
+document
+  .getElementById("riskFreeRateInput")
+  ?.addEventListener("input", markInputsDirty);
 document
   .getElementById("calculateRatiosBtn")
   .addEventListener("click", applyRatioPreview);
@@ -724,4 +996,10 @@ document
 document
   .getElementById("exportWordBtn")
   .addEventListener("click", openExportWordModal);
+document
+  .getElementById("copyStockCodesBtn")
+  .addEventListener("click", copyActiveStockCodes);
+document
+  .getElementById("copyRatioModelBtn")
+  .addEventListener("click", copyActiveRatioModelTsv);
 loadGlobalPreview();

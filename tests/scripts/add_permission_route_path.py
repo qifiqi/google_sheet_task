@@ -29,8 +29,8 @@ with app.app_context():
         print("已添加 route_path 列。")
 
     # 顺手把 PERMISSIONS 里的 route_path 值回填进去
-    from app.config import PERMISSIONS
     from app.models import Permission
+    from app.seeds.rbac_seeds import PERMISSIONS
 
     updated = 0
     for group, code, name, route_path in PERMISSIONS:

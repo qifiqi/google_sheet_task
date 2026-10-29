@@ -1,6 +1,9 @@
 Flask
 python-dotenv
 Flask-SQLAlchemy
+# 上界锁 2.0.x：2.1 起 postgresql:// 默认方言改为 psycopg v3，与 psycopg2-binary 不匹配
+# （2026-10-26 镜像冒烟实测 worker 起不来），代码库已知良好基线为 2.0.52。
+SQLAlchemy>=2.0,<2.1
 Flask-Migrate
 gspread
 google-auth
@@ -25,3 +28,4 @@ dingtalk-stream
 Flask-Limiter
 pydantic
 akshare
+orjson

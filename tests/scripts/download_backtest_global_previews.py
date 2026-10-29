@@ -228,7 +228,7 @@ def download_global_preview(
     output_dir: Path,
     overwrite: bool,
 ) -> DownloadResult:
-    url = urljoin(base_url, f"/backtest-training/api/global-preview/{task.id}/export")
+    url = urljoin(base_url, f"/api/backtest-training/global-preview/{task.id}/export")
     timeout = getattr(session, "request_timeout", 30.0)
 
     try:

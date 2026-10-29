@@ -7,6 +7,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from app.services.task.registry import GLOBAL_MAX_DEFAULT, GLOBAL_MAX_KEY
+from app.utils.logger import get_logger
+from app.utils.process_memory import current_rss_mb, trim_process_memory
 
 from app.services.task.creation import TaskCreationMixin
 from app.services.task.logs import TaskLogMixin
@@ -15,6 +17,25 @@ from app.services.task.query import TaskQueryMixin
 from app.services.task.restart import TaskRestartMixin
 from app.services.task.results import TaskResultMixin
 from app.services.task.runtime import TaskRuntimeMixin
+
+logger = get_logger(__name__)
+
+
+def _trim_worker_memory(task_id: str) -> None:
+    """任务栈帧已退出后归还 arena 空闲页（线上 RSS 不回落问题取证）。
+
+    必须在 runner() 返回后调用：service 实例与其持有的 K 线数据此刻才真正释放，
+    否则 trim 只会看到仍然存活的块。
+    """
+    before = current_rss_mb()
+    if not trim_process_memory():
+        return
+    logger.info(
+        "任务收尾内存归还: task_id=%s, rss=%s -> %s MB",
+        task_id,
+        before,
+        current_rss_mb(),
+    )
 
 
 class TaskManager(
@@ -42,7 +63,8 @@ class TaskManager(
         # dict。约定：复合操作（check-then-act、遍历+判断、注册+提交）必须持锁；
         # 单次 get/set/setdefault 因 GIL 原子，可不持锁。
         self._runtime_state_lock = threading.RLock()
-        self.backtest_sheet_start_lock = threading.RLock()
+        # Sheet 执行锁启动串行化锁（start_task 占用判定 + 收尾接力共用）。
+        self.sheet_start_lock = threading.RLock()
         self._pool: ThreadPoolExecutor | None = None
         self._pool_lock = threading.RLock()
         self._active_worker_ids: dict[str, int] = {}
@@ -96,6 +118,7 @@ class TaskManager(
                 with self._runtime_state_lock:
                     if self._active_worker_ids.get(task_id) == handle.thread_id:
                         self._active_worker_ids.pop(task_id, None)
+                _trim_worker_memory(task_id)
 
         # 先注册运行态句柄再入队：worker 可能先于 submit 返回开始执行，
         # 保证其视角下 running_tasks 已包含本任务（消除提交窗口竞态）。

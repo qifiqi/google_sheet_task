@@ -3,6 +3,7 @@ let currentPage = 1;
 let pageSize = 20;
 let currentTaskId = '';
 let currentResultPayload = null;
+let lastTotalPages = 0;
 
 // 显示错误提示
 function showError(message) {
@@ -39,6 +40,11 @@ function showLoading(show = true) {
 
 // 加载结果列表
 function loadResults(page = 1) {
+    // BS5 的 disabled class 只挡鼠标（pointer-events:none），键盘 Tab+Enter 仍会
+    // 触发 prev/next 的 onclick；拦截越界页码，避免空页请求后 next 永久可点
+    if (!Number.isInteger(page) || page < 1 || (lastTotalPages > 0 && page > lastTotalPages)) {
+        return;
+    }
     currentPage = page;
     showLoading(true);
     const url = new URL('/api/results', window.location.origin);
@@ -87,6 +93,7 @@ function loadResults(page = 1) {
 // 更新分页控件
 function updatePagination(total, currentPageNum) {
     const totalPages = Math.ceil(total / pageSize);
+    lastTotalPages = totalPages;
     const pagination = document.getElementById('pagination');
     pagination.innerHTML = '';
     

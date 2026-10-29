@@ -7,14 +7,17 @@
 
 from __future__ import annotations
 
-import json
-
 from flask import Blueprint, current_app, request
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.constants.c_template_layout import C3_PARAMETER_FIELDS
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import CalculateRatiosSchema, ReturnSeriesExportSchema, UpdateRatiosSchema
+from app.schemas.backtest import (
+    CalculateRatiosSchema,
+    parse_preview_runtime_params,
+    ReturnSeriesExportSchema,
+    UpdateRatiosSchema,
+)
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
@@ -30,6 +33,7 @@ from app.services.backtest_report_query_service import (
     build_backtest_result_export_rows,
     build_c3_summary_rows,
     build_global_preview_payload,
+    build_single_product_word_report_payload,
     infer_backtest_model_version,
     load_backtest_task,
     load_backtest_task_result,
@@ -38,42 +42,24 @@ from app.services.performance_analysis.historical_metrics import extract_core_me
 from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
-from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.utils.request_parsing import parse_body
+from app.utils.model_version import model_family, resolve_model_version
+from app.utils.formatting import parse_lenient_json, sanitize_json_value
+from app.utils.request_parsing import parse_body, parse_pagination
 from app.utils.return_series import parse_return_series_fields
 from app.utils.task_types import normalize_task_type
 
 
-bt_api_bp = Blueprint("backtest_training_api", __name__, url_prefix="/backtest-training")
-bmp_api_bp = Blueprint("backtest_multi_product_api", __name__, url_prefix="/backtest-multi-product")
+bt_api_bp = Blueprint("backtest_training_api", __name__)
+bmp_api_bp = Blueprint("backtest_multi_product_api", __name__)
 
 
-
-
-def _sanitize_json_value(value):
-    if isinstance(value, float):
-        return value if value == value and value not in (float("inf"), float("-inf")) else None
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
-    return value
-
-
-def _parse_json(raw, default):
-    if isinstance(raw, (dict, list)):
-        return raw
-    try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
-        return default
 
 
 # ==================== bt：任务结果详情 / 导出 / 全局预览构建 ====================
 
 
-@bt_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
+@bt_api_bp.route("/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
@@ -82,35 +68,23 @@ def get_task_result_detail(task_result_id):
     export_data = build_backtest_result_export_data(task_result, task)
 
     task_config = task.to_dict().get("config") or {}
-    sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
     return_series = (
         task_manager.get_return_entity(task_result.return_series_id)
         if task_result.return_series_id
         else None
     )
     return success(data={
-        "result": _sanitize_json_value(export_data["analyze_result"]),
-        "word_report_payload": {
-            "report_type": "RPT-S",
-            "task_id": task.id,
-            "return_series_id": task_result.return_series_id,
-            "products": [{
-                "stock_code": return_series.stock_code,
-                "product_name": return_series.stock_name,
-            }] if return_series else [],
-            "metadata": {
-                "model_version": get_backtest_model_version(
-                    sheet.get("title")
-                    or task_config.get("title")
-                    or task_config.get("spreadsheet_title")
-                ),
-                "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
-            },
-        } if task_result.return_series_id else None,
+        "result": sanitize_json_value(export_data["analyze_result"]),
+        # RPT-S 请求载荷与全局预览导出弹窗共用同一构建器（backtest_report_query_service）。
+        "word_report_payload": (
+            build_single_product_word_report_payload(
+                task.id, task_config, task_result.return_series_id, return_series, task.task_type,
+            ) if task_result.return_series_id else None
+        ),
     })
 
 
-@bt_api_bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
+@bt_api_bp.route("/task-result/<int:task_result_id>/export-preview", methods=["GET"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
@@ -132,13 +106,13 @@ def get_task_result_export_preview(task_result_id):
     })
 
 
-@bt_api_bp.route("/api/task-summary/<task_id>", methods=["GET"])
+@bt_api_bp.route("/task-summary/<task_id>", methods=["GET"])
 @login_required
 def get_task_summary(task_id):
     task = load_backtest_task(task_id)
 
     task_config = task.to_dict().get("config") or {}
-    model_version = infer_backtest_model_version(task_config)
+    model_version = infer_backtest_model_version(task_config, task.task_type)
     if model_version != "c3":
         raise BadRequestError("当前汇总页仅支持 C3 回测任务")
 
@@ -158,7 +132,7 @@ def get_task_summary(task_id):
             "row_count": len(rows),
             "parameter_group_count": parameter_group_count,
         },
-        "rows": _sanitize_json_value(rows),
+        "rows": sanitize_json_value(rows),
     })
 
 
@@ -171,36 +145,14 @@ def _build_excel_download_name(task_name, fallback_id: str) -> str:
     return f"{safe_name or fallback_id}.xlsx"
 
 
-def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
-    filename = _build_excel_download_name(task_name, fallback_id)
-    if filename not in used_names:
-        used_names.add(filename)
-        return filename
-
-    stem = filename[:-5]
-    index = 2
-    while True:
-        candidate = f"{stem}_{index}.xlsx"
-        if candidate not in used_names:
-            used_names.add(candidate)
-            return candidate
-        index += 1
-
-
 # ==================== bmp：Excel 导入 / 结果查询 / 全局预览 ====================
 
 
 def _infer_product_export_model_name(product):
     if not isinstance(product, dict):
         return "C3"
-
     sheet = product.get("sheet") or {}
-    for source in (product.get("model_name"), sheet.get("title"), product.get("model_version")):
-        title = str(source or "").upper()
-        for model_name in ("C7", "C5", "C4", "C3"):
-            if model_name in title:
-                return model_name
-    return "C3"
+    return model_family(resolve_model_version("backtest_multi_product", sheet))
 
 
 def _build_word_report_payload(task: dict, task_result) -> dict | None:
@@ -210,7 +162,7 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
     except ValidationError:
         # 软失败：历史/残缺配置下 Word 报告段落返回 None，主流程继续
         return None
-    selected_parameters = _parse_json(task_result.parameters, {})
+    selected_parameters = parse_lenient_json(task_result.parameters, {})
     group_index = str(selected_parameters.get("parameter_group_index") or 0)
     return {
         "report_type": "RPT-M",
@@ -225,20 +177,19 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
     }
 
 
-@bmp_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
+@bmp_api_bp.route("/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def bmp_get_task_result_detail(task_result_id):
     task_result = task_manager.get_required_result_entity(task_result_id)
     task = _load_multi_product_task_or_raise(task_result.task_id)
 
-    payload = _parse_json(task_result.result, {})
+    payload = parse_lenient_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
-        prioritized_keys = ("metrics_payload", "calculate_metrics", "weighted_calculate_metrics", "analyze_result")
         value = next(
             (
                 item
                 for item in payload.values()
-                if isinstance(item, dict) and any(key in item for key in prioritized_keys)
+                if isinstance(item, dict) and "metrics_payload" in item
             ),
             next((item for item in payload.values() if isinstance(item, dict)), {}),
         )
@@ -248,7 +199,7 @@ def bmp_get_task_result_detail(task_result_id):
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     } if isinstance(value, dict) else {}
 
     daily_returns = {}
@@ -262,9 +213,9 @@ def bmp_get_task_result_detail(task_result_id):
                 "start_returns": [row.get("start_return") for row in rows],
             }
 
-    task_config = _parse_json(task.get("config"), {})
+    task_config = parse_lenient_json(task.get("config"), {})
     products = task_config.get("products") if isinstance(task_config, dict) else []
-    parameters = _parse_json(task_result.parameters, {})
+    parameters = parse_lenient_json(task_result.parameters, {})
     product_index = parameters.get("product_index") if isinstance(parameters, dict) else None
     product = products[product_index] if isinstance(product_index, int) and 0 <= product_index < len(products) else {}
     model_name = _infer_product_export_model_name(product)
@@ -272,7 +223,7 @@ def bmp_get_task_result_detail(task_result_id):
         sheet_result = normalize_c7_result_metrics(sheet_result)
 
     return success(data={
-        "result": _sanitize_json_value({
+        "result": sanitize_json_value({
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
             "daily_returns": daily_returns,
@@ -282,7 +233,7 @@ def bmp_get_task_result_detail(task_result_id):
     })
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
+@bmp_api_bp.route("/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
@@ -292,27 +243,34 @@ def bmp_calculate_ratios(task_id):
     _load_multi_product_task_or_raise(task_id)
     data = parse_body(CalculateRatiosSchema)
     ratios = data.ratios
-    payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
+    payload = build_multi_product_global_preview_payload(
+        task_id,
+        ratios_override=ratios,
+        runtime_params=data.runtime_params,
+    )
     if payload is None:
         raise NotFoundError("任务不存在")
-    return success(data=_sanitize_json_value(payload))
+    return success(data=sanitize_json_value(payload))
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/ratios", methods=["PUT"])
+@bmp_api_bp.route("/global-preview/<task_id>/ratios", methods=["PUT"])
 @login_required
 def bmp_update_ratios(task_id):
     task = _load_multi_product_task_or_raise(task_id)
-    ratios = parse_body(UpdateRatiosSchema).ratios
+    data = parse_body(UpdateRatiosSchema)
 
-    update_task_ratios(task_id, task.get("config") or {}, ratios)
-    payload = build_multi_product_global_preview_payload(task_id)
+    update_task_ratios(task_id, task.get("config") or {}, data.ratios)
+    payload = build_multi_product_global_preview_payload(
+        task_id,
+        runtime_params=data.runtime_params,
+    )
     return success(
-        data=_sanitize_json_value(payload or {}),
+        data=sanitize_json_value(payload or {}),
         message="比例已保存",
     )
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>/return-series", methods=["POST"])
+@bmp_api_bp.route("/global-preview/<task_id>/return-series", methods=["POST"])
 @login_required
 @limiter.limit(
     lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
@@ -335,7 +293,7 @@ def bmp_return_series_export(task_id):
     )
     if payload is None:
         raise NotFoundError(f"任务不存在: {task_id}")
-    return success(data=_sanitize_json_value(payload))
+    return success(data=sanitize_json_value(payload))
 
 
 def _load_multi_product_task_or_raise(task_id: str):
@@ -357,7 +315,7 @@ def _import_excel_view():
         raise BadRequestError("请先上传 Excel 文件")
 
     data = BacktestExcelService().import_uploaded_excel(excel_file)
-    return success(data=_sanitize_json_value(data))
+    return success(data=sanitize_json_value(data))
 
 
 _import_excel_view = login_required(
@@ -376,11 +334,10 @@ def _make_task_results_by_task_id_view(task_guard):
         """Return paginated task result summaries for the detail page."""
         task_guard(task_id)
 
-        page = max(request.args.get("page", default=1, type=int) or 1, 1)
-        per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
+        page, per_page = parse_pagination(default_page=1, default_per_page=10, max_per_page=100)
         page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
         results = [
-            {**item, "parameters": _parse_json(item["parameters"], {})}
+            {**item, "parameters": parse_lenient_json(item["parameters"], {})}
             for item in page_data["items"]
         ]
 
@@ -396,6 +353,14 @@ def _make_task_results_by_task_id_view(task_guard):
     return _view
 
 
+def _build_multi_product_global_preview_with_query(task_id: str):
+    """多品全局预览：无风险利率随查询参数传入（单品预览不参与该口径）。"""
+    return build_multi_product_global_preview_payload(
+        task_id,
+        runtime_params=parse_preview_runtime_params(),
+    )
+
+
 def _make_global_preview_view(task_guard, payload_builder):
     @login_required
     def _view(task_id):
@@ -405,26 +370,26 @@ def _make_global_preview_view(task_guard, payload_builder):
         if payload is None:
             raise NotFoundError("任务不存在")
 
-        return success(data=_sanitize_json_value(payload))
+        return success(data=sanitize_json_value(payload))
 
     return _view
 
 
 for _target_bp in (bt_api_bp, bmp_api_bp):
     _target_bp.add_url_rule(
-        "/api/import-excel", endpoint="import_excel",
+        "/import-excel", endpoint="import_excel",
         view_func=_import_excel_view, methods=["POST"],
     )
     _target_bp.add_url_rule(
-        "/api/task-results/<task_id>", endpoint="task_results_by_task_id",
+        "/task-results/<task_id>", endpoint="task_results_by_task_id",
         view_func=_make_task_results_by_task_id_view(
             _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task
         ),
     )
     _target_bp.add_url_rule(
-        "/api/global-preview/<task_id>", endpoint="global_preview",
+        "/global-preview/<task_id>", endpoint="global_preview",
         view_func=_make_global_preview_view(
             _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task,
-            build_multi_product_global_preview_payload if _target_bp is bmp_api_bp else build_global_preview_payload,
+            _build_multi_product_global_preview_with_query if _target_bp is bmp_api_bp else build_global_preview_payload,
         ),
     )

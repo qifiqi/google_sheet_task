@@ -10,6 +10,7 @@
     <link href="/static/css/template-auth.css" rel="stylesheet">
     <link href="/static/css/common/theme.css" rel="stylesheet">
     <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <link href="/static/css/common/components.css" rel="stylesheet">
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <link href="/static/css/pages/backtest_multi_product_detail.css" rel="stylesheet">
 </head>
@@ -66,7 +67,7 @@
                 <a href="/backtest-multi-product/global-preview/" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
                     <i class="bi bi-layout-text-window-reverse me-1"></i> 全局预览页
                 </a>
-                <a href="/performance_analysis/weight_combination" class="btn btn-outline-primary rounded-pill px-4" id="weightAnalysisLink">
+                <a href="/performance-analysis/weight-combination" class="btn btn-outline-primary rounded-pill px-4" id="weightAnalysisLink">
                     <i class="bi bi-diagram-3 me-1"></i> 权重组合分析
                 </a>
                 <button type="button" class="btn btn-warning rounded-pill px-4" id="stopTaskBtn" disabled>
@@ -101,6 +102,15 @@
         <div class="collapse" id="taskConfigCollapse">
             <div class="card-body p-4">
                 <div class="task-config-grid" id="taskConfigGrid"></div>
+                <div class="task-sheet-section d-none" id="taskSheetSection">
+                    <div class="d-flex align-items-baseline justify-content-between flex-wrap gap-2 mb-2">
+                        <div class="fw-semibold">
+                            <i class="bi bi-link-45deg text-primary me-1"></i>产品 Google Sheet
+                        </div>
+                        <div class="small text-body-secondary">点击卡片打开对应的谷歌 Sheet</div>
+                    </div>
+                    <div class="task-sheet-grid" id="taskSheetGrid"></div>
+                </div>
             </div>
         </div>
     </div>

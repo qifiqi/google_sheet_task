@@ -1,9 +1,8 @@
 
-import json
+from app.utils.json_utils import dumps, loads, JSONDecodeError
 import math
 import re
 from collections import OrderedDict
-from copy import deepcopy
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -12,6 +11,7 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
+from app.utils.formatting import to_beijing_iso
 from app.constants.c_template_layout import (
     C3_METRIC_CELLS,
     C3_PARAMETER_FIELDS,
@@ -21,10 +21,20 @@ from app.constants.c_template_layout import (
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,
+    avg_monthly_excess_return_diff,
+    metric_year_key,
     find_all_entry as _safe_all_entry,
     resolve_preview_metrics,
 )
+from app.utils.backtest_report_metadata import get_price_type, is_c7_0_3_config
+from app.utils.model_version import (
+    format_model_version,
+    model_family,
+    normalize_model_version,
+    resolve_model_version,
+)
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
+from app.services.export_workbook_service import build_export_filename, price_adjust_filename_segment
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
@@ -48,10 +58,16 @@ def _load_backtest_task(task_id: str):
     return task
 
 
-def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
+def _build_zip_member_name(
+    task_name: str | None,
+    fallback_id: str,
+    used_names: set[str],
+    member_stem: str | None = None,
+) -> str:
     base_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     base_name = base_name.rstrip(" .") or fallback_id
-    filename = f"{base_name}_global_preview.xlsx"
+    # member_stem 已按统一命名规范组装（含模型版本/区间/导出时间），直接作为去重词干。
+    filename = f"{member_stem or base_name + '_global_preview'}.xlsx"
     if filename not in used_names:
         used_names.add(filename)
         return filename
@@ -66,27 +82,21 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
         index += 1
 
 
-def _sanitize_json_value(value):
-    """Convert NaN/Infinity values into JSON-safe nulls."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(val) for key, val in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
-    return value
+def _first_sheet(config):
+    """统一 sheets[] 形态取首个 Sheet 引用（无则空 dict）。"""
+    if not isinstance(config, dict):
+        return {}
+    sheets = config.get("sheets") if isinstance(config.get("sheets"), list) else []
+    return sheets[0] if sheets and isinstance(sheets[0], dict) else {}
 
 
-def _infer_backtest_model_version(config):
+def _infer_backtest_model_version(config, task_type=None):
     if not isinstance(config, dict):
         return "c3"
 
-    sheet = config.get("sheet") or {}
-    title = str(sheet.get("title") or config.get("title") or "").upper()
-    if "C7" in title:
-        return "c7"
-    if "C5" in title or "C4" in title:
-        return "c5"
+    version = resolve_model_version(task_type, _first_sheet(config))
+    if version:
+        return version
 
     parameters = config.get("parameters") or []
     first_row = parameters[0] if parameters and isinstance(parameters[0], list) else []
@@ -95,48 +105,18 @@ def _infer_backtest_model_version(config):
     return "c3"
 
 
-def _is_c7_0_3_backtest_config(config):
-    if not isinstance(config, dict):
-        return False
-    sheet = config.get("sheet") or {}
-    version = str(sheet.get("c7_model_version") or config.get("c7_model_version") or "").strip().lower()
-    title = str(sheet.get("title") or config.get("title") or "").upper()
-    if version == "c7_0_3" or "C7.0.3" in title:
-        return True
-    return any(
-        str(item.get("c7_model_version") or "").strip().lower() == "c7_0_3"
-        for item in config.get("sheets") or []
-        if isinstance(item, dict)
-    )
+def _resolve_result_model_version(parameters):
+    """以结果明确记录的版本确定 C7 结果布局。"""
+    return normalize_model_version(parameters.get("model_version")) or "c7_0_2"
 
 
-def _resolve_c7_model_version(task_config, parameters):
-    """以任务或结果明确记录的版本确定 C7 结果布局。"""
-    result_version = str(parameters.get("c7_model_version") or "").strip().lower()
-    if result_version in {"c7_0_2", "c7_0_3"}:
-        return result_version
-    if _is_c7_0_3_backtest_config(task_config):
-        return "c7_0_3"
-    return "c7_0_2"
-
-
-def _infer_backtest_export_model_name(config):
+def _infer_backtest_export_model_name(config, task_type=None):
     if not isinstance(config, dict):
         return "C3"
-
-    sheet = config.get("sheet") or {}
-    sources = (
-        config.get("model_name"),
-        sheet.get("title"),
-        config.get("title"),
-        config.get("model_version"),
-    )
-    for source in sources:
-        title = str(source or "").upper()
-        for model_name in ("C7", "C5", "C4", "C3"):
-            if model_name in title:
-                return model_name
-    return _infer_backtest_model_version(config).upper()
+    version = resolve_model_version(task_type, _first_sheet(config))
+    if version:
+        return model_family(version)
+    return model_family(_infer_backtest_model_version(config, task_type))
 
 
 def _parse_percent_like_value(value):
@@ -178,8 +158,8 @@ def _get_task_result_return_rows(task_result, return_series_by_id=None):
 
 def _extract_task_result_payload(task_result, return_rows=None):
     try:
-        result_payload = json.loads(task_result.result) if task_result.result else {}
-    except (TypeError, json.JSONDecodeError):
+        result_payload = loads(task_result.result) if task_result.result else {}
+    except (TypeError, JSONDecodeError):
         result_payload = {}
 
     if isinstance(result_payload, dict) and result_payload:
@@ -187,11 +167,7 @@ def _extract_task_result_payload(task_result, return_rows=None):
             (
                 item
                 for item in result_payload.values()
-                if isinstance(item, dict) and (
-                    "metrics_payload" in item
-                    or "calculate_metrics" in item
-                    or "analyze_result" in item
-                )
+                if isinstance(item, dict) and "metrics_payload" in item
             ),
             next((item for item in result_payload.values() if isinstance(item, dict)), {}),
         )
@@ -200,11 +176,15 @@ def _extract_task_result_payload(task_result, return_rows=None):
     if not isinstance(value, dict):
         return {}, {}
 
-    calculate_metrics = resolve_preview_metrics(value, return_rows=return_rows)
+    calculate_metrics = resolve_preview_metrics(
+        value,
+        return_rows=return_rows,
+        cache_key=task_result.return_series_id,
+    )
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     }
     return calculate_metrics, sheet_result
 
@@ -220,11 +200,23 @@ def _load_backtest_task_result(task_result_id: int):
 
 
 def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[str, str]:
+    """回测结果 CSV 文件名走统一命名规范（模型版本+价格/复权段+时间戳）。
+
+    filename_title（文件内报告标题）保持任务名原语义，仅文件名按规范组装；
+    任务配置缺失价格/复权段时整段省略，与 xlsx 导出同一套 slug。
+    """
     filename_title = "".join(
         char if char not in '\\/:*?"<>|' else "_"
         for char in str(task.name or "").strip()
     ).rstrip(" .") or f"backtest_result_{result_id}"
-    return f"{filename_title}.csv", filename_title
+    task_config = task.to_dict().get("config") or {}
+    filename = build_export_filename(
+        filename_title,
+        model_version=_infer_backtest_export_model_name(task_config, task.task_type),
+        price_adjust=price_adjust_filename_segment(task_config),
+        extension="csv",
+    )
+    return filename, filename_title
 
 
 def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> dict:
@@ -233,8 +225,8 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
         return_rows=_get_task_result_return_rows(task_result),
     )
     task_config = task.to_dict().get("config") or {}
-    model_name = _infer_backtest_export_model_name(task_config)
-    if model_name == "C7" and not _is_c7_0_3_backtest_config(task_config):
+    model_name = _infer_backtest_export_model_name(task_config, task.task_type)
+    if model_name == "C7" and not is_c7_0_3_config(task_config):
         sheet_result = normalize_c7_result_metrics(sheet_result)
     analyze_result = {
         **calculate_metrics,
@@ -278,8 +270,8 @@ def _build_c3_summary_rows(task_id):
 
     for task_result in task_results:
         try:
-            parameters = json.loads(task_result.parameters) if task_result.parameters else {}
-        except (TypeError, json.JSONDecodeError):
+            parameters = loads(task_result.parameters) if task_result.parameters else {}
+        except (TypeError, JSONDecodeError):
             parameters = {}
 
         if not isinstance(parameters, dict):
@@ -334,21 +326,11 @@ def _build_c3_summary_rows(task_id):
             calculate_metrics.get("monthly_excess_return_percentage")
         )
         monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-        monthly_excess_values = [
-            item.get("monthly_excess_return_diff")
-            for item in monthly_excess_returns
-            if isinstance(item, dict)
-            and item.get("monthly_excess_return_diff") is not None
-        ]
-        avg_monthly_excess_return = (
-            sum(monthly_excess_values) / len(monthly_excess_values)
-            if monthly_excess_values
-            else None
-        )
+        avg_monthly_excess_return = avg_monthly_excess_return_diff(calculate_metrics)
 
-        source_window = str(parameters.get("year") or parameters.get("Kline_key") or "")
+        source_window = str(parameters.get("kline_key") or "")
         year_label = _extract_display_year(source_window)
-        parameter_signature = json.dumps(parameter_values, ensure_ascii=False)
+        parameter_signature = dumps(parameter_values, ensure_ascii=False)
 
         strategy_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["return_rate"]))
         index_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["index_return"]))
@@ -453,7 +435,7 @@ def _build_c3_summary_rows(task_id):
             "source_window": source_window,
             "task_result_id": task_result.id,
             "step_index": task_result.step_index,
-            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "timestamp": to_beijing_iso(task_result.timestamp),
             "parameter_signature": parameter_signature,
         })
 
@@ -503,6 +485,9 @@ def _extract_result_core(task_result):
 
 
 def _detect_model_name(task_name, parameters):
+    family = model_family(parameters.get("model_version"))
+    if family:
+        return family
     upper_name = (task_name or "").upper()
     for model_name in ("C7", "C5", "C4", "C3"):
         if model_name in upper_name:
@@ -521,6 +506,7 @@ def _detect_global_preview_model_name(task, parameters):
         "google_sheet_c4": "C4",
         "google_sheet_c5": "C5",
         "google_sheet_c7": "C7",
+        "google_sheet_c1_1": "C1.1.0",
     }
     task_type = normalize_task_type(task.task_type)
     return fixed_model_names.get(task_type) or _detect_model_name(task.name, parameters)
@@ -532,7 +518,7 @@ def _extract_raw_sheet_metrics(result_core):
     return {
         str(key): value
         for key, value in result_core.items()
-        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
+        if key != "metrics_payload"
     }
 
 
@@ -556,7 +542,7 @@ def _format_summary_value(value):
 
 def _get_summary_raw_metric(column, metric_key):
     model_name = str(column.get("model_name") or "C3").upper()
-    if model_name == "C7" and column.get("c7_model_version") == "c7_0_3":
+    if model_name == "C7" and column.get("model_version") == "c7_0_3":
         cell_map = SUMMARY_METRIC_CELL_MAP["C5"]
     else:
         cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
@@ -565,7 +551,7 @@ def _get_summary_raw_metric(column, metric_key):
     value = raw_metrics.get(cell_key) if cell_key else None
     if (
         model_name == "C7"
-        and column.get("c7_model_version") != "c7_0_3"
+        and column.get("model_version") != "c7_0_3"
         and cell_key in C7_RAW_PERCENT_CELLS
         and value not in (None, "")
         and not str(value).strip().endswith("%")
@@ -643,21 +629,10 @@ def _percent_display(value):
     return f"{0 if parsed == 0 else parsed:.2%}"
 
 
-def _metric_year_key(value):
-    text = str(value if value is not None else "").strip()
-    if not text or text.lower() == "all":
-        return ""
-    try:
-        number = float(text)
-    except ValueError:
-        return text
-    return str(int(number)) if number.is_integer() else text
-
-
 def _derive_year_max_excess_drawdown(calculate_metrics):
     """报告展示契约：start−index 符号（共享实现见 historical_metrics）。"""
     return derive_year_max_excess_drawdown(
-        calculate_metrics, _parse_percent_like_value, _metric_year_key, direction=-1,
+        calculate_metrics, _parse_percent_like_value, metric_year_key, direction=-1,
     )
 
 
@@ -712,18 +687,10 @@ def _with_excess_return_preview_row(summary_rows, column, calculate_metrics=None
     return rows
 
 
-def _extract_summary_rows(calculate_metrics, model_name):
+def _extract_summary_rows(calculate_metrics):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
     calculate_metrics = _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics)
-
-    def _normalize_display_value(value):
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        while text.startswith("--"):
-            text = text[1:]
-        return normalize_scientific_text(text)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
@@ -741,22 +708,13 @@ def _extract_summary_rows(calculate_metrics, model_name):
         index_profit_monthly_all = entries["index_profit_monthly_all"]
         start_profit_monthly_all = entries["start_profit_monthly_all"]
         index_kama_all = entries["index_kama_all"]
-        start_kama_all = entries["start_kama_all"]
         index_sortino_all = entries["index_sortino_all"]
         start_sortino_all = entries["start_sortino_all"]
         monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
         index_sharpe_all = entries["index_sharpe_all"]
         start_sharpe_all = entries["start_sharpe_all"]
 
-        monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
-        valid_excess_months = [
-            item.get("monthly_excess_return_diff")
-        for item in monthly_excess_returns
-            if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
-        ]
-        avg_monthly_excess_returns = (
-            sum(valid_excess_months) / len(valid_excess_months) if valid_excess_months else None
-        )
+        avg_monthly_excess_returns = avg_monthly_excess_return_diff(calculate_metrics)
 
         max_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
 
@@ -809,7 +767,10 @@ def _extract_summary_rows(calculate_metrics, model_name):
 
 
 def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics):
-    normalized = deepcopy(calculate_metrics)
+    # 只复制将被改写的三个小列表（excess_returns 与两个回撤年度明细），
+    # 其余子树原地引用——deepcopy 整份 V1 指标（数千嵌套对象）是导出热路径的
+    # 主要开销之一。传入 metrics 为本次请求新解析、无共享别名的 dict。
+    normalized = dict(calculate_metrics)
 
     def normalize_year(value):
         text = str(value if value is not None else "").strip()
@@ -821,17 +782,49 @@ def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate
             return value
         return int(number) if number.is_integer() else value
 
-    for item in normalized.get("excess_returns") or []:
-        if isinstance(item, dict):
-            item["year"] = normalize_year(item.get("year"))
+    def normalize_year_items(items):
+        return [
+            {**item, "year": normalize_year(item.get("year"))} if isinstance(item, dict) else item
+            for item in items or []
+        ]
+
+    normalized["excess_returns"] = normalize_year_items(normalized.get("excess_returns"))
     for drawdown_key in ("index_maximum_drawdown", "start_maximum_drawdown"):
         drawdown = normalized.get(drawdown_key)
         if not isinstance(drawdown, dict):
             continue
-        for item in drawdown.get("year_maximum_drawdown") or []:
-            if isinstance(item, dict):
-                item["year"] = normalize_year(item.get("year"))
+        normalized[drawdown_key] = {
+            **drawdown,
+            "year_maximum_drawdown": normalize_year_items(drawdown.get("year_maximum_drawdown")),
+        }
     return normalized
+
+
+def build_single_product_word_report_payload(
+    task_id,
+    task_config,
+    return_series_id,
+    return_series,
+    task_type=None,
+):
+    """按任务配置与结果收益序列构造 RPT-S Word 报告请求载荷。
+
+    任务结果详情接口与全局预览导出弹窗共用同一结构，避免两处字段漂移；
+    return_series 缺失时 products 留空（报告文件名/权重表回落单品默认展示）。
+    """
+    sheet = _first_sheet(task_config)
+    return {
+        "report_type": "RPT-S",
+        "task_id": task_id,
+        "return_series_id": return_series_id,
+        "products": [
+            {"stock_code": return_series.stock_code, "product_name": return_series.stock_name}
+        ] if return_series else [],
+        "metadata": {
+            "model_version": resolve_model_version(task_type, sheet),
+            "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
+        },
+    }
 
 
 def _query_global_preview_results(task_id, result_ids=None):
@@ -859,8 +852,8 @@ def _build_global_preview_payload_from_results(task, task_results):
 
     # 先建立分组和动态列，再填充指标行，保证失败结果也能在预览中占位。
     for task_result in task_results:
-        parameters = json.loads(task_result.parameters) if task_result.parameters else {}
-        year_key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
+        parameters = loads(task_result.parameters) if task_result.parameters else {}
+        year_key = str(parameters.get("kline_key") or "未分组")
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
         ).strip().upper() or "未命名股票"
@@ -883,14 +876,26 @@ def _build_global_preview_payload_from_results(task, task_results):
             "column_key": column_key,
             "result_id": task_result.id,
             "step_index": task_result.step_index,
+            # 导出 Word 弹窗按 return_series_id 精确指定某个参数的收益序列；
+            # 成功且持有收益序列的列才附带 RPT-S 请求载荷，其余列置 None 不可导出。
+            "return_series_id": task_result.return_series_id,
+            "word_report_payload": (
+                build_single_product_word_report_payload(
+                    task.id,
+                    task_config,
+                    task_result.return_series_id,
+                    return_series_by_id.get(task_result.return_series_id),
+                )
+                if task_result.success and task_result.return_series_id else None
+            ),
             "header": _build_parameter_header(parameters),
             "model_name": model_name,
-            "c7_model_version": (
-                _resolve_c7_model_version(task_config, parameters)
+            "model_version": (
+                _resolve_result_model_version(parameters)
                 if model_name == "C7" else None
             ),
             "success": bool(task_result.success),
-            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "timestamp": to_beijing_iso(task_result.timestamp),
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
             "raw_metrics": _extract_raw_sheet_metrics(result_core),
         }
@@ -905,8 +910,9 @@ def _build_global_preview_payload_from_results(task, task_results):
         calculate_metrics = resolve_preview_metrics(
             result_core,
             return_rows=_get_task_result_return_rows(task_result, return_series_by_id),
+            cache_key=task_result.return_series_id,
         )
-        period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
+        period_text, summary_rows = _extract_summary_rows(calculate_metrics)
         summary_rows = _with_excess_return_preview_row(
             summary_rows, column, calculate_metrics
         )
@@ -1000,11 +1006,11 @@ def _build_global_preview_initial_payload(task_id):
     metadata_rows = task_result_repository.list_preview_index_rows(task_id)
 
     items = []
-    is_c7_0_3 = _is_c7_0_3_backtest_config(task_config)
+    is_c7_0_3 = is_c7_0_3_config(task_config)
     for row in metadata_rows:
-        parameters = json.loads(row["parameters"]) if row["parameters"] else {}
+        parameters = loads(row["parameters"]) if row["parameters"] else {}
         model_name = _detect_global_preview_model_name(task, parameters)
-        if model_name == "C7" and _resolve_c7_model_version(task_config, parameters) == "c7_0_3":
+        if model_name == "C7" and _resolve_result_model_version(parameters) == "c7_0_3":
             is_c7_0_3 = True
         items.append({
             "id": row["id"],
@@ -1021,7 +1027,7 @@ def _build_global_preview_initial_payload(task_id):
         if group_mode == "stock":
             key = str(parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票").strip().upper()
         else:
-            key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
+            key = str(parameters.get("kline_key") or "未分组")
         group = groups.setdefault(key, {"key": key, "label": key, "result_ids": [], "items": []})
         group["result_ids"].append(item["id"])
         group["items"].append(item)

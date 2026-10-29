@@ -5,7 +5,7 @@ from sqlalchemy import and_, case, func, or_
 
 from app.extensions import db
 from app.exceptions import NotFoundError
-from app.models import Task
+from app.models import Task, TaskStatus
 from app.repositories.base import BaseRepository
 
 
@@ -24,14 +24,6 @@ class TaskRepository(BaseRepository):
             raise NotFoundError(f"任务不存在: {task_id}")
         return task_dict
 
-    def list_all(self, task_type=None, task_types=None):
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-        return [t.to_dict() for t in query.order_by(Task.created_at.desc()).all()]
-
     def get_latest_task_id_by_type(self, task_type, statuses=None):
         """指定类型的最近一个任务 id（created_at desc, id desc）；statuses 可选过滤；无则 None。"""
         query = Task.query.filter(Task.task_type == task_type)
@@ -48,11 +40,21 @@ class TaskRepository(BaseRepository):
         task_types=None,
         status=None,
         keyword=None,
+        stock_code=None,
+        token_name=None,
+        start_time=None,
+        end_time=None,
     ):
         """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
 
         - status="pending" 特例：仅统计已开跑的待执行任务
           （status == pending AND current_step > 0），分页与统计一致；
+        - stock_code：按 config JSON 文本里的 "stock_code" 键值前缀匹配，
+          锚定键名避免误中 product_name/sheet 等其他字段；
+          兼容 json.dumps（": "）与 JSON.stringify（":"）两种分隔符；
+        - token_name：按 config JSON 文本里的 "token_name" 键值前缀匹配，
+          分隔符兼容口径与 stock_code 一致；
+        - start_time/end_time：created_at 半开区间过滤 [start, end)；
         - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
         """
         query = Task.query
@@ -63,7 +65,7 @@ class TaskRepository(BaseRepository):
 
         if status and status != "all":
             if status == "pending":
-                query = query.filter(Task.status == "pending", Task.current_step > 0)
+                query = query.filter(Task.status == TaskStatus.PENDING.value, Task.current_step > 0)
             else:
                 query = query.filter(Task.status == status)
 
@@ -77,6 +79,27 @@ class TaskRepository(BaseRepository):
                 )
             )
 
+        if stock_code:
+            needle = str(stock_code).strip().strip('"').replace("%", "")
+            if needle:
+                query = query.filter(or_(
+                    Task.config.like(f'%"stock_code": "{needle}%'),
+                    Task.config.like(f'%"stock_code":"{needle}%'),
+                ))
+
+        if token_name:
+            needle = str(token_name).strip().strip('"').replace("%", "")
+            if needle:
+                query = query.filter(or_(
+                    Task.config.like(f'%"token_name": "{needle}%'),
+                    Task.config.like(f'%"token_name":"{needle}%'),
+                ))
+
+        if start_time is not None:
+            query = query.filter(Task.created_at >= start_time)
+        if end_time is not None:
+            query = query.filter(Task.created_at < end_time)
+
         ordered_query = query.order_by(Task.created_at.desc())
         pagination = ordered_query.paginate(
             page=max(page or 1, 1),
@@ -88,29 +111,39 @@ class TaskRepository(BaseRepository):
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
 
+        # 时长统计与状态计数合并进同一条聚合（原来把全部已完成任务的起止时间拉到 Python 求和）
+        completed_duration_cond = and_(
+            Task.status == TaskStatus.COMPLETED.value,
+            Task.start_time.isnot(None),
+            Task.end_time.isnot(None),
+        )
+        if db.engine.dialect.name == "mysql":
+            duration_seconds = (
+                func.unix_timestamp(Task.end_time)
+                - func.unix_timestamp(Task.start_time)
+            )
+        else:
+            # PostgreSQL：epoch 即秒
+            duration_seconds = (
+                func.extract("epoch", Task.end_time)
+                - func.extract("epoch", Task.start_time)
+            )
         stats_row = query.with_entities(
             func.count(Task.id).label('total'),
-            func.count(case((Task.status == 'completed', 1))).label('completed'),
-            func.count(case((Task.status == 'running', 1))).label('running'),
-            func.count(case((Task.status == 'error', 1))).label('error'),
+            func.count(case((Task.status == TaskStatus.COMPLETED.value, 1))).label('completed'),
+            func.count(case((Task.status == TaskStatus.RUNNING.value, 1))).label('running'),
+            func.count(case((Task.status == TaskStatus.ERROR.value, 1))).label('error'),
             func.count(case(
-                (and_(Task.status == 'pending', Task.current_step > 0), 1)
+                (and_(Task.status == TaskStatus.PENDING.value, Task.current_step > 0), 1)
             )).label('pending'),
             func.count(case(
                 (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
             )).label('today_new'),
+            func.count(case((completed_duration_cond, 1))).label('duration_count'),
+            func.sum(case((completed_duration_cond, duration_seconds))).label('total_duration'),
         ).first()
-
-        completed_durations = query.filter(
-            Task.status == 'completed',
-            Task.start_time.isnot(None),
-            Task.end_time.isnot(None),
-        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
-        total_duration_seconds = 0
-        duration_count = 0
-        for start_time, end_time in completed_durations:
-            total_duration_seconds += (end_time - start_time).total_seconds()
-            duration_count += 1
+        total_duration_seconds = float(stats_row.total_duration or 0)
+        duration_count = stats_row.duration_count or 0
 
         return {
             "items": items,
@@ -153,28 +186,34 @@ class TaskRepository(BaseRepository):
             pass
         return Task.query.populate_existing().filter(Task.id == task_id).first()
 
-    def list_running_backtest_entities(self):
-        """运行中的回测任务实体（populate_existing 保证新鲜）。"""
-        return Task.query.populate_existing().filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "running",
-        ).all()
+    def list_pending_entities(self, exclude_task_id=None):
+        """待执行任务实体，按创建时间先后（Sheet 排队接力/启动补跑用）。
 
-    def list_pending_backtest_entities(self, exclude_task_id):
-        """待执行回测任务实体（按创建时间先后，接力启动用）。"""
+        pending 即排队队列本体；占用判定不在本查询内做，由执行锁裁决。
+        """
+        query = Task.query.filter(Task.status == TaskStatus.PENDING.value)
+        if exclude_task_id:
+            query = query.filter(Task.id != exclude_task_id)
+        return query.order_by(Task.created_at.asc(), Task.id.asc()).all()
+
+    def list_pending_queued_entities(self, queued_prefix: str):
+        """带排队标记的 pending 任务（启动期补跑扫描用，FIFO）。"""
+        # LIKE 前缀中的 _/% 是通配符（[SHEET_QUEUED] 含 _），需转义防误配。
+        escaped_prefix = (
+            queued_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         return Task.query.filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "pending",
-            Task.id != exclude_task_id,
+            Task.status == TaskStatus.PENDING.value,
+            Task.error_message.like(f"{escaped_prefix}%", escape="\\"),
         ).order_by(Task.created_at.asc(), Task.id.asc()).all()
 
     def mark_running_if_not_running(self, task_id, start_time, commit=True):
         """原子置 running（非 running 状态才生效）；返回受影响行数。"""
         rows = Task.query.filter(
             Task.id == task_id,
-            Task.status != "running",
+            Task.status != TaskStatus.RUNNING.value,
         ).update(
-            {"status": "running", "start_time": start_time},
+            {"status": TaskStatus.RUNNING.value, "start_time": start_time},
             synchronize_session=False,
         )
         if commit:
@@ -185,9 +224,9 @@ class TaskRepository(BaseRepository):
         """启动失败回退：running → pending 并清 start_time。"""
         rows = Task.query.filter(
             Task.id == task_id,
-            Task.status == "running",
+            Task.status == TaskStatus.RUNNING.value,
         ).update(
-            {"status": "pending", "start_time": None},
+            {"status": TaskStatus.PENDING.value, "start_time": None},
             synchronize_session=False,
         )
         if commit:
@@ -196,13 +235,13 @@ class TaskRepository(BaseRepository):
 
     def mark_running_if_pending(self, task_id, start_time=None, commit=True):
         """仅当任务处于 pending 时置为 running（watchdog 重启发布语义）。"""
-        fields = {"status": "running"}
+        fields = {"status": TaskStatus.RUNNING.value}
         if start_time is not None:
             fields["start_time"] = start_time
         rows_updated = (
             Task.query.filter(
                 Task.id == task_id,
-                Task.status == "pending",
+                Task.status == TaskStatus.PENDING.value,
             ).update(fields, synchronize_session=False)
         )
         if commit:
@@ -220,16 +259,16 @@ class TaskRepository(BaseRepository):
         return Task.query.filter(
             Task.created_at >= created_cutoff,
             or_(
-                Task.status == "running",
+                Task.status == TaskStatus.RUNNING.value,
                 and_(
-                    Task.status == "error",
+                    Task.status == TaskStatus.ERROR.value,
                     or_(
                         Task.error_message.is_(None),
                         not_(Task.error_message.startswith(abandon_prefix)),
                     ),
                 ),
                 and_(
-                    Task.status == "cancelled",
+                    Task.status == TaskStatus.CANCELLED.value,
                     Task.error_message.isnot(None),
                     Task.error_message.startswith(restart_prefix),
                 ),
@@ -245,6 +284,10 @@ class TaskRepository(BaseRepository):
             .limit(limit)
             .all()
         ]
+
+    def count_by_status(self, status):
+        """按状态计数（ding_stream_service 批量重启指令的总量展示用）。"""
+        return Task.query.filter_by(status=status).count()
 
     def list_by_name(self, name, limit=2):
         """按名称取任务（updated/created desc，钉钉命令解析用）。"""
@@ -280,24 +323,6 @@ class TaskRepository(BaseRepository):
 
     def count(self):
         return Task.query.count()
-
-    def count_by_status(self, status):
-        return Task.query.filter_by(status=status).count()
-
-    def summary_counts(self):
-        """admin 仪表盘四连 count 合并：{total, completed, running, error}。"""
-        return {
-            "total": self.count(),
-            "completed": self.count_by_status("completed"),
-            "running": self.count_by_status("running"),
-            "error": self.count_by_status("error"),
-        }
-
-    def list_recent(self, limit=10):
-        return [
-            t.to_dict()
-            for t in Task.query.order_by(Task.created_at.desc()).limit(limit).all()
-        ]
 
     def list_distinct_task_types(self):
         rows = db.session.query(Task.task_type).distinct().all()
@@ -360,7 +385,7 @@ class TaskRepository(BaseRepository):
             )
             .filter(
                 Task.task_type.in_(list(task_types)),
-                Task.status == "completed",
+                Task.status == TaskStatus.COMPLETED.value,
                 Task.end_time.isnot(None),
                 Task.end_time >= start_time,
             )

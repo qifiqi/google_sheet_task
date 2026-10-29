@@ -21,7 +21,10 @@
         ["/task/create", "/google-sheet/create"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
-        ["/performance_analysis", "/performance_analysis/"],
+        ["/performance_analysis", "/performance-analysis/"],
+        ["/performance_analysis/", "/performance-analysis/"],
+        ["/performance_analysis/v2", "/performance-analysis/v2"],
+        ["/performance_analysis/weight_combination", "/performance-analysis/weight-combination"],
     ]);
 
     function parseJsonSafely(text) {
@@ -59,6 +62,31 @@
         return localStorage.getItem(REFRESH_KEY) || "";
     }
 
+    // 解析 access token（JWT）的 exp，换算 cookie Max-Age，使 cookie 与 localStorage
+    // 同生命周期。此前 cookie 是会话级：浏览器重启后 cookie 消失而 localStorage 里的
+    // token 仍有效，登录页据 localStorage 自动跳转、页面守卫（page_login_required）
+    // 据 cookie 鉴权并 302 弹回 → /login ↔ 目标页无限刷新循环，登录无法进行
+    // （2026-10 实测踩坑，清空站点数据可临时解除）。解析失败返回 null，保持原
+    // 会话 cookie 行为，绝不写 Max-Age=0（会误删 cookie）。
+    function getAccessTokenMaxAgeSeconds(accessToken) {
+        try {
+            const payloadPart = accessToken.split(".")[1];
+            if (!payloadPart) {
+                return null;
+            }
+            let base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+            base64 += "=".repeat((4 - (base64.length % 4)) % 4);
+            const bytes = Uint8Array.from(atob(base64), function (ch) { return ch.charCodeAt(0); });
+            const payload = JSON.parse(new TextDecoder().decode(bytes));
+            if (typeof payload.exp !== "number") {
+                return null;
+            }
+            return Math.max(Math.floor(payload.exp - Date.now() / 1000), 0);
+        } catch (_error) {
+            return null;
+        }
+    }
+
     function setTokens(accessToken, refreshToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
@@ -67,9 +95,11 @@
             // 名字须与后端 ACCESS_TOKEN_COOKIE(gsc_access_token) 一致：cookie 不按
             // 端口隔离，通用名会被本机其他服务的同名（HttpOnly）cookie 顶死。
             const securePart = window.location.protocol === "https:" ? "; Secure" : "";
+            const maxAge = getAccessTokenMaxAgeSeconds(accessToken);
+            const maxAgePart = maxAge !== null && maxAge > 0 ? "; Max-Age=" + maxAge : "";
             document.cookie =
                 "gsc_access_token=" + encodeURIComponent(accessToken) +
-                "; path=/; SameSite=Lax" + securePart;
+                "; path=/; SameSite=Lax" + securePart + maxAgePart;
         }
         if (refreshToken) {
             localStorage.setItem(REFRESH_KEY, refreshToken);
@@ -160,7 +190,9 @@
                     : "alert-info";
         alert.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
         alert.style.minWidth = "260px";
-        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+        // message 多为 error.message/data.message 等服务端回显文本（可能含任务名、
+        // Sheet 标题等外部输入），调用方均为纯文本，进 innerHTML 前统一转义
+        alert.innerHTML = `${escapeHtml(message)}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
         container.appendChild(alert);
         window.setTimeout(() => {
             alert.remove();
@@ -175,7 +207,7 @@
         if (Number.isNaN(date.getTime())) {
             return "-";
         }
-        return date.toLocaleString("zh-CN");
+        return date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
     }
 
     function getStatusText(status) {
@@ -408,12 +440,18 @@
         return legacyPathMap.get(path) || path;
     }
 
+    function isSafeNavPath(path) {
+        // 菜单 path 契约为站内前端路由路径：仅允许以单个 "/" 开头的相对路径，
+        // 拒绝 javascript:/data: 等协议与 "//" 开头的协议相对地址（同 sanitizeNextUrl）
+        return typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
+    }
+
     function filterTemplateNav(items) {
         return (Array.isArray(items) ? items : []).reduce((result, item) => {
             const cloned = { ...item };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath) {
+                if (!legacyPath || !isSafeNavPath(legacyPath)) {
                     return result;
                 }
                 cloned.path = legacyPath;
@@ -457,8 +495,8 @@
             if (item.path) {
                 return `
                     <div>
-                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">
-                            <span>${item.label}</span>
+                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">
+                            <span>${escapeHtml(item.label)}</span>
                         </a>
                     </div>
                 `;
@@ -467,8 +505,8 @@
             const collapseId = `templateSidebarGroup${index}`;
             const childMarkup = (item.children || []).map((child) => `
                 <li>
-                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${child.path}">
-                        <span>${child.label}</span>
+                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${escapeHtml(child.path)}">
+                        <span>${escapeHtml(child.label)}</span>
                     </a>
                 </li>
             `).join("");
@@ -476,7 +514,7 @@
             return `
                 <div class="mt-3">
                     <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
-                        <span>${item.label}</span>
+                        <span>${escapeHtml(item.label)}</span>
                         <i class="bi bi-chevron-right btn-toggle-icon"></i>
                     </button>
                     <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}">
@@ -519,7 +557,7 @@
         if (isListContainer) {
             container.innerHTML = leaves.map((item) => `
                 <li class="nav-item">
-                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
                 </li>
             `).join("");
             return;
@@ -527,7 +565,7 @@
 
         container.classList.add("template-auth-horizontal-nav");
         container.innerHTML = leaves.map((item) => `
-            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
+            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}">${escapeHtml(item.label)}</a>
         `).join("");
     }
 
@@ -620,7 +658,7 @@
                 <h2 class="h4 mb-3">当前账号没有此页面访问权限</h2>
                 <p class="text-muted mb-2">${escapeHtml(requirementText)}</p>
                 <p class="text-muted mb-4">当前缺少: ${escapeHtml(missingText)}</p>
-                <a class="btn btn-primary" href="/admin/">返回首页</a>
+                <a class="btn btn-primary" href="/admin/dashboard">返回首页</a>
             </div>
         `;
     }
@@ -655,12 +693,18 @@
         });
     }
 
+    let themeToggleBound = false;
     function bindThemeToggles() {
-        document.querySelectorAll("[data-template-theme-trigger]").forEach((button) => {
-            button.addEventListener("click", function () {
-                const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
-                applyTheme(current === "dark" ? "light" : "dark");
-            });
+        // 事件委托：脚本顺序 template-auth → navbar，而 bootstrapProtectedPage 在首个
+        // await 之前同步执行本函数，navbar.js 渲染的侧栏/移动端顶栏按钮此时尚不存在，
+        // 逐节点绑定会漏掉；document 级委托一次绑定即覆盖任意时机注入的触发器
+        if (themeToggleBound) return;
+        themeToggleBound = true;
+        document.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-template-theme-trigger]");
+            if (!button) return;
+            const current = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "light";
+            applyTheme(current === "dark" ? "light" : "dark");
         });
     }
 
@@ -677,8 +721,8 @@
         const nextFromInput = document.getElementById("loginNextUrl");
         const rawNext = nextFromInput?.value
             || new URLSearchParams(window.location.search).get("next")
-            || "/admin/";
-        return sanitizeNextUrl(rawNext) || "/admin/";
+            || "/admin/dashboard";
+        return sanitizeNextUrl(rawNext) || "/admin/dashboard";
     }
 
     // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数）。
@@ -691,6 +735,33 @@
             return null;
         }
         return trimmed;
+    }
+
+    // 登录页防弹跳护栏：从登录页跳往 next 后，若被页面守卫再次 302 弹回
+    // （cookie 通道失效而 localStorage 有效、同名 HttpOnly cookie 顶死等），
+    // 10 秒内不再自动跳转，保留登录表单——否则“/login 自动跳转 → 守卫弹回”
+    // 会形成无限刷新循环，登录无法进行（2026-10 实测踩坑）。sessionStorage
+    // 不可用（隐私模式等）时护栏退化为不生效，仅回到无护栏现状。
+    const LOGIN_BOUNCE_KEY = "templateLoginBounceAt";
+    const LOGIN_BOUNCE_WINDOW_MS = 10000;
+
+    function canAutoLeaveLogin() {
+        let last = 0;
+        try {
+            last = Number(sessionStorage.getItem(LOGIN_BOUNCE_KEY) || 0);
+        } catch (_error) {
+            return true;
+        }
+        return !(last && Date.now() - last < LOGIN_BOUNCE_WINDOW_MS);
+    }
+
+    function leaveLoginForNext() {
+        try {
+            sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
+        } catch (_error) {
+            // 标记失败仅失去护栏，不阻断跳转
+        }
+        window.location.replace(getLoginNextUrl());
     }
 
     // 主服务 SSO 换票（docs/design/sso-integration-2026-09/）：
@@ -742,24 +813,42 @@
             return;
         }
 
-        // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+        // 本地已有可用会话（fetchCurrentUser 内含 401 自动刷新续期）则直接复用并
+        // 跳转，不再重复走 SSO 换票；本地无会话或会话彻底失效时，才用 sso_token
+        // 换票。注意：同一浏览器先后被不同主服务账号使用时，复用会话会沿用上一
+        // 次换票得到的本地身份。
         const ssoToken = consumeSsoTokenFromHash();
-        if (ssoToken) {
+        if (!canAutoLeaveLogin()) {
+            // 刚发生过一轮“跳转 → 被守卫弹回”：停止自动跳转并给出可行动的提示，
+            // 不再继续闪屏循环。
+            errorBox.textContent = "登录跳转被页面鉴权拦回（浏览器 Cookie 与本地登录状态不一致），请重新登录；若反复出现，请清理浏览器缓存后重试。";
+            errorBox.classList.remove("d-none");
+        } else if (getToken()) {
+            fetchCurrentUser()
+                .then(() => {
+                    leaveLoginForNext();
+                })
+                .catch(() => {
+                    clearAuthState();
+                    if (ssoToken) {
+                        performSsoExchange(ssoToken)
+                            .then(() => {
+                                leaveLoginForNext();
+                            })
+                            .catch((error) => {
+                                errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
+                                errorBox.classList.remove("d-none");
+                            });
+                    }
+                });
+        } else if (ssoToken) {
             performSsoExchange(ssoToken)
                 .then(() => {
-                    window.location.replace(getLoginNextUrl());
+                    leaveLoginForNext();
                 })
                 .catch((error) => {
                     errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
                     errorBox.classList.remove("d-none");
-                });
-        } else if (getToken()) {
-            fetchCurrentUser()
-                .then(() => {
-                    window.location.replace(getLoginNextUrl());
-                })
-                .catch(() => {
-                    clearAuthState();
                 });
         }
 
@@ -785,7 +874,7 @@
                 setTokens(data.access_token, data.refresh_token);
                 currentUser = data.user || null;
                 currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : [];
-                window.location.replace(getLoginNextUrl());
+                leaveLoginForNext();
             } catch (error) {
                 errorBox.textContent = error.message || "登录失败，请检查用户名和密码";
                 errorBox.classList.remove("d-none");
@@ -811,6 +900,9 @@
             await fetchCurrentUser();
             await loadNav();
             bindLogoutButtons();
+            // navbar.js 渲染的按钮晚于开头的 applyTheme 注入，重跑一次同步其图标/文案
+            // 初始态（bindThemeToggles 已是事件委托，点击无需重绑）
+            applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
             const permissions = getPagePermissions();
             if (!hasAnyPermission(permissions)) {

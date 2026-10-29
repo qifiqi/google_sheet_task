@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.utils import akshare_api, yf_api
+from app.utils import dfcf_api, tencent_api, yf_api
 from app.utils.etf_total_assets import (
     clear_etf_total_assets_cache,
     get_etf_total_assets,
@@ -36,6 +36,38 @@ class _FakeYFApi:
 
     def get_total_assets(self, ticker):
         return self.get_total_assets_with_source(ticker)[0]
+
+
+class _FakeDfcfApi:
+    """记录调用并按预设返回/抛错的东财行情替身。"""
+
+    def __init__(self, value=None, is_etf=None, exc=None):
+        self.value = value
+        self.is_etf = is_etf
+        self.exc = exc
+        self.calls = []
+
+    def get_total_assets_with_source(self, code):
+        self.calls.append(code)
+        if self.exc is not None:
+            raise self.exc
+        return self.value, self.is_etf
+
+
+class _FakeTencentApi:
+    """记录调用并按预设返回/抛错的腾讯行情替身。"""
+
+    def __init__(self, value=None, is_etf=None, exc=None):
+        self.value = value
+        self.is_etf = is_etf
+        self.exc = exc
+        self.calls = []
+
+    def get_total_assets_with_source(self, code):
+        self.calls.append(code)
+        if self.exc is not None:
+            raise self.exc
+        return self.value, self.is_etf
 
 
 def test_overseas_dispatches_to_yahoo_and_converts_ticker(monkeypatch):
@@ -109,10 +141,68 @@ def test_empty_code_returns_none_without_dispatch(monkeypatch):
     assert fake.calls == []
 
 
-def test_cn_branch_hits_akshare_reserved_stub():
-    # A股保留调用位：真实 AkshareApi 恒 None 且不触网；无 market_type 的纯数字代码同样路由到 cn。
+def test_cn_prefers_tencent_over_dfcf(monkeypatch):
+    """A股主源腾讯：命中后东财兜底不被触发，代码原样透传（后缀由适配侧剥离）。"""
+    fake_tencent = _FakeTencentApi(value=9.23e8, is_etf=True)
+    fake_dfcf = _FakeDfcfApi(value=1.0, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets_detail("159930.SZ", "cn") == (9.23e8, True)
+    assert fake_tencent.calls == ["159930.SZ"]
+    assert fake_dfcf.calls == []
+    # TTL 缓存命中不重复分发。
+    assert get_etf_total_assets("159930.SZ", "cn") == 9.23e8
+    assert fake_tencent.calls == ["159930.SZ"]
+
+
+def test_cn_falls_back_to_dfcf_when_tencent_misses(monkeypatch):
+    """腾讯取不到（(None, None)：取值失败/契约不符）时回退东财，结果取东财口径。"""
+    fake_tencent = _FakeTencentApi(value=None)
+    fake_dfcf = _FakeDfcfApi(value=107157284597.76, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets("510300.SH", "cn") == 107157284597.76
+    assert fake_tencent.calls == ["510300.SH"]
+    assert fake_dfcf.calls == ["510300.SH"]
+
+
+def test_cn_adapter_exception_absorbed_by_safety_net(monkeypatch):
+    """适配层漏抛异常由入口安全网捕获返回 None（不承诺二级兜底，与 yf 同约定）。"""
+    fake_tencent = _FakeTencentApi(exc=RuntimeError("network"))
+    fake_dfcf = _FakeDfcfApi(value=1.0, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
     assert get_etf_total_assets("510300.SH", "cn") is None
-    assert get_etf_total_assets("510300") is None
+    assert fake_tencent.calls == ["510300.SH"]
+    assert fake_dfcf.calls == []
+
+
+def test_cn_both_sources_miss_degrades_to_none(monkeypatch):
+    """两源都取不到才 (None, None)。"""
+    fake_tencent = _FakeTencentApi(value=None)
+    fake_dfcf = _FakeDfcfApi(value=None)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake_dfcf)
+    assert get_etf_total_assets_detail("159930", "cn") == (None, None)
+    assert fake_tencent.calls == ["159930"]
+    assert fake_dfcf.calls == ["159930"]
+
+
+def test_cn_dispatches_to_dfcf_with_is_etf_flag(monkeypatch):
+    # 纯数字代码（无 market_type）同样路由到 cn；腾讯主源桩为取不到，代码
+    # 透传至东财兜底。缓存键含原始代码串："510300.SH" 二次调用命中缓存，
+    # 无后缀 "510300" 为新键重新分发。
+    fake_tencent = _FakeTencentApi(value=None)
+    fake = _FakeDfcfApi(value=107157284597.76, is_etf=True)
+    monkeypatch.setattr(tencent_api, "TencentStockApi", lambda: fake_tencent)
+    monkeypatch.setattr(dfcf_api, "DFCJStockApi", lambda: fake)
+    assert get_etf_total_assets("510300.SH", "cn") == 107157284597.76
+    assert get_etf_total_assets_detail("510300.SH", "cn") == (107157284597.76, True)
+    assert fake_tencent.calls == ["510300.SH"]
+    assert fake.calls == ["510300.SH"]
+    assert get_etf_total_assets("510300") == 107157284597.76
+    assert fake_tencent.calls == ["510300.SH", "510300"]
+    assert fake.calls == ["510300.SH", "510300"]
 
 
 def test_yf_total_assets_parses_and_falls_back_to_market_cap(monkeypatch):
@@ -144,5 +234,66 @@ def test_yf_total_assets_parses_and_falls_back_to_market_cap(monkeypatch):
     assert api.get_total_assets_with_source("QQQ") == (None, None)
 
 
-def test_akshare_total_assets_reserved_stub_returns_none():
-    assert akshare_api.AkshareApi().get_total_assets("510300.SH", market_type="cn") is None
+def test_dfcf_total_assets_parses_quote_and_marks_fund(monkeypatch):
+    """场内基金（沪 5/深 15-16）标记 ETF 且 f116≈规模；个股标记非 ETF；缺值/失败降级。"""
+    api = dfcf_api.DFCJStockApi()
+    seen = []
+
+    def _quote(code):
+        seen.append(code)
+        quotes = {
+            "510300": {"f57": "510300", "f58": "沪深300ETF华泰柏瑞", "f116": 107157284597.76},
+            "159915": {"f57": "159915", "f58": "创业板ETF易方达", "f116": 65806490792.0},
+            "600519": {"f57": "600519", "f58": "贵州茅台", "f116": 1573377704651.0},
+        }
+        return quotes.get(code, {})
+
+    monkeypatch.setattr(api, "_fetch_a_share_quote", _quote)
+    assert api.get_total_assets_with_source("510300.SH") == (107157284597.76, True)
+    assert seen == ["510300"]  # 后缀已剥离
+    assert api.get_total_assets("159915") == 65806490792.0
+    assert api.get_total_assets_with_source("600519") == (1573377704651.0, False)
+
+    # 未披露/停牌（f116 为 "-"）与非数字代码一律 (None, None)，后者不触发行情请求。
+    monkeypatch.setattr(api, "_fetch_a_share_quote", lambda code: {"f57": code, "f116": "-"})
+    assert api.get_total_assets_with_source("600519") == (None, None)
+    assert api.get_total_assets_with_source("BTC") == (None, None)
+    assert seen == ["510300", "159915", "600519"]  # "-" 分支的 lambda 替身不记录调用
+
+    def _boom(code):
+        raise RuntimeError("network")
+
+    monkeypatch.setattr(api, "_fetch_a_share_quote", _boom)
+    assert api.get_total_assets_with_source("510300") == (None, None)
+
+
+def test_dfcf_total_assets_request_shape_through_transport(monkeypatch):
+    """只替身 session.get，走真实 __get/参数组装/解析全链路（不触网）。"""
+    api = dfcf_api.DFCJStockApi()
+    monkeypatch.setattr(api, "_should_use_proxy_for_kline", lambda: False)
+
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"f57": "510300", "f58": "沪深300ETF华泰柏瑞", "f116": 107157284597.76}}
+
+    def _fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["params"] = kwargs.get("params")
+        return _FakeResponse()
+
+    monkeypatch.setattr(api.session, "get", _fake_get)
+    assert api.get_total_assets_with_source("510300.SH") == (107157284597.76, True)
+    assert captured["url"] == "https://push2delay.eastmoney.com/api/qt/stock/get"
+    assert captured["params"] == {
+        "invt": "2",
+        "fltt": "2",
+        "fields": "f57,f58,f116",
+        "secid": "1.510300",
+    }

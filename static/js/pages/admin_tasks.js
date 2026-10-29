@@ -126,10 +126,20 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
             window.clearTimeout(searchDebounceTimer);
             searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
         });
+        document.getElementById('token-filter').addEventListener('input', function() {
+            window.clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
+        });
+        document.getElementById('start-date-filter').addEventListener('change', function() {
+            filterTasks();
+        });
+        document.getElementById('end-date-filter').addEventListener('change', function() {
+            filterTasks();
+        });
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
             const interval = (data && data.data.config && data.data.config.tasks_admin_refresh_interval)
                 ? data.data.config.tasks_admin_refresh_interval : 30000;
-            setInterval(loadTasks, interval);
+            setIntervalVisible(loadTasks, interval);
         });
 
         document.getElementById('batchRestartModal').addEventListener('hidden.bs.modal', function() {
@@ -143,6 +153,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         const status = document.getElementById('status-filter').value;
         const taskType = document.getElementById('type-filter').value;
         const keyword = document.getElementById('search-input').value.trim();
+        const tokenName = document.getElementById('token-filter').value.trim();
+        const startDate = document.getElementById('start-date-filter').value;
+        const endDate = document.getElementById('end-date-filter').value;
         const params = new URLSearchParams();
 
         params.set('page', page);
@@ -150,6 +163,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         if (status) params.set('status', status);
         if (taskType) params.set('task_type', taskType);
         if (keyword) params.set('keyword', keyword);
+        if (tokenName) params.set('token_name', tokenName);
+        if (startDate) params.set('start_date', startDate);
+        if (endDate) params.set('end_date', endDate);
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
             if (!err && data && data.data && data.data.items) {
@@ -177,6 +193,9 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         document.getElementById('status-filter').value = '';
         document.getElementById('type-filter').value = '';
         document.getElementById('search-input').value = '';
+        document.getElementById('token-filter').value = '';
+        document.getElementById('start-date-filter').value = '';
+        document.getElementById('end-date-filter').value = '';
         filterTasks();
     }
 
@@ -680,7 +699,7 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
     function showTaskDetail(taskId) {
         currentTaskId = taskId;
         currentTaskType = findCurrentTask(taskId)?.task_type || null;
-        ajaxRequest(`/admin/api/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
+        ajaxRequest(`/api/admin/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
             if (err || !data || data.status !== 'success') {
                 showNotification('获取任务详情失败', 'error');
                 return;
@@ -769,7 +788,8 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
             return;
         }
 
-        ajaxRequest(`/api/tasks/${taskId}/config`, 'PUT', { name, description, status, config }, function(err, data) {
+        // JSON 编辑器提交完整 config：merge=false 整体替换，支持删键
+        ajaxRequest(`/api/tasks/${taskId}/config`, 'PUT', { name, description, status, config, merge: false }, function(err, data) {
             if (!err && data && data.status === 'success') {
                 showNotification('任务已更新', 'success');
                 const shouldRefreshDetail = document.getElementById('taskDetailModal').classList.contains('show');

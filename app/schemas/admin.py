@@ -4,7 +4,7 @@ from app.schemas.common import APIModel
 
 
 class RebuildSchema(APIModel):
-    """POST /admin/api/model-summary/rebuild。"""
+    """POST /api/admin/model-summary/rebuild。"""
 
     task_type: str | None = None
     task_id: str | None = None
@@ -13,7 +13,7 @@ class RebuildSchema(APIModel):
 
 
 class WordExportCacheClearSchema(APIModel):
-    """POST /admin/api/word-export-cache/clear。
+    """POST /api/admin/word-export-cache/clear。
 
     默认全清；task_id 定向清理该任务的报告缓存；only_expired 仅清过期条目。
     """

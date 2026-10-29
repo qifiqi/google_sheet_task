@@ -8,18 +8,22 @@ from __future__ import annotations
 from app.utils.logger import get_logger
 
 import asyncio
-import os
 import random
 from datetime import datetime, timedelta
+from functools import partial
+from itertools import groupby
 from typing import Any, Callable, Iterable
-from stock_sdk import StockClient
 
+from app.repositories.stock_sdk import (
+    create_stock_client,
+    get_stock_data_all_list,
+    upsert_stock_data,
+)
 from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.market import (
     exchange_market_from_stock_code,
     infer_market_type,
-    normalize_market_type,
     normalize_stock_code,
     strip_stock_code_suffix,
     supports_internal_kline,
@@ -68,19 +72,32 @@ VALID_DATA_SOURCES = {
     DATA_SOURCE_AKSHARE,
 }
 
+# 日线周期标识（东财 klt 口径）。内部 K 线库只存日线，分钟周期必须绕开内部库直取外部源。
+DAILY_KLINE_TYPE = "101"
+_DAILY_KLINE_TYPES = {"", DAILY_KLINE_TYPE}
+
+# 周/月K：dfcf/qq 原生提供；其余日线口径源（akshare/yahoo/tdx/内部库）按日线聚合推算。
+KLINE_TYPE_WEEK = "102"
+KLINE_TYPE_MONTH = "103"
+_AGGREGATED_KLINE_TYPES = {KLINE_TYPE_WEEK, KLINE_TYPE_MONTH}
+_NATIVE_PERIOD_SOURCES = {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}
+# 聚合推算时放大日线拉取条数（周×7、月×31，聚合后仍截最新 limit 根）。
+_AGGREGATE_DAILY_FACTOR = {KLINE_TYPE_WEEK: 7, KLINE_TYPE_MONTH: 31}
+
 
 def _resolve_stock_base_url() -> str | None:
     """STOCK_BASE_URL 单一来源：应用配置（由 config.py 从环境变量镜像）。
 
-    未配置时返回 None，交由 StockClient 使用 SDK 自身默认地址；
-    业务层不再硬编码兜底地址。
+    未配置（或纯空白）时返回 None，交由 StockClient 使用 SDK 自身默认地址；
+    业务层不再硬编码兜底地址。strip 语义与 stock_api_base.resolve_stock_base_url
+    对齐：空白串不得当作基地址下发。
     """
     try:
         from flask import current_app
         configured = current_app.config.get("STOCK_BASE_URL", "")
     except RuntimeError:
         configured = ""
-    return configured or os.environ.get("STOCK_BASE_URL") or None
+    return (configured or "").strip() or None
 
 
 class KlineService:
@@ -90,13 +107,13 @@ class KlineService:
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
         stock_base_url = _resolve_stock_base_url()
-        if stock_base_url:
-            self.stock_client = StockClient(base_url=stock_base_url)
-        else:
-            self.stock_client = StockClient()
+        self.stock_client = create_stock_client(stock_base_url)
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self._akshare_api = None
+        # 证券名称软解析缓存：命中西"代码+市场"直接复用；空串为负缓存，
+        # 避免东财/yahoo 均无名称的代码每次取数都重复发起搜索。
+        self._resolved_name_cache: dict[tuple[str, str], str] = {}
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
             DATA_SOURCE_DFCF: self._fetch_dfcf,
             DATA_SOURCE_QQ: self._fetch_qq,
@@ -131,10 +148,10 @@ class KlineService:
     ) -> list[dict[str, Any]]:
         """按 price_mode 取价，把 K 线行投影成可直接写入表格的价格序列。
 
-        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close。
+        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close/vwap。
         price_field 为空时按 price_mode 映射价格字段；year 非空按年份过滤（与 int(stock_date[:4]) 直接比较），
         否则 start_date/end_date 任一非空按闭区间过滤；都未传则不过滤。
-        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，
+        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，统一保留 3 位小数，
         random_generator 用于随机价格分组复现同一序列。
         """
         resolved_field = price_field or get_kline_price_field(price_mode)
@@ -152,7 +169,7 @@ class KlineService:
                 lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
                 lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
                 generator = random_generator or random
-                stock_val = generator.uniform(lower, upper)
+                stock_val = round(generator.uniform(lower, upper), 3)
             else:
                 stock_val = kline[resolved_field]
             row = {"stock_date": date, "stock_val": stock_val}
@@ -162,6 +179,7 @@ class KlineService:
                     "high": kline.get("high"),
                     "low": kline.get("low"),
                     "close": kline.get("close"),
+                    "vwap": kline.get("vwap"),
                 })
             projected.append(row)
         return projected
@@ -212,13 +230,13 @@ class KlineService:
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
 
         if str(stock_code).isdigit():
-            data = self.stock_client.stock_data.get_data_all_list({
+            data = get_stock_data_all_list(self.stock_client, market="cn", payload={
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": self.get_stock_market(stock_code),
             })
 
         else:
-            data = self.stock_client.stock_data_us.get_data_all_list({
+            data = get_stock_data_all_list(self.stock_client, market="us", payload={
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": stock_code,
             })
@@ -247,16 +265,14 @@ class KlineService:
             return []
 
         stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
-        if str(stock_code).isdigit(): # A 股美股不同接口
-            stock_data = self.stock_client.stock_data
-
+        market = "cn" if str(stock_code).isdigit() else "us"
+        if market == "cn": # A 股美股不同接口
             stock_code = self.get_stock_market(stock_code)
-        else:
-            stock_data = self.stock_client.stock_data_us
 
-        data = stock_data.get_data_all_list({
+        data = get_stock_data_all_list(self.stock_client, market=market, payload={
             "begin_date": rows[0]["stock_date"],
-            "end_time": rows[7]["stock_date"],
+            # 区间查询窗取第 8 根（与既有调用方 limit>=100 的口径一致）；行数不足时取末根，避免 IndexError
+            "end_time": rows[min(7, len(rows) - 1)]["stock_date"],
             "stock_code": stock_code,
         })
         data = data.ret_obj
@@ -265,6 +281,8 @@ class KlineService:
             rows = sorted(rows, key=lambda x: x["stock_date"],reverse=True)[:30]
 
         # 创建异步任务
+        upsert = partial(upsert_stock_data, self.stock_client, market=market)
+
         async def write_one(row):
             data = {
                 "stock_code": stock_code,
@@ -280,7 +298,7 @@ class KlineService:
                 "stock_date": row.get("stock_date")
             }
             loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
+            res = await loop.run_in_executor(None, upsert, data)
             return res
 
         # 在 Flask 中获取当前事件循环
@@ -309,6 +327,8 @@ class KlineService:
         adjust_type: str | None = None,
         exchange_market: str | None = None,
         stock_name: str | None = None,
+        kline_type: str = DAILY_KLINE_TYPE,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         source = self.normalize_data_source(data_source, self.sources)
         raw_code = str(stock_code or "").strip().upper()
@@ -322,9 +342,11 @@ class KlineService:
         if not code:
             raise ValueError("股票代码不能为空")
         limit = max(1, int(limit or 1))
+        kline_type = str(kline_type or DAILY_KLINE_TYPE).strip()
 
         internal_rows = []
-        if supports_internal_kline(market_type):
+        is_daily = kline_type in _DAILY_KLINE_TYPES
+        if is_daily and supports_internal_kline(market_type):
             internal_rows = self._normalize_rows(
                 self.read_internal_kline_data(
                     stock_code=source_code,
@@ -339,6 +361,7 @@ class KlineService:
                 DATA_SOURCE_DATABASE,
                 market_type=market_type,
                 exchange_market=exchange_market,
+                include_vwap=include_vwap,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
             return self._filter_rows_by_date_range(internal_rows, start_date, end_date, limit)
@@ -346,23 +369,37 @@ class KlineService:
         if source == DATA_SOURCE_DATABASE:
             source = DATA_SOURCE_DFCF
 
+        # 周月K在非原生源上按日线聚合推算：放大日线条数、以日线周期拉取。
+        aggregate_from_daily = (
+            kline_type in _AGGREGATED_KLINE_TYPES
+            and source not in _NATIVE_PERIOD_SOURCES
+        )
+        fetch_limit = (
+            limit * _AGGREGATE_DAILY_FACTOR[kline_type]
+            if aggregate_from_daily
+            else limit
+        )
         rows, resolved_name = self._fetch_external(
             source,
             source_code,
             market_type,
-            limit,
+            fetch_limit,
             adjust_type,
             exchange_market,
             stock_name,
             start_date,
             end_date,
+            DAILY_KLINE_TYPE if aggregate_from_daily else kline_type,
         )
         normalized_rows = self._normalize_rows(
             rows, code, resolved_name, source,
             market_type=market_type,
             exchange_market=exchange_market,
+            include_vwap=include_vwap,
         )
-        if normalized_rows and supports_internal_kline(market_type):
+        if aggregate_from_daily:
+            normalized_rows = self._aggregate_klines(normalized_rows, kline_type)
+        if normalized_rows and is_daily and supports_internal_kline(market_type):
             self.write_internal_kline_data(
                 normalized_rows,
                 stock_code=source_code,
@@ -393,6 +430,7 @@ class KlineService:
         stock_name: str | None,
         start_date: str | None,
         end_date: str | None,
+        kline_type: str = DAILY_KLINE_TYPE,
     ) -> tuple[Iterable[dict[str, Any]], str]:
         if source == DATA_SOURCE_TDX:
             exchange, resolved_name, resolved_code = (
@@ -401,22 +439,28 @@ class KlineService:
                 code,
             )
         elif source == DATA_SOURCE_YAHOO:
-            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索。
-            exchange, resolved_name, resolved_code = (
+            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索；
+            # 证券名称单独走东财搜索（软失败，Yahoo longName 兜底）。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         elif source in {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}:
             exchange, resolved_name, resolved_code = self._resolve_exchange_and_name(
                 code, market_type, exchange_market, stock_name
             )
         else:
-            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码。
-            exchange, resolved_name, resolved_code = (
+            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码；
+            # 名称与 Yahoo 分支同策略：东财搜索软失败解析，取不到留空。
+            exchange, resolved_code = (
                 str(exchange_market or exchange_market_from_stock_code(code)),
-                str(stock_name or ""),
                 code,
+            )
+            resolved_name = str(stock_name or "") or self._resolve_stock_name_soft(
+                code, market_type, exchange
             )
         handler = self.sources.get(source)
         if handler is None:
@@ -430,6 +474,7 @@ class KlineService:
             "start_date": start_date,
             "end_date": end_date,
             "stock_name": resolved_name,
+            "kline_type": kline_type,
         })
         return rows or [], resolved_name
 
@@ -438,6 +483,7 @@ class KlineService:
             request["stock_code"],
             request["exchange_market"],
             request["limit"],
+            kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,
             adjust_type=request.get("adjust_type"),
         )
 
@@ -446,6 +492,7 @@ class KlineService:
             request["stock_code"],
             request["exchange_market"],
             limit=request["limit"],
+            kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,
             adjust_type=request.get("adjust_type"),
             market_type=request.get("market_type"),
         )
@@ -475,8 +522,11 @@ class KlineService:
                 request.get("market_type"),
                 request.get("exchange_market"),
             ),
+            # 未指定区间时保持 10 年窗口；有区间则由 start/end 精确拉取（如 1999 年起的美股回测）
             "10y",
             adjust_type=request.get("adjust_type"),
+            start_date=request.get("start_date"),
+            end_date=request.get("end_date"),
         )
 
     def _fetch_tdx(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -528,6 +578,39 @@ class KlineService:
         if first in {"4", "8"}:
             return market_enum.BJ
         raise ValueError(f"TDX 数据源仅支持 A股场内证券代码: {code}")
+
+    def _resolve_stock_name_soft(
+        self,
+        code: str,
+        market_type: str,
+        exchange_market: str | None = None,
+    ) -> str:
+        """仅解析证券名称的软失败路径（Yahoo/注册源用，不影响代码与交易市场判定）。
+
+        优先东财搜索（含 stock_meta 前置缓存与成功回写），失败回退 Yahoo
+        longName，再取不到返回空串由调用方留空。任何异常都吞掉记日志，
+        取名失败绝不阻断 K 线任务。
+        """
+        market_key = str(market_type or "").strip().lower()
+        cache_key = (str(code or "").strip().upper(), market_key)
+        if cache_key in self._resolved_name_cache:
+            return self._resolved_name_cache[cache_key]
+        name = ""
+        try:
+            name = str(
+                self.stock_search_service.resolve_stock(code, market_type)["name"] or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("东财搜索解析证券名称失败 code=%s market=%s: %s", code, market_type, exc)
+        if not name:
+            try:
+                name = self._get_yahoo_api().get_stock_name(
+                    to_yahoo_ticker(code, market_type, exchange_market)
+                )
+            except Exception as exc:
+                logger.warning("Yahoo 兜底解析证券名称失败 code=%s: %s", code, exc)
+        self._resolved_name_cache[cache_key] = name
+        return name
 
     def _resolve_exchange_and_name(
         self,
@@ -615,10 +698,42 @@ class KlineService:
         try:
             return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
         except ValueError:
+            parsed = KlineService._parse_compact_datetime(text)
+            if parsed is not None:
+                return parsed.date().isoformat()
             try:
                 return datetime.strptime(text, "%Y/%m/%d").date().isoformat()
             except ValueError:
                 return ""
+
+    @staticmethod
+    def _normalize_stock_datetime(value: Any) -> str:
+        """来源日期带时间部分（分钟线）时返回 "YYYY-MM-DD HH:MM"；日线返回空串。
+
+        分钟K线同一天会有多根记录，stock_date 仍归属到日（内部逻辑不变），
+        展示层用本字段保留根级时间。
+        """
+        if value in (None, ""):
+            return ""
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = KlineService._parse_compact_datetime(text)
+        if parsed is None or (parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0):
+            return ""
+        return parsed.strftime("%Y-%m-%d %H:%M")
+
+    @staticmethod
+    def _parse_compact_datetime(text: str) -> datetime | None:
+        """解析腾讯系纯数字日期：YYYYMMDD / YYYYMMDDHHMM / YYYYMMDDHHMMSS。"""
+        if not text.isdigit() or len(text) not in (8, 12, 14):
+            return None
+        formats = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
+        try:
+            return datetime.strptime(text, formats[len(text)])
+        except ValueError:
+            return None
 
     @staticmethod
     def _normalize_rows(
@@ -628,6 +743,7 @@ class KlineService:
         source: str,
         market_type: str | None = None,
         exchange_market: str | None = None,
+        include_vwap: bool = True,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for raw in rows or []:
@@ -673,19 +789,27 @@ class KlineService:
                 amount = float(amount)
             except (TypeError, ValueError):
                 amount = 0.0
-            vwap_raw = raw.get("vwap")
-            try:
-                vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
-                    amount / volume if volume else values["close"]
-                )
-            except (TypeError, ValueError):
-                vwap = values["close"]
+            if not include_vwap:
+                # C1.1 关闭 vwap 开关：不派生加权平均价，行内恒为 None
+                vwap = None
+            else:
+                vwap_raw = raw.get("vwap")
+                try:
+                    vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
+                        amount / volume if volume else values["close"]
+                    )
+                except (TypeError, ValueError):
+                    vwap = values["close"]
+                # 与 dfcf/yf 源及周月聚合口径一致，加权平均价统一保留 3 位小数
+                vwap = round(vwap, 3)
             row.update(
                 {
                     **values,
                     "stock_code": code,
                     "stock_name": name,
                     "stock_date": stock_date,
+                    # 分钟线保留根级时间；日线为空串，不改变既有行形状。
+                    "stock_datetime": KlineService._normalize_stock_datetime(date),
                     "volume": volume,
                     "amount": amount,
                     "vwap": vwap,
@@ -696,3 +820,43 @@ class KlineService:
             normalized.append(row)
         normalized.sort(key=lambda row: row["stock_date"])
         return normalized
+
+    @staticmethod
+    def _aggregate_klines(
+        rows: list[dict[str, Any]],
+        kline_type: str,
+    ) -> list[dict[str, Any]]:
+        """日线聚合为周K/月K（供仅日线口径的数据源推算周期K）。
+
+        输入须为升序日线行。分组键：周K为自然周周一、月K为 YYYY-MM；
+        OHLC 取组内首开/末收/最高/最低，量额求和、vwap=Σamount/Σvolume；
+        行日期为组内最后交易日（与东财周期K口径一致）。振幅/涨跌幅等衍生
+        指标不在聚合层伪造，由展示端按收盘序列推算。
+        """
+        def group_key(stock_date: str) -> str:
+            date = datetime.fromisoformat(stock_date)
+            if kline_type == KLINE_TYPE_WEEK:
+                return (date - timedelta(days=date.weekday())).date().isoformat()
+            return stock_date[:7]
+
+        aggregated: list[dict[str, Any]] = []
+        for _, group in groupby(rows, key=lambda row: group_key(row["stock_date"])):
+            items = list(group)
+            first, last = items[0], items[-1]
+            volume = sum(float(item.get("volume") or 0) for item in items)
+            amount = sum(float(item.get("amount") or 0) for item in items)
+            close = float(last.get("close") or 0)
+            aggregated.append({
+                "stock_code": first.get("stock_code"),
+                "stock_name": first.get("stock_name"),
+                "stock_date": last["stock_date"],
+                "open": first.get("open"),
+                "high": max(float(item["high"]) for item in items),
+                "low": min(float(item["low"]) for item in items),
+                "close": last.get("close"),
+                "volume": volume,
+                "amount": amount,
+                "vwap": round(amount / volume, 3) if volume else close,
+                "data_source": last.get("data_source"),
+            })
+        return aggregated

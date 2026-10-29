@@ -24,13 +24,13 @@ def test_rate_limit_exceeded_returns_429_chinese_envelope(app_factory):
     # 键用本次运行唯一值：limiter 的 memory 存储进程内共享，防止套件内键污染。
     probe_key = f"probe-{uuid.uuid4().hex}"
     limited = limiter.limit("2/minute", key_func=lambda: probe_key)(_probe)
-    app.add_url_rule("/performance_analysis/_limit_probe", view_func=limited)
+    app.add_url_rule("/api/performance-analysis/_limit_probe", view_func=limited)
 
     client = app.test_client()
-    assert client.get("/performance_analysis/_limit_probe").status_code == 200
-    assert client.get("/performance_analysis/_limit_probe").status_code == 200
+    assert client.get("/api/performance-analysis/_limit_probe").status_code == 200
+    assert client.get("/api/performance-analysis/_limit_probe").status_code == 200
 
-    resp = client.get("/performance_analysis/_limit_probe")
+    resp = client.get("/api/performance-analysis/_limit_probe")
     assert resp.status_code == 429
     body = resp.get_json()
     assert body == {
@@ -82,3 +82,40 @@ def test_export_endpoint_rate_limited_by_user(app_factory):
     assert body["status"] == "error" and body["code"] == 429
     assert body["message"] == "请求过于频繁，请稍后重试"
 
+
+
+def test_word_report_endpoint_rate_limit_raised(app_factory):
+    """Word 报告端点独立限流：rate_limit_word_report（默认 60/min，user 键）。
+
+    全局预览页按“股票×年份×参数方案”逐个循环调用该端点，10/min 会误伤；
+    前几十次请求按业务校验返回 400（RPT-M 缺 task_id），第 61 次起 429。
+    """
+    import secrets as _secrets
+    from werkzeug.security import generate_password_hash
+
+    pw = _secrets.token_hex(12)
+    app = app_factory
+    app.config.update(RATELIMIT_ENABLED=True)
+    limiter.enabled = True
+
+    with app.app_context():
+        from app.extensions import db
+        from app.models import User
+        db.create_all()
+        db.session.add(User(username="word-exporter", password_hash=generate_password_hash(pw), is_active=True))
+        db.session.commit()
+
+    client = app.test_client()
+    r = client.post("/api/auth/login", json={"username": "word-exporter", "password": pw})
+    headers = {"Authorization": "Bearer " + r.get_json()["data"]["access_token"]}
+
+    codes = [
+        client.post(
+            "/api/exports/backtest-reports/word",
+            headers=headers,
+            json={"report_type": "RPT-M"},
+        ).status_code
+        for _ in range(61)
+    ]
+    assert codes[:60] == [400] * 60
+    assert codes[60] == 429

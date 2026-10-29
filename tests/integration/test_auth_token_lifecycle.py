@@ -167,5 +167,13 @@ def test_get_secret_prefers_environment(app_factory, monkeypatch):
         assert _get_secret() == "env-secret-value"
 
         monkeypatch.delenv("JWT_SECRET_KEY")
-        # 测试库的 system_configs 无该配置项，回退默认值
-        assert _get_secret() == DEFAULT_JWT_SECRET
+        # 测试库的 system_configs 无该配置项：回退进程内随机密钥——
+        # 进程内稳定（签名/校验一致），且绝不等于公开默认常量。
+        fallback = _get_secret()
+        assert fallback == _get_secret()
+        assert fallback != DEFAULT_JWT_SECRET
+        assert len(fallback) >= 32
+
+        # 环境变量显式等于公开默认常量：同样视为未配置，走随机兜底
+        monkeypatch.setenv("JWT_SECRET_KEY", DEFAULT_JWT_SECRET)
+        assert _get_secret() == fallback

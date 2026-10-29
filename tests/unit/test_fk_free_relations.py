@@ -1,14 +1,11 @@
 from datetime import datetime, timedelta
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import inspect, text
 
 from app.extensions import db
 from app.models import (
-    BacktestSheetRunLock,
+    SheetExecutionLock,
     Permission,
     Role,
     Task,
@@ -166,7 +163,7 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
         """))
         task, result, series = _create_task_records("task-delete")
         task_id = task.id
-        db.session.add(BacktestSheetRunLock(spreadsheet_id="sheet-1", task_id=task_id, task_type=task.task_type))
+        db.session.add(SheetExecutionLock(spreadsheet_id="sheet-1", task_id=task_id, task_type=task.task_type))
         db.session.execute(text("""
             INSERT INTO xpl_analysis_jobs (task_id, task_result_id, return_series_id)
             VALUES (:task_id, :result_id, :series_id)
@@ -182,7 +179,7 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
         assert TaskResult.query.filter_by(task_id=task_id).count() == 0
         assert TaskResultReturn.query.filter_by(task_id=task_id).count() == 0
         assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 0
-        assert BacktestSheetRunLock.query.filter_by(task_id=task_id).count() == 0
+        assert SheetExecutionLock.query.filter_by(task_id=task_id).count() == 0
         assert db.session.execute(text("SELECT COUNT(*) FROM xpl_analysis_jobs")).scalar() == 0
 
 

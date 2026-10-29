@@ -7,7 +7,7 @@ from requests.exceptions import SSLError
 
 from app.exceptions import ValidationError
 from app.extensions import db
-from app.models import Task, TaskLog
+from app.models import GoogleSheet, Task, TaskLog
 from app.services.google_sheet_tasks.c5 import C5Service as C5GoogleSheetService
 from app.services.google_sheet_tasks.c7 import C7Service as C7GoogleSheetService
 from app.services.task.error_handling import (
@@ -111,7 +111,8 @@ def test_c5_c7_kline_processing_is_limited_to_configured_date_range():
             [["600000"], [1], [2]],
         )
 
-        assert set(kline_map) == {"2026-2025", "2026-2024", "2026-2023", "2026-2022", "2026-2021"}
+        # recent 模式现统一包含近半年（0.5）窗口，对应键 "2026-2026"
+        assert set(kline_map) == {"2026-2026", "2026-2025", "2026-2024", "2026-2023", "2026-2022", "2026-2021"}
         assert all(
             configured_start <= row["stock_date"] <= configured_end
             for kline in kline_map.values()
@@ -268,6 +269,11 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
 
     with app.app_context():
         manager = TaskManager()
+        db.session.add_all([
+            GoogleSheet(name="sheet-1", spreadsheet_id="sheet-1", table_type="c3"),
+            GoogleSheet(name="sheet-2", spreadsheet_id="sheet-2", table_type="c3"),
+        ])
+        db.session.commit()
 
         def fake_create_task(name, description, task_type, config, created_by_user_id=None):
             task_id = f"child-{len(created_configs) + 1}"
@@ -284,7 +290,14 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
             return task_id
 
         monkeypatch.setattr(manager, "create_task", fake_create_task)
-        monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
+
+        class _StartOk:
+            started = True
+            queued = False
+            status = "started"
+            message = ""
+
+        monkeypatch.setattr(manager, "start_task", lambda _task_id: _StartOk())
         monkeypatch.setattr("app.services.task.creation.time.sleep", lambda _seconds: None)
 
         response = manager.batch_create_and_start_task({
@@ -387,11 +400,11 @@ def _run_same_kline_source_case(monkeypatch):
             {"stock_date": "2025-01-02", "stock_val": 11},
         ]
     }
-    cache = {"combination": {"Kline_key": "2026-2025"}}
+    cache = {"combination": {"kline_key": "2026-2025"}}
 
     success, _result = service._execute_parameter_combination(
         10,
-        {"A1": "1", "B1": "2", "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"A1": "1", "B1": "2", "stock_code": "600000", "kline_key": "2026-2025"},
         cache,
         config,
         kline_map,
@@ -434,7 +447,7 @@ def test_c5_parameter_combination_exception_records_trace_id(app_factory, monkey
             service,
             "_get_all_parameters",
             lambda *_args, **_kwargs: (
-                [{"stock_code": "600000", "Kline_key": "2026-2025"}],
+                [{"stock_code": "600000", "kline_key": "2026-2025"}],
                 10,
                 {
                     "2026-2025": [

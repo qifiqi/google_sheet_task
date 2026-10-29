@@ -81,10 +81,14 @@
         const value = document.getElementById('edit-config-value').value;
         const description = document.getElementById('edit-config-description').value;
 
-        ajaxRequest(`/api/system-configs/${encodeURIComponent(key)}`, 'PUT', {
-            value: value,
-            description: description
-        }, function(err, data) {
+        // 敏感配置列表返回的是脱敏值（***），回传会被服务端当"未修改"跳过；
+        // 仅当用户输入了非掩码值才提交 value，避免掩码字面量覆盖真实值。
+        const payload = { description: description };
+        if (value && value !== '***') {
+            payload.value = value;
+        }
+
+        ajaxRequest(`/api/system-configs/${encodeURIComponent(key)}`, 'PUT', payload, function(err, data) {
             if (!err && data && data.status === 'success') {
                 bootstrap.Modal.getOrCreateInstance(document.getElementById('editConfigModal')).hide();
                 showNotification('\u914d\u7f6e\u66f4\u65b0\u6210\u529f', 'success');
@@ -240,7 +244,9 @@
     function validateConfig() {
         ajaxRequest('/api/config/validate', 'GET', null, function(err, data) {
             if (!err && data && data.status === 'success') {
-                const validation = data.validation;
+                // ajaxRequest 返回完整信封，校验体在 data.data.validation；
+                // 此前漏拆一层导致 TypeError 被 promise 吞掉、弹窗不出现
+                const validation = (data.data && data.data.validation) || {};
                 let message = '\u914d\u7f6e\u6821\u9a8c\u7ed3\u679c:\\n';
                 message += `\u6570\u636e\u5e93\u914d\u7f6e\u6570\u91cf: ${validation.db_size}\\n`;
                 message += `\u7f13\u5b58\u914d\u7f6e\u6570\u91cf: ${validation.cache_size}\\n`;

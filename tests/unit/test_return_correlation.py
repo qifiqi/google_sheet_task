@@ -5,7 +5,9 @@ import pytest
 from app.services.performance_analysis.return_correlation import (
     aligned_daily_returns,
     pairwise_correlation_matrix,
+    pairwise_same_direction_matrix,
     pearson_coefficient,
+    same_direction_rate,
 )
 
 
@@ -81,3 +83,29 @@ def test_pairwise_correlation_matrix_handles_empty_and_single_series():
     assert pairwise_correlation_matrix([]) == []
     single = pairwise_correlation_matrix([[0.01, 0.02, 0.03]])
     assert single == [[1.0]]
+
+
+def test_same_direction_rate_counts_same_sign_and_treats_zero_as_different():
+    left = [0.01, -0.02, 0.0, 0.03, -0.01]
+    right = [0.02, -0.01, 0.01, 0.0, 0.01]
+
+    # 分母为全部共同交易日：第1/2天同向，第3/4天任一方为 0，第5天反向 → 2/5。
+    assert same_direction_rate(left, right) == pytest.approx(0.4)
+
+
+def test_pairwise_same_direction_matrix_is_symmetric_with_diagonal_one():
+    series = [
+        [0.01, -0.02, 0.03],
+        [0.02, -0.01, -0.03],
+        [0.01, 0.02, 0.03],
+    ]
+
+    matrix = pairwise_same_direction_matrix(series)
+
+    assert matrix[0][0] == matrix[1][1] == matrix[2][2] == 1.0
+    assert matrix[0][1] == pytest.approx(2 / 3)
+    assert matrix[1][0] == pytest.approx(matrix[0][1])
+    assert matrix[0][2] == pytest.approx(2 / 3)
+    assert matrix[1][2] == pytest.approx(1 / 3)
+    assert pairwise_same_direction_matrix([]) == []
+    assert pairwise_same_direction_matrix([[0.01, 0.02]]) == [[1.0]]

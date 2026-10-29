@@ -37,7 +37,7 @@ def _task(task_id="task-1", *, status="pending", task_type="google_sheet", confi
     )
 
 
-def test_create_task_normalizes_c4_config_and_acquires_sheet(app_factory, monkeypatch):
+def test_create_task_normalizes_c4_config_without_occupancy_mirror(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
         sheet = GoogleSheet(name="C4 Sheet", spreadsheet_id="sheet-1", table_type="c4")
@@ -56,8 +56,7 @@ def test_create_task_normalizes_c4_config_and_acquires_sheet(app_factory, monkey
             "google_sheet_C4",
             {
                 "google_sheet_id": sheet.id,
-                "spreadsheet_id": "legacy-id",
-                "sheet_name": "legacy-name",
+                "sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data"}],
                 "parameters": [["1"]],
             },
         )
@@ -70,8 +69,9 @@ def test_create_task_normalizes_c4_config_and_acquires_sheet(app_factory, monkey
         assert config["token_task_type"] == "google_sheet"
         assert "spreadsheet_id" not in config
         assert "sheet_name" not in config
-        assert sheet.is_in_use is True
-        assert sheet.current_task_id == task_id
+        # 创建期不登记占用镜像：镜像只由执行期 start_task 维护。
+        assert sheet.is_in_use is False
+        assert sheet.current_task_id is None
 
 
 def test_start_task_rejects_non_pending_and_records_error(app_factory):
@@ -83,7 +83,8 @@ def test_start_task_rejects_non_pending_and_records_error(app_factory):
 
         manager = TaskManager()
 
-        assert manager.start_task(task.id) is False
+        result = manager.start_task(task.id)
+        assert not result.started and result.status == "rejected"
         assert "任务状态不是pending" in manager.get_start_error(task.id)
 
 
@@ -98,12 +99,14 @@ def test_start_task_thread_failure_releases_runtime_state(app_factory, monkeypat
         monkeypatch.setattr(manager, "_get_config", lambda _key, default=None: 5)
         monkeypatch.setattr(manager, "ensure_google_sheet_occupancy", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(manager, "release_google_sheet_occupancy", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr(
-            "app.services.task.runtime.threading.Thread",
-            lambda *args, **kwargs: _FakeThread(should_raise=True),
-        )
 
-        assert manager.start_task(task.id) is False
+        def _fail_submit(*_args, **_kwargs):
+            raise RuntimeError("thread boom")
+
+        monkeypatch.setattr(manager, "submit_task_execution", _fail_submit)
+
+        result = manager.start_task(task.id)
+        assert not result.started and result.status == "rejected"
         assert "任务线程启动失败" in manager.get_start_error(task.id)
         assert task.id not in manager.running_tasks
         assert task.id not in manager.task_stop_events
@@ -143,7 +146,14 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         monkeypatch.setattr(manager, "check_local_task_status", lambda _task_id: {"can_restart": True})
         monkeypatch.setattr(manager, "release_task_token_occupancy", lambda _task_id: None)
         monkeypatch.setattr(manager, "release_google_sheet_occupancy", lambda _task_id: None)
-        monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
+
+        from app.services.task.runtime import TaskStartResult
+
+        monkeypatch.setattr(
+            manager,
+            "start_task",
+            lambda _task_id: TaskStartResult(status="started"),
+        )
 
         result = manager.restart_task(task.id, resume_from_checkpoint=False)
         task = db.session.get(Task, task.id)

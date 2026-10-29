@@ -28,7 +28,7 @@ from flask import has_app_context
 from sqlalchemy import inspect
 
 from app.config import Config
-from app.models import Task
+from app.models import Task, TaskStatus
 from app.repositories import task_log_repository, task_repository
 from app.services.config_manager import coerce_bool, get_config_manager
 from app.services.task import task_manager
@@ -123,10 +123,10 @@ class TaskWatchdog:
     def stop(self, timeout: float | None = 5.0):
         with self._lock:
             self._stop_event.set()
-            t = self._thread
+            thread = self._thread
 
-        if t and t.is_alive() and timeout is not None:
-            t.join(timeout=timeout)
+        if thread and thread.is_alive() and timeout is not None:
+            thread.join(timeout=timeout)
 
     def _get_config(self, app, key: str, default):
         with app.app_context():
@@ -222,7 +222,7 @@ class TaskWatchdog:
         """重启次数耗尽: 把任务彻底标成 error 退出自动重试循环。"""
         task_repository.update_fields(
             task_id,
-            status="error",
+            status=TaskStatus.ERROR.value,
             error_message=(
                 f"{WATCHDOG_ABANDON_PREFIX} (尝试 {attempts} 次, reason={reason}): "
                 f"{last_error}"
@@ -282,13 +282,13 @@ class TaskWatchdog:
             logger.warning("watchdog force restart skipped, task missing: %s", task_id)
             return None
 
-        task_manager.release_backtest_sheet_locks(task_id)
+        task_manager.release_sheet_execution_locks(task_id)
         task_manager.release_task_token_occupancy(task_id)
         task_manager.release_google_sheet_occupancy(task_id)
 
         updated = task_repository.update_fields(
             task_id,
-            status="pending",
+            status=TaskStatus.PENDING.value,
             error_message=None,
             end_time=None,
         )
@@ -310,7 +310,7 @@ class TaskWatchdog:
     ) -> None:
         task_repository.update_fields(
             task_id,
-            status="cancelled",
+            status=TaskStatus.CANCELLED.value,
             error_message=(
                 f"{WATCHDOG_RESTART_PREFIX} attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}"
@@ -399,8 +399,8 @@ class TaskWatchdog:
             if not task:
                 return
 
-            success = task_manager.start_task(task_id)
-            if success:
+            result = task_manager.start_task(task_id)
+            if result.started:
                 self._mark_restart_running(task_id)
                 task_manager.add_task_log(
                     task_id,
@@ -418,14 +418,31 @@ class TaskWatchdog:
                     max_attempts,
                     task.current_step,
                 )
+            elif result.queued:
+                # Sheet 执行锁被占的排队路径: start_task 已把任务保持 pending,
+                # 由持有者收尾后的接力启动接管; 不算失败, 也不标 running。
+                task_manager.add_task_log(
+                    task_id,
+                    "info",
+                    f"watchdog 重启时 Sheet 被占用，任务保持待执行排队 "
+                    f"(尝试 {attempt}/{max_attempts}): {result.message}",
+                )
+                logger.info(
+                    "watchdog force restart queued: task_id=%s, reason=%s, "
+                    "attempt=%s/%s, message=%s",
+                    task_id,
+                    reason,
+                    attempt,
+                    max_attempts,
+                    result.message,
+                )
             else:
-                start_error = task_manager.get_start_error(task_id)
                 self._mark_force_restart_failed(
                     task_id,
                     reason,
                     attempt,
                     max_attempts,
-                    f"watchdog force restart failed: {start_error}",
+                    f"watchdog force restart failed: {result.message}",
                 )
                 logger.warning(
                     "watchdog force restart failed: task_id=%s, reason=%s, "
@@ -434,7 +451,7 @@ class TaskWatchdog:
                     reason,
                     attempt,
                     max_attempts,
-                    start_error,
+                    result.message,
                 )
         except Exception as restart_error:
             logger.error(
@@ -473,7 +490,7 @@ class TaskWatchdog:
         prefix = self._prefix_for_restart_failure_reason(reason)
         task_repository.update_fields(
             task_id,
-            status="error",
+            status=TaskStatus.ERROR.value,
             error_message=(
                 f"{prefix} watchdog_restart_failed attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}; original_error={original_error}"
@@ -527,6 +544,9 @@ class TaskWatchdog:
                 f"watchdog 检测到异常任务，准备自动断点重启 "
                 f"(尝试 {attempt}/{max_attempts}, reason={reason})",
             )
+            # restart_task 新契约：失败抛领域异常（由 except 统一标记），
+            # 成功返回信息 dict（无 status 键）；queued 表示 Sheet 执行锁被占、
+            # 任务保持 pending 排队等待接力（全任务类型统一语义）。
             result = task_manager.restart_task(task_id, resume_from_checkpoint=True)
             logger.warning(
                 "watchdog error restart result: task_id=%s, "
@@ -537,16 +557,17 @@ class TaskWatchdog:
                 max_attempts,
                 result,
             )
-            if result.get("status") != "success":
-                self._mark_error_restart_failed(
+            if result.get("queued"):
+                # Sheet 被占的排队路径: restart_task 已把任务置回 pending,
+                # 由持有者收尾后的接力启动接管; 不算失败, 也不能标 running。
+                logger.info(
+                    "watchdog error restart queued: task_id=%s, reason=%s, "
+                    "attempt=%s/%s, message=%s",
                     task_id,
                     reason,
                     attempt,
                     max_attempts,
-                    error_message,
-                    f"watchdog 自动重启失败 "
-                    f"(尝试 {attempt}/{max_attempts}, reason={reason}): "
-                    f"{result.get('message') or result}",
+                    result.get("message"),
                 )
             else:
                 self._mark_restart_running(task_id)
@@ -618,7 +639,7 @@ class TaskWatchdog:
     def _process_watched_task(self, task: Task, config: _WatchdogConfig) -> None:
         error_message = str(task.error_message or "")
 
-        if task.status == "cancelled":
+        if task.status == TaskStatus.CANCELLED.value:
             # 防御性兜底: 即使 SQL filter 之外的代码路径把任务带进来,
             # 也只处理 watchdog 自己留下的标记任务。
             if not error_message.startswith(WATCHDOG_RESTART_PREFIX):
@@ -643,7 +664,7 @@ class TaskWatchdog:
             )
             return
 
-        if task.status == "error":
+        if task.status == TaskStatus.ERROR.value:
             if error_message.startswith(WATCHDOG_ABANDON_PREFIX):
                 logger.warning(
                     "watchdog skipping abandoned error task: task_id=%s, "

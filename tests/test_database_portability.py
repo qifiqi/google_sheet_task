@@ -1,16 +1,6 @@
 from sqlalchemy.exc import OperationalError
 
-from app.utils.db_monitor import DatabaseMonitor
 from app.utils.db_retry import DatabaseLockError, safe_db_operation
-
-
-def test_database_monitor_uses_sqlalchemy_inspector(app_factory):
-    app = app_factory
-    with app.app_context():
-        indexes = DatabaseMonitor.check_indexes()
-
-        assert "tasks" in indexes
-        assert DatabaseMonitor.get_database_size()["type"] == "sqlite"
 
 
 def test_safe_db_operation_retries_transient_database_errors(monkeypatch):

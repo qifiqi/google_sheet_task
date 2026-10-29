@@ -16,9 +16,9 @@ def test_c5_deduplicates_same_parameters_and_kline_period():
         {"stock_date": "2026-08-05"},
     ]
     combinations = [
-        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "full"},
-        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "recent_5"},
-        {"stock_code": "688235", "A1": "2.3", "B1": "4", "Kline_key": "recent_5"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "kline_key": "full"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "kline_key": "recent_5"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "4", "kline_key": "recent_5"},
     ]
 
     result = service._deduplicate_parameter_combinations(

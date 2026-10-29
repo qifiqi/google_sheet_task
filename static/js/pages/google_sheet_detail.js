@@ -20,6 +20,12 @@
     document.addEventListener('DOMContentLoaded', function() {
         console.log('页面加载完成');
         currentTaskId = getTaskIdFromUrl();
+
+        // 详情页 → 单品全局预览中心入口：带上任务 ID，预览页自动查询。
+        const globalPreviewLink = document.getElementById('global-preview-link');
+        if (globalPreviewLink && currentTaskId) {
+            globalPreviewLink.href = '/global-preview/single-product?task_id=' + encodeURIComponent(currentTaskId);
+        }
         console.log('获取到的任务ID:', currentTaskId);
         
         // 初始化编辑配置模态框
@@ -222,16 +228,17 @@
             const tokenSelectionMode = config.token_selection_mode === '__random__'
                 ? '随机 Token'
                 : (config.token_selection_mode || '-');
+            const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
             const configItems = [
-                { label: '电子表格ID', value: config.spreadsheet_id || '-', icon: 'bi-link-45deg' },
-                { label: '工作表名称', value: config.sheet_name || '-', icon: 'bi-file-spreadsheet' },
+                { label: '电子表格ID', value: firstSheet.spreadsheet_id || config.spreadsheet_id || '-', icon: 'bi-link-45deg' },
+                { label: '工作表名称', value: firstSheet.sheet_name || config.sheet_name || '-', icon: 'bi-file-spreadsheet' },
                 { label: '认证方式', value: config.token_type || '-', icon: 'bi-shield-lock' },
                 { label: 'Token 名称', value: config.token_name || '-', icon: 'bi-tag' },
                 { label: 'Token 选择模式', value: tokenSelectionMode, icon: 'bi-shuffle' },
                 { label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe' },
                 { label: '参数数量', value: config.parameters ? config.parameters.length : 0, icon: 'bi-list-ul' }
             ];
-            configItems.splice(2, 0, { label: 'Sheet Title', value: config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
+            configItems.splice(2, 0, { label: 'Sheet Title', value: firstSheet.title || config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
             const endDateIcon = 'bi-calendar-event';
             const marketTypeIcon = 'bi-graph-up-arrow';
             if (config.end_date || config.market_type || config.exchange_market || config.market || config.kline_data_source || config.data_source) {
@@ -391,7 +398,10 @@
             return null;
         }
 
-        return isPlainObject(metrics.flat_result) ? metrics.flat_result : null;
+        const payload = metrics.metrics_payload;
+        return isPlainObject(payload) && isPlainObject(payload.metrics)
+            ? payload.metrics
+            : null;
     }
 
     function getPreferredMetricValue(metrics, key) {
@@ -417,18 +427,14 @@
 
     function getModelSharpeValue(metrics, type) {
         const flatResult = getFlatResult(metrics);
-
         if (flatResult) {
-            if (type === 'index') {
-                return getFirstMetricValue(flatResult, ['index_sharpe_ratio', 'index_sharp', 'ixpl', 'i_xpl', 'index_xpl']);
-            }
-            return getFirstMetricValue(flatResult, ['start_sharpe_ratio', 'start_sharp', 'sxpl', 's_xpl', 'start_xpl']);
+            const ratios = flatResult[type + '_sharpe_ratios'];
+            const allEntry = isPlainObject(ratios) ? ratios.all : null;
+            return isPlainObject(allEntry) && allEntry.sharpe_ratio != null
+                ? allEntry.sharpe_ratio
+                : null;
         }
-
-        const legacyPerformanceAnalysis = type === 'index'
-                ? (metrics.index_return_xpl || {})
-                : (metrics.start_return_xpl || {});
-        return legacyPerformanceAnalysis.sharpe_ratio != null ? legacyPerformanceAnalysis.sharpe_ratio : null;
+        return null;
     }
 
     function getDetailMetricSource(metrics) {
@@ -436,7 +442,7 @@
     }
 
     function shouldShowDetailMetric(key) {
-        return !['start_return_xpl', 'index_return_xpl', 'analyze_result'].includes(String(key));
+        return key !== 'metrics_payload';
     }
 
     function formatMetricRawValue(value, digits) {
@@ -698,16 +704,17 @@
         allResults.forEach((result, index) => {
             const row = document.createElement('tr');
             
-            // 计算耗时：当前结果时间与上一个结果时间比较
+            // 计算耗时：当前结果时间与上一条已执行结果时间比较
+            // 结果按 step_index 倒序返回，数组中 index+1 才是执行顺序上的上一条
             let executionTime = '-';
             if (result.timestamp) {
                 const currentResultTime = new Date(result.timestamp);
                 if (!isNaN(currentResultTime.getTime())) {
                     let previousTime = taskStartTime; // 默认使用任务开始时间
                     
-                    // 如果有上一个结果，使用上一个结果的时间
-                    if (index > 0) {
-                        const prevResult = allResults[index - 1];
+                    // 如果有上一条已执行结果，使用它的时间
+                    if (index + 1 < allResults.length) {
+                        const prevResult = allResults[index + 1];
                         if (prevResult && prevResult.timestamp) {
                             previousTime = new Date(prevResult.timestamp);
                         }
@@ -755,26 +762,6 @@
         renderResultsPagination();
     }
 
-    function renderStatLine(label, value) {
-        const safeLabel = escapeHtml(String(label));
-        let safeValue;
-
-        if (value == null || value === '') {
-            safeValue = '<span class="text-muted">-</span>';
-        } else if (typeof value === 'number') {
-            safeValue = formatMetricRawValue(value, 6);
-        } else {
-            safeValue = escapeHtml(String(value));
-        }
-
-        return `
-            <div class="d-flex justify-content-between mb-1">
-                <span class="text-muted me-2">${safeLabel}</span>
-                <span class="text-end">${safeValue}</span>
-            </div>
-        `;
-    }
-
     function showResultDetail(resultIndex) {
         if (!Array.isArray(allResults) || resultIndex < 0 || resultIndex >= allResults.length) {
             return;
@@ -786,91 +773,43 @@
         const hasFlatResult = !!getFlatResult(metrics);
         const modalTitle = document.getElementById('resultDetailModalLabel');
         const metaEl = document.getElementById('result-detail-meta');
-        const tbody = document.getElementById('result-detail-body');
+        const bodyEl = document.getElementById('result-detail-body');
 
-        if (!modalTitle || !metaEl || !tbody) {
+        if (!modalTitle || !metaEl || !bodyEl) {
             return;
         }
 
         modalTitle.textContent = `结果详情 #${result.step_index + 1}`;
         const paramsText = formatParameterCombinationText(result.parameters);
-        metaEl.textContent = `参数组合：${paramsText || '-'} · 执行时间：${formatTime(result.timestamp) || '-'} · 状态：${result.success ? '成功' : '失败'}`;
+        metaEl.innerHTML = Biz.taskPolling.renderResultDetailMeta([
+            {label: '参数组合', value: paramsText || '-'},
+            {label: '状态', html: `<span class="badge ${result.success ? 'bg-success' : 'bg-danger'}">${result.success ? '成功' : '失败'}</span>`},
+            {label: '执行时间', value: formatTime(result.timestamp) || '-'}
+        ]);
 
-        const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);
-        const indexReturn = hasFlatResult ? null : (metrics.index_return_xpl || null);
+        // start_return_xpl / index_return_xpl 为字典，显示为卡片；
+        // metrics_payload 平铺结果没有这两个字典，跳过
         const cards = [];
-
-        if (startReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">模型收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', startReturn.start_date)}
-                            ${renderStatLine('结束日期', startReturn.end_date)}
-                            ${renderStatLine('月份数', startReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(startReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(startReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(startReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(startReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
+        if (!hasFlatResult) {
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('模型收益分析', metrics.start_return_xpl, (v) => formatMetricRawValue(v, 6)));
+            cards.push(Biz.taskPolling.renderReturnAnalysisCard('指数收益分析', metrics.index_return_xpl, (v) => formatMetricRawValue(v, 6)));
         }
 
-        if (indexReturn) {
-            cards.push(`
-                <div class="col-md-6 mb-2">
-                    <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">指数收益分析</div>
-                        <div class="card-body py-2 px-2 small">
-                            ${renderStatLine('起始日期', indexReturn.start_date)}
-                            ${renderStatLine('结束日期', indexReturn.end_date)}
-                            ${renderStatLine('月份数', indexReturn.month_count)}
-                            ${renderStatLine('平均月收益', formatMetricRawValue(indexReturn.avg_monthly_return, 6))}
-                            ${renderStatLine('月度波动率', formatMetricRawValue(indexReturn.monthly_std_dev, 6))}
-                            ${renderStatLine('年化波动率', formatMetricRawValue(indexReturn.annual_std_dev, 6))}
-                            ${renderStatLine('夏普率', formatMetricRawValue(indexReturn.sharpe_ratio, 6))}
-                        </div>
-                    </div>
-                </div>
-            `);
-        }
-
+        // 剩余指标进入通用指标网格：I15-I23 结果块键优先，再合并兜底明细键
         const baseKeys = ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23']
                 .filter(key => metrics[key] != null);
         const detailKeys = sortMetricKeys(Object.keys(detailMetrics).filter(shouldShowDetailMetric));
         const keys = Array.from(new Set([...baseKeys, ...detailKeys]));
-        const rows = [];
+        const entries = keys.map((key) => {
+            const value = metrics[key] != null ? metrics[key] : detailMetrics[key];
+            return {
+                label: getMetricDisplayLabel(key),
+                html: formatMetricDisplayValue(value),
+                wide: Array.isArray(value) || (value != null && typeof value === 'object')
+            };
+        });
 
-        for (let i = 0; i < keys.length; i += 2) {
-            const k1 = keys[i];
-            const k2 = keys[i + 1];
-            const source1 = metrics[k1] != null ? metrics : detailMetrics;
-            const source2 = k2 != null && metrics[k2] != null ? metrics : detailMetrics;
-            const display1 = formatMetricDisplayValue(source1[k1]);
-            const display2 = k2 != null ? formatMetricDisplayValue(source2[k2]) : '<span class="text-muted small">-</span>';
-
-            rows.push(`
-                <tr>
-                    <td class="small fw-semibold">${getMetricDisplayLabel(k1)}</td>
-                    <td>${display1}</td>
-                    <td class="small fw-semibold">${k2 != null ? getMetricDisplayLabel(k2) : ''}</td>
-                    <td>${k2 != null ? display2 : ''}</td>
-                </tr>
-            `);
-        }
-
-        const cardsHtml = cards.length > 0
-                ? `<tr><td colspan="4" class="p-0"><div class="row g-2 m-0">${cards.join('')}</div></td></tr>`
-                : '';
-
-        if (rows.length === 0 && !cardsHtml) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">无详细指标</td></tr>';
-        } else {
-            tbody.innerHTML = cardsHtml + rows.join('');
-        }
+        bodyEl.innerHTML = Biz.taskPolling.renderResultDetailBody({cards: cards, entries: entries});
 
         if (typeof bootstrap !== 'undefined') {
             const modalEl = document.getElementById('resultDetailModal');
@@ -1000,11 +939,11 @@
     // 启动自动刷新
     function startAutoRefresh() {
         if (refreshInterval) {
-            clearInterval(refreshInterval);
+            refreshInterval();
         }
         
         console.log(`启动自动刷新，每${getFrequencyText(currentRefreshFrequency)}刷新一次`);
-        refreshInterval = setInterval(function() {
+        refreshInterval = setIntervalVisible(function() {
             console.log('自动刷新任务详情和日志...');
             loadTaskDetail(); // 这会重新加载所有信息，包括日志
         }, currentRefreshFrequency);
@@ -1014,7 +953,7 @@
     function stopAutoRefresh() {
         if (refreshInterval) {
             console.log('停止自动刷新');
-            clearInterval(refreshInterval);
+            refreshInterval();
             refreshInterval = null;
         }
     }
@@ -1167,10 +1106,11 @@
         document.getElementById('edit-task-name').value = currentTaskData.name || '';
         document.getElementById('edit-task-description').value = currentTaskData.description || '';
         
-        // 填充Google Sheet配置
-        document.getElementById('edit-spreadsheet-id').value = config.spreadsheet_id || '';
-        document.getElementById('edit-sheet-name').value = config.sheet_name || '';
-        document.getElementById('edit-sheet-title').value = config.title || config.spreadsheet_title || '';
+        // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+        const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
+        document.getElementById('edit-spreadsheet-id').value = firstSheet.spreadsheet_id || config.spreadsheet_id || '';
+        document.getElementById('edit-sheet-name').value = firstSheet.sheet_name || config.sheet_name || '';
+        document.getElementById('edit-sheet-title').value = firstSheet.title || config.title || config.spreadsheet_title || '';
         document.getElementById('edit-token-file').value = config.token_file || 'data/token.json';
         document.getElementById('edit-proxy-url').value = config.proxy_url || '';
         
@@ -1282,12 +1222,13 @@
     // 导出 Excel 功能
     // -----------------------------------------------------------------------
 
-    async function exportResultsToCSV() {
+    async function exportResultsToCSV(btn) {
         if (!currentTaskId) {
             showNotification('任务ID为空，无法导出', 'error');
             return;
         }
 
+        setButtonBusy(btn, true, '导出中…');
         try {
             const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
             const saveTarget = await prepareExcelSaveTarget(defaultFilename);
@@ -1313,6 +1254,8 @@
                 return;
             }
             showNotification(`导出失败: ${error.message || error}`, 'error');
+        } finally {
+            setButtonBusy(btn, false);
         }
     }
 
@@ -1442,11 +1385,25 @@
                 return;
             }
             
-            // 构建完整配置
+            // 部分提交（后端 merge 语义，未列出的键保留），Sheet 引用走统一 sheets[1] 形态；
+            // 首表附加键（google_sheet_id 等）随行保留，仅覆盖三个可编辑字段
+            let originalConfig = {};
+            try {
+                originalConfig = typeof currentTaskData.config === 'string'
+                    ? (JSON.parse(currentTaskData.config) || {})
+                    : (currentTaskData.config || {});
+            } catch (e) {
+                originalConfig = {};
+            }
+            const originalSheets = Array.isArray(originalConfig.sheets) ? originalConfig.sheets : [];
+            const originalFirstSheet = originalSheets[0] || {};
             const config = {
-                spreadsheet_id: spreadsheetId,
-                sheet_name: sheetName,
-                title: sheetTitle || null,
+                sheets: [{
+                    ...originalFirstSheet,
+                    spreadsheet_id: spreadsheetId,
+                    sheet_name: sheetName,
+                    title: sheetTitle || ''
+                }],
                 token_file: tokenFile,
                 proxy_url: proxyUrl,
                 parameters: parameters,

@@ -1,9 +1,14 @@
 """TaskResult / TaskResultReturn 仓储（契约见 docs/design/data-layer-refactor/02 §2.2）。"""
+from app.utils.json_utils import loads
+from typing import Any
+
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import Task, TaskResult, TaskResultKlineLink, TaskResultReturn
 from app.repositories.base import BaseRepository
+from app.utils.formatting import to_beijing_iso
 
 # /api/results 列表的历史精简投影键（template_api load_only 语义），保持不变。
 _RESULT_SUMMARY_FIELDS = (
@@ -13,6 +18,34 @@ _RESULT_SUMMARY_FIELDS = (
     TaskResult.success,
     TaskResult.timestamp,
 )
+
+# 列表页 parameters/error_message 的预览截断长度（SQL 层 substr，字符数）。
+_RESULT_PREVIEW_LENGTH = 200
+
+# tasks/<id>/results 字段投影（fields 查询参数）允许的存储列；return_date_range
+# 为计算字段（收益序列首末日期），不在列映射里。
+_RESULT_FIELD_COLUMNS = {
+    "id": TaskResult.id,
+    "task_id": TaskResult.task_id,
+    "step_index": TaskResult.step_index,
+    "parameters": TaskResult.parameters,
+    "result": TaskResult.result,
+    "return_series_id": TaskResult.return_series_id,
+    "success": TaskResult.success,
+    "error_message": TaskResult.error_message,
+    "timestamp": TaskResult.timestamp,
+}
+
+
+def _json_dict(value):
+    """parameters/result 的 JSON 对象解析（坏 JSON 静默降级空 dict，对齐 to_dict）。"""
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class TaskResultRepository(BaseRepository):
@@ -25,19 +58,67 @@ class TaskResultRepository(BaseRepository):
         return result.to_dict() if result else None
 
     def get_with_task_type(self, result_id):
-        """返回结果 dict 并附带 task_type 键；不存在返回 None。"""
+        """返回结果 dict 并附带 task_type / kline_series_id；不存在返回 None。"""
         row = (
-            db.session.query(TaskResult, Task.task_type)
+            db.session.query(TaskResult, Task.task_type, TaskResultKlineLink.series_id)
             .join(Task, Task.id == TaskResult.task_id)
+            .outerjoin(
+                TaskResultKlineLink,
+                TaskResultKlineLink.result_id == TaskResult.id,
+            )
             .filter(TaskResult.id == result_id)
             .first()
         )
         if row is None:
             return None
-        result, task_type = row
+        result, task_type, kline_series_id = row
         data = result.to_dict()
         data["task_type"] = task_type
+        data["kline_series_id"] = kline_series_id
         return data
+
+    def count_by_kline_series(self, task_id: str, series_id: int) -> int:
+        return TaskResultKlineLink.query.filter_by(
+            task_id=task_id,
+            series_id=series_id,
+        ).count()
+
+    def list_by_kline_series(
+        self,
+        task_id: str,
+        series_id: int,
+        offset: int | None = None,
+        limit: int | None = None,
+    ):
+        """使用指定随机K线序列的结果列表（审计反查，按执行顺序）。"""
+        query = (
+            db.session.query(
+                TaskResult.id,
+                TaskResult.step_index,
+                TaskResult.success,
+                TaskResult.timestamp,
+            )
+            .join(TaskResultKlineLink, TaskResultKlineLink.result_id == TaskResult.id)
+            .filter(
+                TaskResultKlineLink.task_id == task_id,
+                TaskResultKlineLink.series_id == series_id,
+            )
+            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+        )
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        rows = query.all()
+        return [
+            {
+                "id": row.id,
+                "step_index": row.step_index,
+                "success": row.success,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            }
+            for row in rows
+        ]
 
     def list_by_task(self, task_id):
         return [
@@ -47,80 +128,240 @@ class TaskResultRepository(BaseRepository):
             .all()
         ]
 
-    def list_by_task_paginated(self, task_id, page, per_page):
-        """任务详情结果分页 + 成功/失败计数（task_api results 分页语义）。"""
-        pagination = (
-            TaskResult.query.filter_by(task_id=task_id)
+    def list_by_task_fields(self, task_id: str, fields: list[str]) -> list[dict[str, Any]]:
+        """按白名单字段投影任务结果列表（fields 查询参数，下拉/索引类消费方）。
+
+        load_only 让 result 大 JSON 不进内存；return_date_range 批量取收益序列
+        首末日期。返回键与请求 fields 一一对应，顺序同 list_by_task。
+        """
+        columns = [_RESULT_FIELD_COLUMNS[name] for name in fields if name in _RESULT_FIELD_COLUMNS]
+        # return_date_range 是计算字段，逐行读 return_series_id；投影不含该列时
+        # 补进 load_only，同时避免空列触发 load_only() 的 IndexError。
+        if "return_date_range" in fields and TaskResult.return_series_id not in columns:
+            columns.append(TaskResult.return_series_id)
+        query = TaskResult.query.filter_by(task_id=task_id)
+        if columns:
+            query = query.options(load_only(*columns))
+        rows = (
+            query
             .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-            .paginate(page=max(page or 1, 1), per_page=max(min(per_page or 20, 100), 1), error_out=False)
+            .all()
         )
-        data = {
-            "items": [r.to_dict() for r in pagination.items],
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "current_page": pagination.page,
-            "per_page": pagination.per_page,
-        }
-        data.update(self.count_by_task_success(task_id))
-        return data
+        ranges = (
+            self._return_date_ranges([row.return_series_id for row in rows if row.return_series_id])
+            if "return_date_range" in fields else {}
+        )
+        items = []
+        for row in rows:
+            item: dict[str, Any] = {}
+            for name in fields:
+                if name == "return_date_range":
+                    item[name] = ranges.get(row.return_series_id)
+                elif name == "parameters":
+                    item[name] = _json_dict(row.parameters)
+                elif name == "result":
+                    item[name] = _json_dict(row.result)
+                elif name == "timestamp":
+                    item[name] = to_beijing_iso(row.timestamp)
+                else:
+                    item[name] = getattr(row, name)
+            items.append(item)
+        return items
 
-    def list_paginated(self, page, per_page, task_id=None):
-        """/api/results 列表：保持现有 load_only 精简键与 join Task 语义。
+    def _return_date_ranges(self, series_ids: list[int]) -> dict[int, dict[str, str | None]]:
+        """批量取收益序列首末日期：{series_id: {"start": .., "end": ..}}，空序列为 None。
 
-        指定 task_id 且任务不存在时返回空页（与现状一致）；
-        未指定 task_id 时按现有 distinct task_type 过滤（等价于存在结果的任务类型）。
+        优先读 start/end_return_date 落库列（写入时按 min/max 落库）；
+        历史行可能为 NULL，回退解析 stock_date JSON。
+        """
+        if not series_ids:
+            return {}
+        ranges: dict[int, dict[str, str | None]] = {}
+        series_rows = (
+            TaskResultReturn.query
+            .with_entities(
+                TaskResultReturn.id,
+                TaskResultReturn.start_return_date,
+                TaskResultReturn.end_return_date,
+                TaskResultReturn.stock_date,
+            )
+            .filter(TaskResultReturn.id.in_(series_ids))
+            .all()
+        )
+        for series_id, start_date, end_date, stock_date in series_rows:
+            start = start_date.isoformat() if start_date else None
+            end = end_date.isoformat() if end_date else None
+            if start is None or end is None:
+                dates = self._parse_stock_dates(stock_date)
+                start = start or (dates[0] if dates else None)
+                end = end or (dates[-1] if dates else None)
+            ranges[series_id] = {"start": start, "end": end}
+        return ranges
+
+    @staticmethod
+    def _parse_stock_dates(stock_date) -> list[str]:
+        """stock_date JSON 数组解析（坏 JSON 静默降级空列表）。"""
+        try:
+            dates = loads(stock_date) if stock_date else []
+        except (TypeError, ValueError):
+            return []
+        return [date for date in dates if date]
+
+    def list_by_task_paginated(self, task_id, page, per_page):
+        """任务详情结果分页 + 成功/失败计数（task_api results 分页语义）。
+
+        total/success/failed 合并为一条聚合，取页走 offset/limit（flask-sqlalchemy
+        3.1 的 paginate 不支持外传 total）。原先 paginate count + 成功/失败拆分
+        共 3 条 count 且 service 层曾再重复一遍，结果表数十万行时是单页请求
+        的主要耗时。
+
+        分页按 step_index 倒序返回：C 系列详情页执行结果要求最新步骤在前，
+        且跨页顺序必须全局倒序，故排序放在 SQL 层而非页面内反转。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 20, 100), 1)
+        counts = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .with_entities(
+                func.count().label("total"),
+                func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+                func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+            )
+            .first()
+        )
+        items = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
+            .offset((current_page - 1) * size)
+            .limit(size)
+            .all()
+        )
+        links = {}
+        if items:
+            links = {
+                result_id: series_id
+                for result_id, series_id in (
+                    db.session.query(
+                        TaskResultKlineLink.result_id,
+                        TaskResultKlineLink.series_id,
+                    )
+                    .filter(
+                        TaskResultKlineLink.result_id.in_(
+                            [item.id for item in items]
+                        )
+                    )
+                    .all()
+                )
+            }
+        result_items = []
+        for item in items:
+            data = item.to_dict()
+            data["kline_series_id"] = links.get(item.id)
+            result_items.append(data)
+        return {
+            "items": result_items,
+            "total": counts.total,
+            "pages": (counts.total + size - 1) // size,
+            "current_page": current_page,
+            "per_page": size,
+            "total_success": counts.success,
+            "total_failed": counts.failed,
+        }
+
+    def list_paginated(self, page, per_page, task_id=None, success=None, keyword=None):
+        """/api/results 列表：保持现有精简键与 join Task 语义，结果查询页扩展投影。
+
+        - 原有键（id/task_id/step_index/success/timestamp）不变，静态版消费方不受影响；
+        - 新增 task_name/task_type（join Task 已存在）、parameters_preview/error_preview
+          （SQL 层 substr 截断，避免把 TEXT/LONGTEXT 整值拉进列表）；
+        - success 过滤按布尔；keyword 模糊匹配任务名称或结果 task_id；
+        - total/success/failed 计数合并为一条聚合，取页走 offset/limit
+          （flask-sqlalchemy 3.1 的 paginate 不支持外传 total；原先分页 count
+          与成功/失败计数是 2 条独立的全表聚合）；
+        - 指定 task_id 且任务不存在时返回空页（与现状一致）；未指定 task_id 时
+          join Task 本身已限定存在结果的任务，不再重复 distinct task_type 过滤。
+        """
+        current_page = max(page or 1, 1)
+        size = max(min(per_page or 20, 100), 1)
+
+        preview_fields = (
+            func.substr(TaskResult.parameters, 1, _RESULT_PREVIEW_LENGTH).label("parameters_preview"),
+            func.substr(TaskResult.error_message, 1, _RESULT_PREVIEW_LENGTH).label("error_preview"),
+        )
 
         if task_id:
             task_exists = (
                 db.session.query(Task.id).filter(Task.id == task_id).first()
             )
             if not task_exists:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
+                return {
+                    "items": [],
+                    "total": 0,
+                    "current_page": current_page,
+                    "per_page": size,
+                    "total_success": 0,
+                    "total_failed": 0,
+                }
 
         query = (
-            db.session.query(*_RESULT_SUMMARY_FIELDS)
+            db.session.query(*_RESULT_SUMMARY_FIELDS, Task.name.label("task_name"), Task.task_type, *preview_fields)
             .join(Task, Task.id == TaskResult.task_id)
         )
         if task_id:
             query = query.filter(TaskResult.task_id == task_id)
-        else:
-            distinct_types = [row[0] for row in db.session.query(Task.task_type).distinct().all()]
-            if not distinct_types:
-                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
-            query = query.filter(Task.task_type.in_(distinct_types))
 
-        pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
-            page=current_page, per_page=size, error_out=False
+        if success is not None:
+            query = query.filter(TaskResult.success.is_(success))
+
+        if keyword and keyword.strip():
+            pattern = f"%{keyword.strip()}%"
+            query = query.filter(or_(Task.name.ilike(pattern), TaskResult.task_id.ilike(pattern)))
+
+        counts_row = query.with_entities(
+            func.count().label("total"),
+            func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+            func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+        ).first()
+        items = (
+            query.order_by(TaskResult.timestamp.desc())
+            .offset((current_page - 1) * size)
+            .limit(size)
+            .all()
         )
         results = [
             {
                 "id": row.id,
                 "task_id": row.task_id,
+                "task_name": row.task_name,
+                "task_type": row.task_type,
                 "step_index": row.step_index,
                 "success": row.success,
-                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                "parameters_preview": row.parameters_preview,
+                "error_preview": row.error_preview,
+                "timestamp": to_beijing_iso(row.timestamp),
             }
-            for row in pagination.items
+            for row in items
         ]
         return {
             "items": results,
-            "total": pagination.total,
+            "total": counts_row.total,
             "current_page": current_page,
             "per_page": size,
+            "total_success": counts_row.success,
+            "total_failed": counts_row.failed,
         }
 
     def count_by_task_success(self, task_id):
-        """{success, failed}：任务成功/失败结果计数。"""
-        success = (
-            TaskResult.query.filter_by(task_id=task_id, success=True).count()
+        """{success, failed}：任务成功/失败结果计数（单条 case when 聚合）。"""
+        counts = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .with_entities(
+                func.count(case((TaskResult.success.is_(True), 1))).label("success"),
+                func.count(case((TaskResult.success.is_(False), 1))).label("failed"),
+            )
+            .first()
         )
-        failed = (
-            TaskResult.query.filter_by(task_id=task_id, success=False).count()
-        )
-        return {"total_success": success, "total_failed": failed}
+        return {"total_success": counts.success, "total_failed": counts.failed}
 
     def latest_time_by_task(self, task_id):
         """任务最新结果时间（ISO 字符串或 None），用于本地状态检查。"""
@@ -129,11 +370,23 @@ class TaskResultRepository(BaseRepository):
             .order_by(TaskResult.timestamp.desc())
             .first()
         )
-        return row.timestamp.isoformat() if row else None
+        return to_beijing_iso(row.timestamp) if row else None
 
     def get_return_entity(self, pk):
         """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
         return db.session.get(TaskResultReturn, pk)
+
+    def get_entity_by_return_series_id(self, return_series_id):
+        """按收益序列 ID 读取所属结果实体（报告参数配置指标回读）。
+
+        同一收益序列理论上只挂一条结果；存在历史重复时取最新一条。
+        """
+        return (
+            TaskResult.query
+            .filter_by(return_series_id=return_series_id)
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
 
     def list_return_entities(self, ids):
         """按主键批量取收益序列实体（预览补全 V1 指标用）。"""
@@ -243,7 +496,7 @@ class TaskResultRepository(BaseRepository):
                     "parameters": item.parameters,
                     "success": item.success,
                     "error_message": item.error_message,
-                    "timestamp": item.timestamp.isoformat() if item.timestamp else None,
+                    "timestamp": to_beijing_iso(item.timestamp),
                 }
                 for item in pagination.items
             ],
@@ -293,11 +546,19 @@ class TaskResultRepository(BaseRepository):
             db.session.rollback()
             raise
 
-    def create_with_return(self, result_fields, return_fields=None, commit=True):
-        """TaskResult + TaskResultReturn 原子写入（执行链 _save_task_result 出口）。
+    def create_with_return(
+        self,
+        result_fields,
+        return_fields=None,
+        commit=True,
+        *,
+        kline_series_id=None,
+    ):
+        """TaskResult + TaskResultReturn + 随机K线关联原子写入（执行链出口）。
 
         return_fields 提供时插入收益序列并回链 return_series_id；
-        两表同事务提交，异常 rollback 后原样 raise。
+        kline_series_id 提供时同事务写入结果与随机K线序列关联；
+        同事务提交，异常 rollback 后原样 raise。
         """
         try:
             result = TaskResult(**result_fields)
@@ -307,6 +568,13 @@ class TaskResultRepository(BaseRepository):
                 db.session.add(return_series)
                 self.flush()
                 result.return_series_id = return_series.id
+            if kline_series_id:
+                self.flush()
+                db.session.add(TaskResultKlineLink(
+                    result_id=result.id,
+                    task_id=result.task_id,
+                    series_id=int(kline_series_id),
+                ))
             if commit:
                 self._commit()
             return result.to_dict()
@@ -318,6 +586,9 @@ class TaskResultRepository(BaseRepository):
         result = db.session.get(TaskResult, result_id)
         if result is None:
             return False
+        TaskResultKlineLink.query.filter_by(result_id=result_id).delete(
+            synchronize_session=False
+        )
         db.session.delete(result)
         if commit:
             self._commit()
@@ -337,6 +608,39 @@ class TaskResultRepository(BaseRepository):
         return (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc())
+            .all()
+        )
+
+    def list_recent_entities_by_task(self, task_id, limit=30):
+        """任务最近 N 条结果实体（step desc/id desc 取尾；避免大结果表全量加载，调用方自行反转为升序）。"""
+        return (
+            TaskResult.query.filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.desc(), TaskResult.id.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_latest_return_series_id(self, task_id):
+        """任务最新一条非空 return_series_id（id desc 点查）；无则 None。"""
+        row = (
+            TaskResult.query.filter_by(task_id=task_id)
+            .filter(TaskResult.return_series_id.isnot(None))
+            .order_by(TaskResult.id.desc())
+            .first()
+        )
+        return row.return_series_id if row else None
+
+    def list_recent_return_columns_by_task(self, task_id, limit=120):
+        """任务最近 N 条收益序列的 (stock_date, index_return, start_return) 投影（stock_date desc 取尾，调用方自行反转为升序）。"""
+        return (
+            TaskResultReturn.query.filter_by(task_id=task_id)
+            .with_entities(
+                TaskResultReturn.stock_date,
+                TaskResultReturn.index_return,
+                TaskResultReturn.start_return,
+            )
+            .order_by(TaskResultReturn.stock_date.desc())
+            .limit(limit)
             .all()
         )
 

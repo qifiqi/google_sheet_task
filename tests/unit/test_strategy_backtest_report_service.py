@@ -96,7 +96,7 @@ def test_weight_allocation_fills_etf_total_assets_column():
         assets={"600519": "1,234,567,890"},
     )
 
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "ETF资产总数"]
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "ETF资产总数"]
     assert blocks[0]["rows"] == [
         ["600519", "贵州茅台", "50%", "10.00亿", "1,234,567,890"],
         ["0700.HK", "腾讯控股", "50%", "300.00亿", "-"],
@@ -116,7 +116,7 @@ def test_weight_allocation_uses_net_asset_header_when_all_stocks():
         request, "RPT-S", assets_header="净资产",
     )
 
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额", "净资产"]
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "净资产"]
 
 
 def test_weight_allocation_fills_average_amount_by_code_label():
@@ -173,8 +173,74 @@ def test_default_filename_keeps_rpt_m_with_multiple_active_products():
 
     filename = service._default_filename(request)
 
-    assert filename.startswith("RPT-M-600519-SCHD.US-")
+    # 权重为百分比数字但不带 % 后缀：裸 % 会让前端 decodeURIComponent 抛 URI malformed。
+    assert filename.startswith("RPT-M-600519_50-SCHD.US_50-")
     assert "SOXX.US" not in filename
+    assert "%" not in filename and "(" not in filename
+
+
+def test_default_filename_weight_supports_percent_and_decimal_ratios():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": "510300", "ratio": "33.33%"},
+        {"stock_code": "510500", "ratio": 0.665},
+        {"stock_code": "510800"},
+    ])
+
+    filename = service._default_filename(request)
+
+    # 百分比/小数比例统一折算为百分比数字；缺失比例只拼代码。
+    assert filename.startswith("RPT-M-510300_33.33-510500_66.5-510800-")
+
+
+def test_default_filename_falls_back_to_codes_when_weighted_name_too_long():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": f"6005{i:02}.SH", "ratio": "10"}
+        for i in range(20)
+    ])
+
+    filename = service._default_filename(request)
+
+    # 加权形式超长时回落纯代码，保护 Windows 路径长度限制。
+    assert filename.startswith("RPT-M-600500.SH-")
+    assert "(" not in filename
+
+
+def test_default_filename_appends_group_and_period_for_rpt_m():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": "600519", "ratio": "50"},
+        {"stock_code": "SCHD.US", "ratio": "50"},
+    ])
+    request.group_key = "2"
+
+    filename = service._default_filename(request, period_text="20240101_20241231")
+
+    # 方案组段（G组号）+ 周期段（报告真实K线范围）按 段间-段内_ 规范追加在组合段之后。
+    assert filename.startswith("RPT-M-600519_50-SCHD.US_50-G2-20240101_20241231-")
+
+
+def test_default_filename_uses_task_stock_and_period_for_rpt_s():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-S", [])
+
+    filename = service._default_filename(
+        request, period_text="20240101_20240630", task_stock_code="159682.SZ",
+    )
+
+    # task 来源无 products：组合段用收益序列的股票代码补位。
+    assert filename.startswith("RPT-S-159682.SZ-20240101_20240630-")
+
+
+def test_default_filename_falls_back_to_bare_timestamp_without_context():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-S", [])
+
+    filename = service._default_filename(request)
+
+    # 无组合/周期信息时逐级回落到 RPT-S-<14位时间戳>。
+    assert len(filename) == 20 and filename[6:].isdigit()
 
 
 def test_return_section_marks_rolling_returns_unavailable_before_five_years():
@@ -282,11 +348,12 @@ def test_build_benchmark_runs_intersects_axis_and_injects_per_benchmark(monkeypa
         }],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert [row["date"] for row in stub.calls[0]] == ["2024-01-02", "2024-01-06"]
     assert [row["index_return"] for row in stub.calls[0]] == [0.20, 0.25]
     assert [row["start_return"] for row in stub.calls[0]] == [0.10, 0.15]
+    # 开关关闭时 runs[0] 是自定义满配基准，列头保持裸"指数"（组合列头才是"组合指数"）。
     assert runs[0].label == "指数"
 
 
@@ -308,7 +375,7 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
         ],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
     assert [run.label for run in runs] == ["指数(AAA.US 100%)", "指数(BBB.US 100%)"]
@@ -316,9 +383,9 @@ def test_build_benchmark_runs_runs_engine_once_per_selected_benchmark(monkeypatc
 
 
 def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
-    """组合指数开关默认开启：组合列在前且列头为无标记的"指数"。
+    """组合指数开关默认开启：组合列在前且列头为无标记的"组合指数"。
 
-    自定义满配单条本会得到裸"指数"列头，与组合列撞名时改用 指数(代码) 消歧。
+    自定义满配单条本会得到裸"指数"列头，与组合列共存时改用 指数(代码) 消歧。
     """
     service = StrategyBacktestReportService()
     combined = [{"date": "2024-01-02", "index_return": 0.30, "start_return": 0.10}]
@@ -335,9 +402,9 @@ def test_build_benchmark_runs_includes_composite_by_default(monkeypatch):
         }],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
-    assert [run.label for run in runs] == ["指数", "指数(0700.HK)"]
+    assert [run.label for run in runs] == ["组合指数", "指数(0700.HK)"]
     assert runs[0].code is None and runs[1].code == "0700.HK"
     # 组合列吃原始组合收益（index_return=0.30），自定义列吃注入缩放序列（0.20）。
     assert stub.calls[0][0]["index_return"] == 0.30
@@ -361,9 +428,9 @@ def test_build_benchmark_runs_composite_falls_back_when_disabled_without_custom(
         "products": [],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
-    assert [run.label for run in runs] == ["指数"]
+    assert [run.label for run in runs] == ["组合指数"]
     assert runs[0].code is None
     assert len(stub.calls) == 1
 
@@ -392,7 +459,7 @@ def test_build_benchmark_runs_scales_benchmark_by_ratio(monkeypatch):
         }],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     # 满配日收益 10%/18.18% → 半仓 5%/9.09% → 复利累计 5%/14.77%。
     scaled = stub.calls[0]
@@ -420,7 +487,7 @@ def test_build_benchmark_runs_allows_same_product_at_different_ratios(monkeypatc
         }],
     })()
 
-    runs = service._build_benchmark_runs(request)
+    runs, _task_stock_code, _task_stock_name = service._build_benchmark_runs(request)
 
     assert len(stub.calls) == 2
     # 同股不同比例：列头只展示比例，不再重复代码。
@@ -470,9 +537,182 @@ def test_return_section_expands_columns_per_benchmark():
 
     core = StrategyBacktestReportService()._return_section(runs)[0]["table"]
 
-    assert core["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略",
+    assert core["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略",
                                "超额(AAA.US 100%)", "超额(BBB.US 30%)"]
     assert core["rows"][0] == ["累计回报率", "10.00%", "5.00%", "30.00%", "20.00%", "25.00%"]
+
+
+def test_return_section_monthly_returns_per_year_tables():
+    """1.3 分月度收益：每年一个子标题 + 该年逐月表，滚动收益顺延为 1.4。"""
+    monthly = [
+        {"year_month": "2023-06", "start_monthly_return": 0.02, "index_monthly_return": 0.01,
+         "monthly_excess_return_diff": 0.01},
+        {"year_month": "2023-07", "start_monthly_return": -0.01, "index_monthly_return": -0.02,
+         "monthly_excess_return_diff": 0.01},
+        {"year_month": "2024-01", "start_monthly_return": 0.03, "index_monthly_return": 0.02,
+         "monthly_excess_return_diff": 0.01},
+    ]
+    runs = [SimpleNamespace(code=None, weight=1, label="指数", result=SimpleNamespace(metrics={
+        "monthly_excess_returns": monthly}))]
+
+    section = StrategyBacktestReportService()._return_section(runs)
+
+    assert [item["title"] for item in section] == [
+        "1.1 核心收益", "1.2 分年度收益率", "1.3 分月度收益", "1.4 滚动收益（月度窗口）"]
+    monthly_subsection = section[2]
+    assert [table["title"] for table in monthly_subsection["tables"]] == ["2023年", "2024年"]
+    first = monthly_subsection["tables"][0]
+    assert first["title_level"] == 3
+    assert first["columns"] == ["月份", "指数", "组合策略", "超额(组合策略-指数)"]
+    # 首年 6 月起算：1-5 月缺月显示 "-"，不回填 0.00%。
+    assert first["rows"][0] == ["1月", "-", "-", "-"]
+    assert first["rows"][5] == ["6月", "1.00%", "2.00%", "1.00%"]
+    assert first["rows"][6] == ["7月", "-2.00%", "-1.00%", "1.00%"]
+    assert first["rows"][11] == ["12月", "-", "-", "-"]
+    second = monthly_subsection["tables"][1]
+    assert second["rows"][0] == ["1月", "2.00%", "3.00%", "1.00%"]
+    assert second["rows"][1] == ["2月", "-", "-", "-"]
+
+
+def test_monthly_returns_expand_columns_per_benchmark():
+    """分月度收益列随基准循环展开，与分年度收益率同规则；缺月按列各自显示 "-"。"""
+    runs = [
+        SimpleNamespace(code="AAA.US", weight=1, label="指数(AAA.US 100%)", result=SimpleNamespace(metrics={
+            "monthly_excess_returns": [
+                {"year_month": "2024-01", "start_monthly_return": 0.03, "index_monthly_return": 0.01,
+                 "monthly_excess_return_diff": 0.02},
+            ]})),
+        SimpleNamespace(code="BBB.US", weight=0.3, label="指数(BBB.US 30%)", result=SimpleNamespace(metrics={
+            "monthly_excess_returns": [
+                {"year_month": "2024-02", "start_monthly_return": 0.03, "index_monthly_return": 0.04,
+                 "monthly_excess_return_diff": -0.01},
+            ]})),
+    ]
+
+    subsection = StrategyBacktestReportService()._monthly_returns_subsection(runs)
+
+    assert subsection["title"] == "1.3 分月度收益"
+    table = subsection["tables"][0]
+    assert table["columns"] == ["月份", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略",
+                                "超额(AAA.US 100%)", "超额(BBB.US 30%)"]
+    assert table["rows"][0] == ["1月", "1.00%", "-", "3.00%", "2.00%", "-"]
+    assert table["rows"][1] == ["2月", "-", "4.00%", "3.00%", "-", "-1.00%"]
+
+
+def test_monthly_returns_subsection_omitted_without_data_keeps_rolling_1_3():
+    """无月度数据时小节整体省略，滚动收益编号保持 1.3，不出现编号空洞。"""
+    runs = [SimpleNamespace(code=None, weight=1, label="指数", result=SimpleNamespace(metrics={}))]
+
+    section = StrategyBacktestReportService()._return_section(runs)
+
+    assert [item["title"] for item in section] == [
+        "1.1 核心收益", "1.2 分年度收益率", "1.3 滚动收益（月度窗口）"]
+
+
+def _parameter_metrics_fixture():
+    return [
+        {
+            "stock_code": "600519.SH", "ratio": "60%", "market_type": "cn",
+            "parameter_metrics": {
+                "turnover_rate": 40.0,
+                "max_theoretical_leverage": 4.0,
+                "avg_theoretical_leverage": 2.0,
+                "unit_theoretical_leverage_return": 0.05,
+                "max_actual_leverage": 3.0,
+                "avg_actual_leverage": 1.5,
+            },
+        },
+        {
+            "stock_code": "QQQ.US", "ratio": "40%", "market_type": "us",
+            "parameter_metrics": {
+                "turnover_rate": 60.0,
+                "max_theoretical_leverage": 2.0,
+                "avg_theoretical_leverage": 1.0,
+                "unit_theoretical_leverage_return": 0.10,
+                "max_actual_leverage": 1.0,
+                "avg_actual_leverage": 0.5,
+            },
+        },
+    ]
+
+
+def test_parameter_config_weighted_sum_and_fee():
+    """参数配置表：结果区指标按比例加权求和，手续费按首个产品市场取 A 股万3.5。"""
+    payload = SimpleNamespace(products=_parameter_metrics_fixture())
+
+    blocks = StrategyBacktestReportService._parameter_config_blocks(payload)
+
+    assert blocks == [{
+        "type": "table", "title": "参数配置", "columns": ["参数", "数值"],
+        "rows": [
+            ["年换手率", "48.00"],
+            ["最大理论杠杆率", "3.20"],
+            ["平均理论杠杆率", "1.60"],
+            ["单位理论杠杆率收益", "7.00%"],
+            ["最大实际杠杆率", "2.20"],
+            ["平均实际杠杆率", "1.10"],
+            ["手续费", "0.035%"],
+        ],
+    }]
+
+
+def test_parameter_config_missing_metric_shows_dash_but_fee_still_renders():
+    """任一参与产品缺指标时该行显示 "-"（C3 无杠杆列），不输出部分和。"""
+    products = _parameter_metrics_fixture()
+    products[1]["parameter_metrics"].pop("max_actual_leverage")
+    payload = SimpleNamespace(products=products)
+
+    rows = StrategyBacktestReportService._parameter_config_blocks(payload)[0]["rows"]
+
+    assert ["最大实际杠杆率", "-"] in rows
+    assert ["年换手率", "48.00"] in rows
+    assert ["手续费", "0.035%"] in rows
+
+
+def test_parameter_config_fee_uses_us_rate_for_non_cn_first_product():
+    products = _parameter_metrics_fixture()
+    products.reverse()
+    payload = SimpleNamespace(products=products)
+
+    rows = StrategyBacktestReportService._parameter_config_blocks(payload)[0]["rows"]
+
+    assert rows[-1] == ["手续费", "0.02%"]
+
+
+def test_parameter_config_omitted_without_metrics():
+    """手工收益/Sheet 来源等无指标载荷：整表省略。"""
+    payload = SimpleNamespace(products=[
+        {"stock_code": "AAA.US", "ratio": "50%"},
+        {"stock_code": "BBB.US", "ratio": "50%"},
+    ])
+
+    assert StrategyBacktestReportService._parameter_config_blocks(payload) == []
+
+
+def test_correlation_matrix_includes_same_direction_rates():
+    dates = ["2024-01-02", "2024-01-03", "2024-01-04"]
+    products = [
+        {"stock_code": "AAA.US", "returns": [
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.01},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": -0.02},
+            {"date": "2024-01-04", "index_return": 0.0, "start_return": 0.03},
+        ]},
+        {"stock_code": "BBB.US", "returns": [
+            {"date": "2024-01-02", "index_return": 0.0, "start_return": 0.02},
+            {"date": "2024-01-03", "index_return": 0.0, "start_return": -0.01},
+            {"date": "2024-01-04", "index_return": 0.0, "start_return": -0.03},
+        ]},
+    ]
+    payload = SimpleNamespace(products=products, index_benchmarks=[], include_composite_benchmark=False)
+    result = SimpleNamespace(index_df=pd.DataFrame({"date": pd.to_datetime(dates)}))
+
+    data = StrategyBacktestReportService()._correlation_matrix(payload, result)
+
+    assert data["labels"] == ["AAA.US", "BBB.US"]
+    assert data["same_direction"][0][0] == 1.0
+    # 前两日同涨/同跌同向，第三日一涨一跌 → 2/3。
+    assert data["same_direction"][0][1] == pytest.approx(2 / 3)
+    assert data["same_direction"][1][0] == pytest.approx(2 / 3)
 
 
 def test_excess_headers_follow_same_code_ratio_rule():
@@ -485,21 +725,26 @@ def test_excess_headers_follow_same_code_ratio_rule():
 
     assert service._excess_headers(runs_same) == ["超额(50%)", "超额(100%)"]
     assert service._excess_headers(runs_mixed) == ["超额(QQQ.US 100%)", "超额(SOXX.US 30%)"]
-    assert service._excess_headers(runs_same[:1]) == ["超额(策略-指数)"]
+    # 单基准场景超额列头由 策略列头-基准列头 拼装（策略列头统一带"组合"前缀）。
+    assert service._excess_headers(runs_same[:1]) == ["超额(组合策略-指数(50%))"]
 
 
 def test_excess_headers_omit_marker_for_composite_run():
-    """组合指数的派生列头不带任何标记：超额列为裸"超额"，与"指数"列头对称。"""
+    """组合基准的派生列头统一以"组合指数"自描述，不再输出裸前缀。"""
     service = StrategyBacktestReportService()
-    runs = [SimpleNamespace(code=None, weight=1, label="指数"),
+    runs = [SimpleNamespace(code=None, weight=1, label="组合指数"),
             SimpleNamespace(code="QQQ.US", weight=1, label="指数(QQQ.US)")]
 
-    assert service._excess_headers(runs) == ["超额", "超额(QQQ.US)"]
-    assert service._tagged_header("超额回撤", runs, runs[0]) == "超额回撤"
-    assert service._tagged_header("月数", runs, runs[0]) == "月数"
-    # 胜率列的"跑赢"宾语不能省略，组合指数固定表述为"跑赢组合"。
+    assert service._excess_headers(runs) == ["组合指数超额", "超额(QQQ.US)"]
+    assert service._tagged_header("超额回撤", runs, runs[0]) == "组合指数超额回撤"
+    assert service._tagged_header("月数", runs, runs[0]) == "组合指数月数"
+    assert service._tagged_header("平均超额", runs, runs[0]) == "组合指数平均超额"
+    assert service._tagged_header("正超额概率", runs, runs[0]) == "组合指数正超额概率"
+    # 胜率列的"跑赢"宾语不能省略，组合指数固定表述为"跑赢组合指数"。
     assert service._benchmark_tag(runs, runs[0]) == ""
-    assert f"策略胜率(跑赢{service._benchmark_tag(runs, runs[0]) or '组合'})" == "策略胜率(跑赢组合)"
+    assert (f"{service._strategy_label()}胜率"
+            f"(跑赢{service._benchmark_tag(runs, runs[0]) or service._composite_benchmark_label()})"
+            == "组合策略胜率(跑赢组合指数)")
 
 
 def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
@@ -512,7 +757,7 @@ def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
 
     table = StrategyBacktestReportService()._risk_adjusted_section(runs)[0]["table"]
 
-    assert table["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "策略"]
+    assert table["columns"] == ["指标", "指数(AAA.US 100%)", "指数(BBB.US 30%)", "组合策略"]
     assert [row[0] for row in table["rows"]] == [
         "夏普比率", "卡玛比率", "索提诺比率",
         "超额夏普比率(AAA.US 100%)", "超额索提诺比率(AAA.US 100%)",
@@ -636,31 +881,32 @@ def _all_stock_report_request():
     })()
 
 
-def test_build_report_data_places_correlation_after_weight_tables(monkeypatch):
-    """相关系数热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
+def test_build_report_data_places_heatmaps_after_weight_tables(monkeypatch):
+    """相关系数与同向率热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
     # 资产值全部缺失（视为个股）时列头为 净资产。
     monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
-    correlation_image = {
-        "type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c",
-    }
+    heatmap_images = [
+        {"type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c"},
+        {"type": "image", "title": "权重日涨跌幅同向率", "path": "same_direction.png", "caption": "c"},
+    ]
 
     report_data = service._build_report_data(
-        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02), correlation_image,
+        _all_stock_report_request(), _benchmark_runs_for_alignment(0.0, 0.02), heatmap_images,
     )
 
     blocks = report_data["blocks"]
-    assert [(block["type"], block.get("title")) for block in blocks[:4]] == [
+    assert [(block["type"], block.get("title")) for block in blocks[:5]] == [
         ("metadata", None),
         ("table", "策略权重"),
         ("table", "指数权重"),
         ("image", "权重日涨跌幅相关系数"),
+        ("image", "权重日涨跌幅同向率"),
     ]
     # 后续仍是各分析章节表格，热力图不得出现在图表区末尾。
-    assert blocks[4]["type"] == "heading"
-    assert all(not (block["type"] == "image" and block.get("title") == "权重日涨跌幅相关系数")
-               for block in blocks[4:])
+    assert blocks[5]["type"] == "heading"
+    assert all(block["type"] != "image" for block in blocks[5:])
 
 
 def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
@@ -676,7 +922,7 @@ def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
     )
 
     weight_blocks = [block for block in report_data["blocks"] if block["type"] == "table"][:2]
-    assert all(block["columns"][3] == "平均成交额" for block in weight_blocks)
+    assert all(block["columns"][3] == "平均成交额 (半年)" for block in weight_blocks)
     assert all(block["columns"][4] == "ETF资产总数" for block in weight_blocks)
 
 
@@ -730,11 +976,11 @@ def test_conclusion_expands_per_benchmark_for_multiple_runs():
     paragraphs = StrategyBacktestReportService()._conclusion(runs, "2024-01-01", "2024-12-31")
 
     assert paragraphs[0] == (
-        "本报告覆盖 2024-01-01 至 2024-12-31，策略累计回报率为 30.00%，"
+        "本报告覆盖 2024-01-01 至 2024-12-31，组合策略累计回报率为 30.00%，"
         "基准指数为 指数(AAA.US)、指数(BBB.US)。"
     )
-    assert paragraphs[1] == "指数(AAA.US)累计回报率为 10.00%，策略相对其的累计超额回报为 20.00%。"
-    assert paragraphs[2] == "指数(BBB.US)累计回报率为 5.00%，策略相对其的累计超额回报为 25.00%。"
+    assert paragraphs[1] == "指数(AAA.US)累计回报率为 10.00%，组合策略相对其的累计超额回报为 20.00%。"
+    assert paragraphs[2] == "指数(BBB.US)累计回报率为 5.00%，组合策略相对其的累计超额回报为 25.00%。"
 
 
 class _StubKlineService:
@@ -861,7 +1107,7 @@ def test_correlation_matrix_skipped_without_products():
 
 
 def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
-    """单次 K 线取数产出平均成交额；同标的策略/指数行共享。"""
+    """单次 K 线取数产出平均成交额；同标的策略/指数行共享，窗口为导出日前半年。"""
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
         _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
@@ -872,18 +1118,19 @@ def test_weight_metric_texts_single_fetch_covers_amount(monkeypatch):
     ])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     assert amounts == {
         "600519.SS": "10.00亿",
         "0700.HK": "10.00亿",
         "0700.HK (指数)": "10.00亿",
     }
-    # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果。
+    # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果；
+    # start_date = 导出日 2024-01-04 往前推 182 天。
     assert [call["stock_code"] for call in stub.calls] == ["600519.SS", "0700.HK"]
     assert [(call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
-        ("cn", "2024-01-01", "2024-01-04"),
-        ("hk", "2024-01-01", "2024-01-04"),
+        ("cn", "2023-07-06", "2024-01-04"),
+        ("hk", "2023-07-06", "2024-01-04"),
     ]
 
 
@@ -899,7 +1146,7 @@ def test_weight_metric_texts_falls_back_to_volume_times_close(monkeypatch):
     ])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     # 仅取成交量与收盘价都齐全的行：(1_000_000×90 + 3_000_000×100)/2 = 1.95亿。
     assert amounts == {"TLT.US": "1.95亿"}
@@ -912,7 +1159,7 @@ def test_weight_metric_texts_degrades_to_dash_when_kline_fails(monkeypatch):
     stub = _StubKlineService(error=RuntimeError("kline unavailable"))
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
+    amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-04")
 
     assert amounts == {"600519.SS": "-"}
 

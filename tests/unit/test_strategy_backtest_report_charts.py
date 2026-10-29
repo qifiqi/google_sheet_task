@@ -89,7 +89,12 @@ def _chart_data() -> dict:
 def test_generate_report_charts_outputs_all_pngs_with_static_fonts(tmp_path: Path):
     paths = charts.generate_report_charts(_chart_data(), tmp_path)
 
-    assert set(paths) == {"累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布"}
+    assert set(paths) == {
+        "累计净值曲线", "累计净值曲线（对数）", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布",
+    }
+    # Word 报告按返回映射的插入顺序插图：对数图必须紧跟在净值图后。
+    names = list(paths)
+    assert names.index("累计净值曲线（对数）") == names.index("累计净值曲线") + 1
     assert charts.FONT_REGULAR_PATH.is_file()
     assert charts.FONT_BOLD_PATH.is_file()
     for path in paths.values():
@@ -384,7 +389,9 @@ def test_generate_report_charts_with_real_fixture_returns(tmp_path: Path):
         "monthly_excess_by_benchmark": [{"title": "月度超额分布", "values": returns["monthly_excess"]}],
     }, tmp_path)
 
-    assert set(paths) == {"累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布"}
+    assert set(paths) == {
+        "累计净值曲线", "累计净值曲线（对数）", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布",
+    }
     for path in paths.values():
         image = mpimg.imread(path)
         assert image.shape[:2] == (760, 1440)
@@ -430,19 +437,35 @@ def test_generate_report_charts_expands_series_per_benchmark(tmp_path: Path):
     }, tmp_path)
 
     assert set(paths) == {
-        "累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布",
+        "累计净值曲线", "累计净值曲线（对数）", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布",
         "月度超额分布（QQQ.US）", "月度超额分布（SOXX.US）",
     }
-    for path in paths.values():
+    # 3 序列图（净值/回撤/分年度）走外置 Legend 加高版式（3.6×240=864）；
+    # ≤2 序列图保持历史 3.17 高度（760）。
+    expected_heights = {
+        "累计净值曲线": 864,
+        "累计净值曲线（对数）": 864,
+        "最大回撤曲线": 864,
+        "超额收益曲线": 760,
+        "分年度收益": 864,
+        "日收益分布": 760,
+        "月度超额分布（QQQ.US）": 760,
+        "月度超额分布（SOXX.US）": 760,
+    }
+    for name, path in paths.items():
         image = mpimg.imread(path)
-        assert image.shape[:2] == (760, 1440)
+        assert image.shape[:2] == (expected_heights[name], 1440)
 
 
 def test_nav_and_drawdown_legends_order_benchmarks_before_strategy(monkeypatch, tmp_path: Path):
     captured = {}
 
     def capture_figure(figure, path):
+        # ≥3 序列走图片顶部外置 Legend（figure.legend），轴内读不到；
+        # 兼容两种布局取图例文本。
         legend = figure.axes[0].get_legend()
+        if legend is None and figure.legends:
+            legend = figure.legends[0]
         captured[path.stem] = [text.get_text() for text in legend.get_texts()]
         captured[f"{path.stem}-first-color"] = figure.axes[0].lines[0].get_color()
 
@@ -464,6 +487,29 @@ def test_nav_and_drawdown_legends_order_benchmarks_before_strategy(monkeypatch, 
     assert captured["nav"] == ["指数(QQQ.US)", "指数(SOXX.US)", "策略"]
     assert captured["nav-first-color"] == charts.BLUE
     assert captured["drawdown"] == ["指数(QQQ.US)回撤", "指数(SOXX.US)回撤", "策略回撤"]
+
+
+def test_nav_log_chart_uses_log_axis_with_plain_tick_labels(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    def capture_figure(figure, path):
+        figure.canvas.draw()
+        axis = figure.axes[0]
+        captured["scale"] = axis.get_yscale()
+        captured["ticks"] = [label.get_text() for label in axis.get_yticklabels() if label.get_text()]
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    charts._draw_line_chart(
+        tmp_path / "nav_log.png", "累计净值曲线（对数）", dates,
+        [("策略", [1.0 + index * 0.22 for index in range(24)], charts.ORANGE)],
+        "净值", log_y=True,
+    )
+
+    assert captured["scale"] == "log"
+    # 对数轴主刻度用普通数字（1/2/5）而不是 10^x 科学计数。
+    assert {"1", "2", "5"} <= set(captured["ticks"])
+    assert all("^" not in text and "×" not in text for text in captured["ticks"])
 
 
 def test_correlation_heatmap_annotates_values_and_unavailable_cells(tmp_path: Path):
@@ -489,6 +535,32 @@ def test_correlation_heatmap_requires_font_files(monkeypatch, tmp_path: Path):
 
     with pytest.raises(FileNotFoundError):
         charts.generate_correlation_heatmap(["A", "B"], [[1.0, 0.5], [0.5, 1.0]], tmp_path / "x.png")
+
+
+def test_same_direction_heatmap_renders_with_missing_cells(tmp_path: Path):
+    output_path = tmp_path / "same_direction.png"
+    charts.generate_same_direction_heatmap(
+        ["600519.SS", "0700.HK", "BHP.AX"],
+        [
+            [1.0, 0.7315, None],
+            [0.7315, 1.0, 0.5142],
+            [None, 0.5142, 1.0],
+        ],
+        output_path,
+    )
+
+    image = mpimg.imread(output_path)
+    assert image.ndim == 3
+    assert 0.9 < image.shape[0] / image.shape[1] < 1.0
+
+
+def test_same_direction_cmap_keeps_mid_values_light():
+    """同向率集中在 40%~60%：中段必须接近白色，避免整片中间蓝发闷。"""
+    mid = charts.SAME_DIRECTION_CMAP(0.5)[:3]
+    high = charts.SAME_DIRECTION_CMAP(1.0)[:3]
+
+    assert sum(mid) / 3 > 0.88
+    assert sum(high) / 3 < 0.65
 
 
 def test_correlation_cmap_is_blue_at_zero_and_white_at_extremes():

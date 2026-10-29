@@ -47,13 +47,7 @@ class PerformanceReportExporterMixin:
 
     def format_export_file_data(self, data):
         """将分析结果整理为 绩效分析 导出文件需要的二维数据。"""
-        from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
-
         analyze_result = data.get('analyze_result')
-        if isinstance(analyze_result, dict):
-            # TODO: 历史 TaskResult 载荷仍是旧字段名（sotino/cumulative_excess 等），
-            # 历史数据统一迁移完成后移除该兼容升级。
-            analyze_result = upgrade_historical_metrics(analyze_result)
         model_name = self._resolve_export_model_name(data, analyze_result)
 
         excess_returns = analyze_result.get('excess_returns')
@@ -194,8 +188,8 @@ class PerformanceReportExporterMixin:
              self._format_export_metric(start_kama_ratio, '.2')],
             ["比率", "索提诺比率", self._format_export_metric(index_sortino_ratio, '.2'),
              self._format_export_metric(start_sortino_ratio, '.2')],
-            ["夏普", "超额夏普", f"", self._format_export_metric(excess_sharpe, '.2')],
-            ["索提诺", "超额索提诺比率", f"", self._format_export_metric(excess_sortino, '.2')]
+            ["夏普", "超额夏普", "", self._format_export_metric(excess_sharpe, '.2')],
+            ["索提诺", "超额索提诺比率", "", self._format_export_metric(excess_sortino, '.2')]
         ]
 
         data_2_2d = [

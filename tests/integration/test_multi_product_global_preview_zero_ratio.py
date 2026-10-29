@@ -40,7 +40,7 @@ def _base_product(index, ratio):
 
 
 def _fake_metrics_factory(captured):
-    def fake_metrics(return_date):
+    def fake_metrics(return_date, runtime_params=None):
         captured.append(return_date)
         total_start = sum(item["start_return"] for item in return_date)
         total_index = sum(item["index_return"] for item in return_date)
@@ -84,7 +84,7 @@ def _seed_zero_ratio_task(app, task_id):
         ]
         payload = {
             "sheet__title": {
-                "calculate_metrics": {
+                "metrics_payload": {"metrics": {
                     "excess_returns": [{
                         "year": "all",
                         "index_annualized_return": ir,
@@ -97,7 +97,7 @@ def _seed_zero_ratio_task(app, task_id):
                     "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
                     "index_sharpe_ratios": {"all": {"avg_monthly_return": ir, "sharpe_ratio": 2}},
                     "start_sharpe_ratios": {"all": {"avg_monthly_return": sr, "sharpe_ratio": 3}},
-                },
+                }},
                 "return_date": returns,
             }
         }
@@ -168,7 +168,7 @@ def test_calculate_ratios_endpoint_returns_enveloped_payload(app_factory, monkey
     monkeypatch.setenv("AUTH_ENABLED", "false")
     client = app.test_client()
     response = client.post(
-        "/backtest-multi-product/api/global-preview/zero-ratio-http/calculate-ratios",
+        "/api/backtest-multi-product/global-preview/zero-ratio-http/calculate-ratios",
         json={"ratios": [{"product_index": 0, "ratio": 100}, {"product_index": 1, "ratio": 0}]},
     )
 

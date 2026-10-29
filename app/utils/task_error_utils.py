@@ -10,6 +10,9 @@ from urllib3.exceptions import ProtocolError
 NETWORK_ERROR_PREFIX = "[NETWORK_RETRYABLE]"
 WATCHDOG_RESTART_PREFIX = "[WATCHDOG_FORCE_RESTART]"
 GOOGLE_SHEET_EXECUTION_ERROR_PREFIX = "[GOOGLE_SHEET_RETRYABLE]"
+# pending 任务排队等 Sheet 执行锁的标记：启动期补跑扫描据此识别排队任务
+# （与崩溃中断被置回 pending 的任务区分）。
+SHEET_QUEUED_PREFIX = "[SHEET_QUEUED]"
 
 
 class RetryableNetworkTaskError(Exception):

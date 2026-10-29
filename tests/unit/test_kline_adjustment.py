@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
@@ -97,18 +98,25 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
     calls = {}
 
     class FakeYFApi:
-        def get_kline_data(self, stock_code, period, adjust_type=None):
+        def get_kline_data(self, stock_code, period, adjust_type=None, start_date=None, end_date=None):
             calls["yf"] = {
                 "stock_code": stock_code,
                 "period": period,
                 "adjust_type": adjust_type,
+                "start_date": start_date,
+                "end_date": end_date,
             }
+            # 请求窗口内需满足 require_kline_rows 的最少 30 根守卫
             return [
                 {"stock_date": f"2023-12-{day:02d}", "close": 9, "open": 8}
                 for day in range(1, 31)
             ] + [
-                {"stock_date": "2024-01-01", "close": 10, "open": 9},
-                {"stock_date": "2024-01-02", "close": 11, "open": 10},
+                {
+                    "stock_date": (date(2024, 1, 1) + timedelta(days=offset)).isoformat(),
+                    "close": 10 + offset,
+                    "open": 9 + offset,
+                }
+                for offset in range(46)
             ]
 
     class FakeDFCFApi:
@@ -122,11 +130,16 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
 
     monkeypatch.setattr(google_sheet_service_C4, "YFApi", FakeYFApi)
     monkeypatch.setattr(google_sheet_service_C4, "DFCJStockApi", FakeDFCFApi)
+    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    monkeypatch.setattr(
+        "app.services.kline_service.KlineService.read_internal_kline_data",
+        lambda self, **_kwargs: [],
+    )
 
     data, _column_a_length = C4GoogleSheetService._get_all_parameters(
         "AAPL",
         "total",
-        "2024-01-02",
+        "2024-02-15",
         "2024-01-01",
         "us",
         [],
@@ -137,13 +150,18 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
         "stock_code": "AAPL",
         "period": "10y",
         "adjust_type": "back",
+        "start_date": "2024-01-01",
+        "end_date": "2024-02-15",
     }
-    assert "dfcf_search" not in calls
+    # 2026-10 起美股允许经东财搜索解析证券名称（软失败）；K 线取数仍不走东财。
+    # FakeDFCFApi 返回缺 code 的残缺结果 + FakeYFApi 无 get_stock_name，
+    # 正好覆盖两级取名全部失败仍正常返回的场景。
     assert "dfcf_kline" not in calls
-    assert data[0]["kline"] == [
-        {"stock_date": "2024-01-01", "stock_val": 10},
-        {"stock_date": "2024-01-02", "stock_val": 11},
-    ]
+    # 窗口加宽以满足最少 30 根守卫；投影按收盘价（us 固定），首尾抽样断言
+    projected = data[0]["kline"]
+    assert projected[0] == {"stock_date": "2024-01-01", "stock_val": 10}
+    assert projected[-1] == {"stock_date": "2024-02-15", "stock_val": 55}
+    assert len(projected) == 46
 
 
 def test_yahoo_forward_adjustment_uses_adj_close_as_close():
@@ -226,3 +244,35 @@ def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje()
             "timestamp": rows[0]["timestamp"],
         }
     ]
+
+
+def test_yf_api_passes_date_range_to_download(monkeypatch):
+    captured = {}
+
+    def fake_download(stock_code, **kwargs):
+        captured["stock_code"] = stock_code
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    monkeypatch.setattr("app.utils.yf_api.yf.download", fake_download)
+    YFApi().get_kline_data("QQQ", start_date="1999-01-01", end_date="1999-12-31")
+
+    assert captured["stock_code"] == "QQQ"
+    assert captured["start"] == "1999-01-01"
+    # yfinance 的 end 为开区间，业务闭区间语义 +1 天
+    assert captured["end"] == "2000-01-01"
+    assert "period" not in captured
+
+
+def test_yf_api_without_dates_keeps_period(monkeypatch):
+    captured = {}
+
+    def fake_download(stock_code, **kwargs):
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    monkeypatch.setattr("app.utils.yf_api.yf.download", fake_download)
+    YFApi().get_kline_data("QQQ", "10y")
+
+    assert captured["period"] == "10y"
+    assert "start" not in captured and "end" not in captured

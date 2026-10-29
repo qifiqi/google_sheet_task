@@ -1,327 +1,81 @@
-      /* 页面与查询区 */
-      body.index-body {
-        margin: 0;
-        padding: 20px 20px 0;
-        background-color: #f9fafb;
-      }
+/* K线数据页（/eastmoney_kline）自定义样式：Bootstrap 为主，仅补充搜索候选、
+   导出控件与 klinecharts 容器等页面级布局。 */
 
-      .search .layui-form {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-        align-items: end;
-        gap: 16px 24px;
-      }
+/* 股票搜索候选列表 */
+.stock-search-control .stock-suggestions {
+    position: absolute;
+    z-index: 1000;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
 
-      .search .layui-row {
-        width: auto;
-        min-width: 0;
-      }
+.stock-suggestions[hidden] {
+    display: none;
+}
 
-      .search .layui-input-wrap {
-        display: flex;
-        align-items: center;
-        min-width: 0;
-      }
+.stock-suggestion {
+    text-align: left;
+}
 
-      .search .layui-input-label {
-        display: flex;
-        flex: 0 0 72px;
-        align-items: center;
-        justify-content: flex-end;
-      }
+/* 导出文件名输入框宽度收敛，避免挤压按钮 */
+.export-file-name {
+    width: 200px;
+}
 
-      .search .stock-keyword-label {
-        flex-basis: 104px;
-      }
-
-      .search .layui-input-wrap > .layui-input,
-      .search .layui-input-wrap > .layui-form-select {
-        min-width: 0;
-        flex: 1 1 auto;
-        width: 0;
-      }
-
-      .search .stock-search-control {
-        position: relative;
-        min-width: 0;
-        flex: 1 1 auto;
-      }
-
-      .search .stock-search-control .layui-input {
-        box-sizing: border-box;
+/* 查询/导出控件在小屏下允许换行 */
+@media (max-width: 767.98px) {
+    .export-file-name {
         width: 100%;
-      }
+    }
+}
 
-      /* 股票搜索候选列表 */
-      .stock-suggestions {
-        position: absolute;
-        z-index: 1000;
-        top: calc(100% + 4px);
-        left: 0;
-        width: max-content;
-        min-width: 100%;
-        max-width: min(360px, calc(100vw - 40px));
-        max-height: 240px;
-        overflow-x: hidden;
-        overflow-y: auto;
-        background-color: #fff;
-        border: 1px solid #d8d8d8;
-        border-radius: 4px;
-      }
+/* 波动率分析可复制徽标 */
+.analysis-copyable {
+    cursor: pointer;
+}
 
-      .stock-suggestion {
-        display: block;
-        box-sizing: border-box;
-        width: auto;
-        min-width: 100%;
-        height: 36px;
-        padding: 0 12px;
-        overflow: hidden;
-        color: #111827;
-        background-color: #fff;
-        border: 0;
-        cursor: pointer;
-        font-size: 13px;
-        text-align: left;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
+/* K线表格：行高紧凑 + 数字列不换行 */
+.kline-table td {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    font-variant-numeric: tabular-nums;
+}
 
-      .stock-suggestion:hover,
-      .stock-suggestion:focus {
-        background-color: #f3f4f6;
-        outline: 0;
-      }
+/* klinecharts 图表容器（弹窗内定高，组件按容器尺寸自绘） */
+.kline-chart-container {
+    position: relative;
+    height: 72vh;
+    min-height: 420px;
+    width: 100%;
+}
 
-      .search .layui-input-wrap > .layui-form-select {
-        display: block;
-      }
+.kline-chart-dialog .modal-content {
+    height: calc(100vh - 4rem);
+}
 
-      .search .layui-form-select .layui-select-title {
-        width: 100%;
-      }
+.kline-chart-dialog .modal-body {
+    flex: 1 1 auto;
+    overflow: hidden;
+}
 
-      .search .layui-form-select .layui-input {
-        display: block;
-        box-sizing: border-box;
-        width: 100% !important;
-        min-width: 0;
-        flex: none;
-      }
+/* 暗色主题：项目 Bootstrap 无原生 data-bs-theme 支持，随 theme.css 约定补齐弹窗配色 */
+html[data-bs-theme="dark"] .kline-chart-dialog .modal-content {
+    background-color: #182132;
+    border-color: #2a3648;
+    color: #e5e7eb;
+}
 
-      .search .kline-submit {
-        justify-self: end;
-        margin: 0;
-      }
+html[data-bs-theme="dark"] .kline-chart-dialog .modal-header {
+    border-bottom-color: #2a3648;
+}
 
-      /* 波动率分析区 */
-      .volatility-analysis {
-        box-sizing: border-box;
-        margin-bottom: 1.5rem;
-        padding: 20px;
-        background-color: #fff;
-        border-radius: 16px;
-      }
-
-      .analysis-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-      }
-
-      .analysis-header .title {
-        font-size: 18px;
-        font-weight: 800;
-        color: #111827;
-      }
-
-      .analysis-controls,
-      .analysis-basis {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .analysis-controls {
-        gap: 16px;
-      }
-
-      .analysis-basis label {
-        color: #6b7280;
-        font-size: 13px;
-      }
-
-      .analysis-basis .layui-form-select {
-        width: 140px;
-      }
-
-      .analysis-basis .layui-input {
-        width: 120px;
-      }
-
-      .analysis-summary {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px 20px;
-        margin-bottom: 10px;
-        color: #6b7280;
-        font-size: 13px;
-      }
-
-      .analysis-copyable {
-        color: #4f46e5;
-        cursor: pointer;
-      }
-
-      .analysis-copy-block {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 32px;
-        padding: 0 10px;
-        color: #111827;
-        background-color: #fff;
-        border: 1px solid #d8d8d8;
-        border-radius: 4px;
-        font-size: 13px;
-      }
-
-      .analysis-copy-block span {
-        color: #6b7280;
-      }
-
-      .analysis-copy-block strong {
-        color: #4f46e5;
-        font-weight: 600;
-      }
-
-      .analysis-copy-block:hover,
-      .analysis-copy-block:focus {
-        border-color: #4f46e5;
-      }
-
-      .analysis-copyable:focus,
-      .analysis-copyable:hover {
-        text-decoration: underline;
-        outline: 0;
-      }
-
-      .analysis-copy-block:focus,
-      .analysis-copy-block:hover {
-        text-decoration: none;
-      }
-
-      .volatility-comparison-wrap {
-        overflow-x: auto;
-      }
-
-      .volatility-comparison {
-        min-width: 900px;
-        margin: 0;
-      }
-
-      .volatility-comparison th,
-      .volatility-comparison td {
-        min-width: 72px;
-        padding: 8px 10px;
-        color: #6b7280;
-        font-size: 13px;
-        text-align: center;
-        white-space: nowrap;
-      }
-
-      .volatility-comparison th:first-child,
-      .volatility-comparison td:first-child {
-        min-width: 80px;
-        color: #111827;
-        text-align: left;
-      }
-
-      .volatility-comparison td strong {
-        color: #111827;
-        font-size: 14px;
-      }
-
-      .average-turnover-analysis {
-        margin-top: 1.5rem;
-      }
-
-      .average-turnover-header {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        margin-bottom: 10px;
-        color: #111827;
-        font-size: 14px;
-        font-weight: 700;
-      }
-
-      .average-turnover-header small {
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 400;
-      }
-
-      .volatility-row-label {
-        color: #4f46e5 !important;
-        font-weight: 700;
-      }
-
-      .table-meta {
-        margin-left: 12px;
-        color: #6b7280;
-        font-size: 13px;
-        font-weight: 400;
-      }
-
-      .export-file-name {
-        width: 260px;
-      }
-
-      .export-date-order {
-        display: flex;
-        align-items: center;
-      }
-
-      .export-date-order label {
-        margin-right: 6px;
-        color: #6b7280;
-        font-size: 13px;
-        white-space: nowrap;
-      }
-
-      .export-date-order .layui-form-select {
-        width: 130px;
-      }
-
-      /* 窄宽度 iframe 布局 */
-      @media (max-width: 1100px) {
-        .search .layui-form {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .search .layui-row:first-child {
-          grid-column: 1 / -1;
-        }
-      }
-
-      @media (max-width: 760px) {
-        .search .layui-form {
-          grid-template-columns: 1fr;
-        }
-
-        .search .kline-submit {
-          justify-self: start;
-        }
-
-        .analysis-header {
-          align-items: flex-start;
-          flex-direction: column;
-        }
-
-        .analysis-controls {
-          flex-wrap: wrap;
-        }
-      }
-    
+html[data-bs-theme="dark"] .kline-chart-dialog .btn-close {
+    filter: invert(1) grayscale(100%);
+}

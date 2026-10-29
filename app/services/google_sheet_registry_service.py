@@ -95,26 +95,9 @@ class GoogleSheetRegistryService:
 
         google_sheet_repository.delete(int(sheet_id))
 
-    def acquire_for_task(self, sheet_id: int, task_id: str):
-        sheet = google_sheet_repository.get_entity(int(sheet_id))
-        if not sheet:
-            raise NotFoundError("所选 Google Sheet 不存在")
-        if not sheet.is_active:
-            raise ValidationError("所选 Google Sheet 未启用")
-        if sheet.current_task_id == task_id and sheet.is_in_use:
-            return sheet.to_dict()
-        if sheet.is_in_use and sheet.current_task_id and sheet.current_task_id != task_id:
-            raise ValidationError("该 Google Sheet 已被其他任务使用")
-
-        occupied = google_sheet_repository.occupy(int(sheet_id), task_id)
-        if occupied is None:
-            raise ValidationError("Google Sheet 占用失败，请重试")
-        return occupied
-
-    def release_for_task(self, task_id: str):
-        if not task_id:
-            return False
-        return google_sheet_repository.release_by_task(task_id) > 0
+    # acquire_for_task / release_for_task 已随统一 Sheet 执行锁改造移除：
+    # 执行互斥唯一权威是 sheet_lock_repository，registry 占用镜像由
+    # TaskOccupancyMixin.ensure/release_google_sheet_occupancy 直接读写仓储。
 
 
 google_sheet_registry_service = GoogleSheetRegistryService()

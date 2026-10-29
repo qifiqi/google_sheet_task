@@ -1,4 +1,4 @@
-import json
+from app.utils.json_utils import dumps
 import random
 import time
 from datetime import datetime, timedelta
@@ -9,14 +9,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, DEFAULT_C3_MIN_KLINE_ROWS, POLL_ATTEMPT_LIMIT
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.formatting import sanitize_json_value
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
@@ -34,6 +34,8 @@ logger = get_logger(__name__)
 
 class C3Service(BaseGoogleSheetService):
     """Google Sheet服务"""
+
+    _model_version = "c3"
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
@@ -65,10 +67,11 @@ class C3Service(BaseGoogleSheetService):
             if key in result
         }
 
-        flat_result = result.get("flat_result")
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        metrics_payload = result.get("metrics_payload")
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else None
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -77,36 +80,34 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
-
-        metrics_payload = result.get("metrics_payload")
         if isinstance(metrics_payload, dict):
             summary["metrics_payload_keys"] = len(metrics_payload)
 
-        return json.dumps(
-            self._sanitize_json_value(summary),
+        return dumps(
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
 
     def _summarize_return_analysis_for_log(
         self,
-        flat_result: Dict[str, Any],
-        analyze_result: Dict[str, Any],
+        metrics_payload: Dict[str, Any],
         row_count: int,
         read_elapsed: float,
         performance_analysis_elapsed: float,
     ) -> str:
+        metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else {}
         summary = {
             "rows": row_count,
             "read": self._format_elapsed(read_elapsed),
             "performance_analysis": self._format_elapsed(performance_analysis_elapsed),
-            "analyze_result_keys": len(analyze_result) if isinstance(analyze_result, dict) else 0,
+            "metric_keys": len(metrics) if isinstance(metrics, dict) else 0,
         }
-        if isinstance(flat_result, dict):
-            summary["flat_result"] = {
-                key: flat_result.get(key)
+        if isinstance(metrics, dict):
+            summary["metrics"] = {
+                key: metrics.get(key)
                 for key in [
                     "index_annualized_return",
                     "start_annualized_return",
@@ -115,10 +116,10 @@ class C3Service(BaseGoogleSheetService):
                     "start_sharpe_ratio",
                     "start_drawdown",
                 ]
-                if key in flat_result
+                if key in metrics
             }
-        return json.dumps(
-            self._sanitize_json_value(summary),
+        return dumps(
+            sanitize_json_value(summary),
             ensure_ascii=False,
             default=str,
         )
@@ -142,8 +143,9 @@ class C3Service(BaseGoogleSheetService):
             self.google_sheet.update_jumped_cells(cell_updates)
             return
 
+        settle_seconds = self._get_sheet_settle_seconds()
         self._log_info(
-            "模型可能卡死，直接清空参数，等待20s后重新写入参数，请稍等..."
+            f"模型可能卡死，直接清空参数，等待{settle_seconds}秒后重新写入参数，请稍等..."
         )
 
         if attempt >= 10 and not self.klines_map:
@@ -153,8 +155,8 @@ class C3Service(BaseGoogleSheetService):
             self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
             self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
 
-            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
+            self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(settle_seconds):
                 raise RuntimeError("task cancelled")
 
             for i in range(self.len_kline):
@@ -170,7 +172,7 @@ class C3Service(BaseGoogleSheetService):
             return
 
         self.google_sheet.clear_jumped_cells(cell_updates.keys())
-        if not self._interruptible_sleep(20):
+        if not self._interruptible_sleep(settle_seconds):
             raise RuntimeError("task cancelled")
 
         self.google_sheet.update_jumped_cells(cell_updates)
@@ -365,10 +367,9 @@ class C3Service(BaseGoogleSheetService):
                 return {}
 
             performance_analysis_started = time.perf_counter()
-            flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
+            metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
             performance_analysis_elapsed = time.perf_counter() - performance_analysis_started
             analysis_summary = self._summarize_return_analysis_for_log(
-                flat_result,
                 metrics_payload,
                 len(return_data),
                 read_elapsed,
@@ -380,7 +381,6 @@ class C3Service(BaseGoogleSheetService):
             )
             return {
                 "metrics_payload": metrics_payload,
-                "flat_result": flat_result,
                 "_return_date": return_data,
             }
         except SheetCheckError:
@@ -397,7 +397,7 @@ class C3Service(BaseGoogleSheetService):
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
         payload = self._build_stock_param_result_base_payload(task_name, task_index, config_data)
-        return_analysis = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else result
+        return_analysis = (result.get("metrics_payload") or {}).get("metrics", {})
         payload.update({
             "multiplier": result.get("B6", 0),
             "danbian": result.get("B7", 0),
@@ -429,120 +429,9 @@ class C3Service(BaseGoogleSheetService):
         })
         return payload
 
-    @alert_on_failure(
-        result_predicate=should_alert_execute_task_result,
-        message_builder=build_execute_task_alert,
-    )
-    def execute_task(self):
-        """执行Google Sheet任务"""
-        try:
-
-            # 统一使用应用上下文
-            context_app = self.app or current_app
-            with context_app.app_context():
-                task = task_repository.get_entity(self.task_id)
-                self.task = task
-                if not task:
-                    self._log_error(f'任务 {self.task_id} 不存在')
-                    return 'error'
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-                if self._is_cancel_requested():
-                    self._log_info(f'task {self.task_id} cancellation requested')
-                    return 'cancelled'
-
-                # 解析配置
-                if isinstance(task.config, str):
-                    try:
-                        config_data = json.loads(task.config)
-                    except json.JSONDecodeError as e:
-                        self._log_error(f"配置解析失败: {str(e)}")
-                        return 'error'
-                else:
-                    config_data = task.config or {}
-
-                config_manager = get_config_manager()
-                config_data = {**config_manager.get_google_sheet_config(), **config_data}
-
-                # 推送任务开始日志
-                self._log_info('开始执行Google Sheet任务')
-
-                # 初始化Google Sheet连接
-                self._init_google_sheet(config_data)
-
-                # 获取参数列表
-                parameters = config_data.get('parameters', [])
-                if not parameters:
-                    self._log_error("没有参数配置")
-                    return 'error'
-
-                name = task.name
-                self.task_name = name
-                sheet_name = config_data.get('sheet_name', "")
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-                if self._is_cancel_requested():
-                    self._log_info(f'task {self.task_id} cancellation requested')
-                    return 'cancelled'
-
-                # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
-                # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
-                self._log_info("开始执行参数批量处理（默认参数模式）")
-                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, task.current_step)
-
-                # 根据任务状态决定返回结果
-                if task_status == 'cancelled':
-                    # 任务被取消，保持cancelled状态
-                    self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    # # 推送任务取消通知
-                    # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
-                    return 'cancelled'
-                elif task_status == 'error':
-                    return 'error'
-
-                if success_count == 0 and failed_count == 0:
-                    self._log_error('任务执行失败')
-                    return 'error'
-
-                # 推送任务完成通知
-                self._refresh_model_summary_index()
-                self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
-                # 推送任务完成信息
-                completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
-                self._log_info(completion_msg)
-
-                return 'completed'
-
-        except Exception as e:
-            # 检查是否是任务被取消导致的异常
-            try:
-                task = task_repository.get_entity(self.task_id)
-                if task and task.status == 'cancelled':
-                    self._log_info(f'任务已被取消: {str(e)}')
-                    return 'cancelled'
-            except Exception:  # best-effort 取消探测：失败不中断主流程
-                pass
-
-            # 其他异常情况
-            root, error_summary = summarize_task_exception(
-                self.task_id, e, "execute_task", self.app,
-                log_warning=logger.warning,
-            )
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
-            self._log_error(error_msg)
-            self._log_error(f"任务异常摘要: {error_summary}")
-            return 'error'
-
     def cell_kline_data(self,config_data):
         stock_code = config_data.get('stock_code', '')
         year_n = config_data.get('year_n', '1y')
-        # count_mode = config_data.get('count_mode', 'n_plus_1')
         price_mode = config_data.get('price_mode', 'vwap_price')
         end_date = config_data.get('end_date')
         market_type = config_data.get('market_type','cn')
@@ -595,7 +484,7 @@ class C3Service(BaseGoogleSheetService):
             market_type,
             klines,
             context="原始K线",
-            min_rows=100,
+            min_rows=self._get_min_kline_rows(DEFAULT_C3_MIN_KLINE_ROWS),
             price_field=get_kline_price_field(price_mode),
         )
 
@@ -648,10 +537,7 @@ class C3Service(BaseGoogleSheetService):
             cell_updates[cell_B] = stock_val
         self.google_sheet.update_jumped_cells(cell_updates)
 
-
-        pass
-
-    def get_bdl(self, task, name, parameters, config_data, index_z=0):
+    def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
         try:
             # 计算总参数组合数（不生成实际组合，避免内存问题）
@@ -669,13 +555,13 @@ class C3Service(BaseGoogleSheetService):
             # 执行参数组合
             success_count = 0
             failed_count = 0
-            if index_z > total_combinations:
-                self._log_warning(f'任务数据库内条数:{index_z} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
+            if task.current_step > total_combinations:
+                self._log_warning(f'任务数据库内条数:{task.current_step} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
                 return 0, 0, 'completed'
 
 
-            # 检查是否从断点恢复
-            start_index = max(index_z, task.current_step - 1) if task.current_step >= 1 else index_z
+            # 检查是否从断点恢复（current_step 为已完成的组合数，从下一条继续）
+            start_index = task.current_step
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
             success_count = start_index # 成功执行计数器，从断点除重新来
 
@@ -688,8 +574,9 @@ class C3Service(BaseGoogleSheetService):
                     self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
                     self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
 
-                    self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-                    if not self._interruptible_sleep(20):
+                    settle_seconds = self._get_sheet_settle_seconds()
+                    self._log_info(f'所有表格均滞空，等待{settle_seconds}秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(settle_seconds):
                         return success_count, failed_count, 'cancelled'
 
                 self.cell_kline_data(config_data)
@@ -707,7 +594,7 @@ class C3Service(BaseGoogleSheetService):
                 if self._is_cancel_requested():
                     self._log_warning("task cancellation requested")
                     return success_count, failed_count, 'cancelled'
-                self._log_step(i + 1, total_combinations, f"开始执行参数组合")
+                self._log_step(i + 1, total_combinations, "开始执行参数组合")
 
                 # 按需计算参数组合，避免内存问题
                 combination = self._get_parameter_combination_by_index(parameters, i)
@@ -836,8 +723,12 @@ class C3Service(BaseGoogleSheetService):
             batch_error_count = 0
             max_batch_error_count = 3
             delay_min, delay_max = self._get_execution_poll_delay_bounds()
-            for attempt in range(60):
-                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+            refresh_interval, refresh_attempts = self._get_poll_refresh_settings()
+            for attempt in range(POLL_ATTEMPT_LIMIT):
+                if attempt != 0 and (
+                    (refresh_interval > 0 and attempt % refresh_interval == 0)
+                    or attempt in refresh_attempts
+                ):
                     self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
                     self._write_parameter_cells(cell_updates, attempt)
 

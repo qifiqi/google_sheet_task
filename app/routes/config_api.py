@@ -1,14 +1,16 @@
 """配置管理 API。
 
 配置读取/更新经 config_manager（缓存与负缓存刷新语义留在该层）。
+写端点仅限管理员；受保护键（JWT_SECRET_KEY/proxy_url/token_file 等）
+由 config_manager 统一拒绝；所有把配置值下发到响应的路径必须脱敏。
 """
-from flask import Blueprint, request
+from flask import Blueprint
 
 from app.exceptions import BadRequestError, NotFoundError, ServiceError
 from app.services.config_manager import get_config_manager, mask_config_value
 from app.utils.api_response import success
 from app.schemas.config import ConfigBatchSchema, SystemConfigUpdateSchema
-from app.utils.auth import login_required
+from app.utils.auth import admin_required, login_required
 from app.utils.request_parsing import parse_body
 from app.utils.logger import get_logger
 
@@ -28,9 +30,9 @@ def get_config():
 
 
 @config_api_bp.route('/config', methods=['POST'])
-@login_required
+@admin_required
 def update_config():
-    """更新系统配置"""
+    """更新系统配置（仅管理员）"""
     data = parse_body(ConfigBatchSchema).root
     if not data:
         raise BadRequestError("请求数据为空")
@@ -73,16 +75,21 @@ def validate_config():
 
 
 @config_api_bp.route('/system-configs', methods=['GET'])
-@login_required
+@admin_required
 def list_system_configs():
-    """获取 system_configs 配置列表"""
-    return success(data={"configs": get_config_manager().get_db_config_rows()})
+    """获取 system_configs 配置列表（仅管理员，值统一脱敏后下发）"""
+    rows = get_config_manager().get_db_config_rows()
+    masked = [
+        {**row, "value": mask_config_value(row["key"], row["value"])}
+        for row in rows
+    ]
+    return success(data={"configs": masked})
 
 
 @config_api_bp.route('/system-configs/<string:key>', methods=['PUT'])
-@login_required
+@admin_required
 def update_system_config(key):
-    """更新单条配置"""
+    """更新单条配置（仅管理员）"""
     data = parse_body(SystemConfigUpdateSchema).root
 
     fields = {}
@@ -95,5 +102,6 @@ def update_system_config(key):
     if updated is None:
         raise NotFoundError("配置不存在")
 
+    updated = {**updated, "value": mask_config_value(key, updated.get("value"))}
     return success(data={"config": updated})
 

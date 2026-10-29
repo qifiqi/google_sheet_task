@@ -31,14 +31,19 @@ def test_create_task_hydrates_stock_name_from_metadata(app_factory, monkeypatch)
         db.session.add(StockMetadata(stock_code="600519", stock_name="贵州茅台", market_type="cn"))
         db.session.commit()
         manager = TaskManager()
-        monkeypatch.setattr(manager, "validate_google_sheet_available_for_task", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(manager, "validate_c_series_sheet_models", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(manager, "ensure_google_sheet_occupancy", lambda *_args, **_kwargs: None)
 
         task_id = manager.create_task(
             "task",
             "",
             "google_sheet_C5",
-            {"stock_code": "600519", "market_type": "cn", "parameters": []},
+            {
+                "sheets": [{"spreadsheet_id": "sheet-1", "sheet_name": "data", "title": ""}],
+                "stock_code": "600519",
+                "market_type": "cn",
+                "parameters": [],
+            },
         )
 
         task = db.session.get(Task, task_id)
@@ -84,7 +89,7 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
                 }
             ]
 
-        def get_stock_kline_data(self, stock_code, market, limit, adjust_type=None):
+        def get_stock_kline_data(self, stock_code, market, limit, adjust_type=None, **_kwargs):
             start = date(2024, 1, 1)
             return [
                 {
@@ -97,6 +102,11 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
 
     app = app_factory
     monkeypatch.setattr("app.services.google_sheet_tasks.c4.DFCJStockApi", FakeDfcfApi)
+    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    monkeypatch.setattr(
+        "app.services.kline_service.KlineService.read_internal_kline_data",
+        lambda self, **_kwargs: [],
+    )
     with app.app_context():
         combinations, _column_a_length = C4GoogleSheetService._get_all_parameters(
             "600519",
