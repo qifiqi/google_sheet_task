@@ -14,6 +14,7 @@ from app.repositories.http_backend.base import (
     HttpRepositoryBase,
     dump_row,
 )
+from app.remote_api.capabilities import require_e12
 
 _SOURCE_DT = ("created_at",)
 _SERIES_DT = ("created_at",)
@@ -72,6 +73,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return self.get(source_id)
 
     def create_source(self, fields: dict, commit: bool = True):
+        require_e12(self.api)
         return self.save(dump_row(fields, datetime_fields=_SOURCE_DT))
 
     # ---- 随机序列 ----
@@ -106,6 +108,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return (row or {}).get("task_id")
 
     def create_series(self, fields: dict, commit: bool = True):
+        require_e12(self.api)
         return self._save_via(self._GROUP_SERIES, fields, _SERIES_DT)
 
     def count_series_by_task(
@@ -209,6 +212,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return [int(row.get("result_id") or 0) for row in rows]
 
     def create_link(self, result_id: int, task_id: str, series_id: int):
+        require_e12(self.api)
         return self._save_via(
             self._GROUP_LINKS,
             {"result_id": result_id, "task_id": task_id, "series_id": series_id},

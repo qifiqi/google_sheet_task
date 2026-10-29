@@ -57,9 +57,15 @@ class ParamTaskResultsReturnApi(ControllerApi):
         """
         return self._make_request('POST', '/api/ParamTaskResultsReturn/GetInfoById', payload)
 
-    def modify_or_add(self, payload: Mapping[str, Any] | None = None) -> Any:
+    def modify_or_add(
+        self,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        with_count: bool = False,
+        timeout: float | None = None,
+    ) -> Any:
         """
-        新增/更新收益序列
+        新增/更新收益序列（插入时新 id 经 ``ret_count`` 回带）
 
             curl -X 'POST' \
               'http://stockapi.jaspil.cn/api/ParamTaskResultsReturn/ModifyOrAdd' \
@@ -67,4 +73,10 @@ class ParamTaskResultsReturnApi(ControllerApi):
               -H 'Content-Type: application/json' \
               -d '{"task_id": "...", "stock_code": "...", "return_series": "..."}'
         """
-        return self._make_request('POST', '/api/ParamTaskResultsReturn/ModifyOrAdd', payload)
+        if with_count:
+            return self._make_request_with_count(
+                'POST', '/api/ParamTaskResultsReturn/ModifyOrAdd', payload, timeout=timeout
+            )
+        return self._make_request(
+            'POST', '/api/ParamTaskResultsReturn/ModifyOrAdd', payload, timeout=timeout
+        )

@@ -131,13 +131,23 @@ POST /api/ParamTasks/ModifyOrAdd
 `POST /api/ParamGoogleSheetTokens/ModifyOrAdd`：**新行插入**一律 500"内部请求出错"
 （与载荷无关，精简单字段同样 500）；**更新已有行正常 200**。读路径
 （GetDataByPageList / GetInfoById）正常。影响：Token 导入/新建流程；占用计数更新
-（update 分支）不受影响。已登记待主站修复。
+（update 分支）不受影响。**2026-10-29 复核：7070 已修复**——新行插入 200，
+`ret_count` 回带新 id（实测 id=9）；探针行已清理。
 
 ## 缺陷 #5：ParamTaskResultSummaryIndex/ModifyOrAdd 插入分支 500（2026-10-29）
 
 `POST /api/ParamTaskResultSummaryIndex/ModifyOrAdd`：**新行插入**一律 500（UUID
 宿主任务 + DTO 全字段载荷同样 500）；分页/删除正常。影响：http 模式下回测汇总
-重建（模型汇总 dedupe/重建链路写汇总索引）会失败。已登记待主站修复。
+重建（模型汇总 dedupe/重建链路写汇总索引）会失败。**2026-10-29 复核：7070 已修复**
+——新行插入 200，`ret_count` 回带新 id（实测 id=7438）；探针行已清理。
+
+## 缺陷 #6：StockParamResult/GetDataByPageList 的 task_id/task_index 过滤失效（2026-10-29）
+
+`POST /api/StockParamResult/GetDataByPageList`：DTO 声明了 stock_code/task_id/task_index
+三个过滤字段，实测 **task_id 与 task_index 均被忽略**（传不存在的真实 UUID、全 0 UUID
+都返回全表最新行，ret_count=全表约 201.8 万），仅 stock_code 过滤生效（不存在的 code
+返回 0）。影响：http 模式无法按任务查询参数校验结果（本项目执行链只写不查，暂不受
+影响；若前端"按任务看结果"切 HTTP 会拿到全表数据）。已登记待主站修复。
 
 ## 附：2026-10-29 全控制器实测契约备忘（7070 测试环境）
 
@@ -154,23 +164,133 @@ POST /api/ParamTasks/ModifyOrAdd
 
 - ParamXplAnalysisJobs：**id 由客户端生成**（"id不能为空"；现有最大 id+1 可用），
   与其他数值表（主键远端生成）契约不同。
-- StockParamResult/AddOrModify：插入正常（200，按 id upsert）；**Delete 需要
-  id+task_id+stock_code 全字段才 200**（单 id / 单 task_id 都 400"操作失败"）——
-  本项目执行链只写不删，不受影响。
+- StockParamResult/AddOrModify：插入正常（200，不带 id 由主站生成数值主键，按业务键
+  task_id+task_index upsert）；**Delete 按 task_id+task_index 删单条**（DTO 仅这两个
+  字段，task_index 缺省 0；无按 task_id 整批删除端点）——本项目执行链只写不删，
+  不受影响。详见文末 2026-10-29 复核修正。
 - StockData/GetListVolume：按应用真实调用形态（带后缀 stock_code + coefficient）
   200；DTO 里 stock_lelvel 等多个字段是严格 Int32（传字符串/空即 400 类型转换错）。
 - StockData GetListHisPage/GetListPage/GetStockListByCodeOrDate 与 StockDataUs
   同名端点：带日期/分页参数后全部 200；GetDataAllList 空载荷超时（277 万行大表，
   生产代码须带过滤调用）。
-- SysModel：行主键是 ``model_id``（不是 id）；GetById 按 model_id 查 200 正常。
+- SysModel：列表行的主键字段是 ``model_id``（行内没有 id）；但 GetById 请求体是
+  ``IdRequestDto {id}``——传 ``{"id": <row.model_id>}`` 200，传 ``{"model_id": ...}``
+  会因 id 缺省 0 返回 400"数据不存在"。
 - SheetTokens/Delete / ParamTaskLogs 等其余 Delete：不存在行 400（既有契约）。
 
-## 附：StockParamResult 重跑语义与删除契约（2026-10-29 实测补记）
+## 附：StockParamResult 重跑语义与删除契约（2026-10-29 实测补记 / 同日复核修正）
 
-- **重跑天然覆盖，无需删除**：AddOrModify 不带 id 时按业务键
-  （task_id+stock_code+task_index）upsert——同键二次写入更新同一行
-  （验证：return_rate 1.11→2.22，行数仍 1）。C 系重头重跑/重启不会堆行。
-- **Delete 契约比备忘更严**：需要**整行字段**（从分页回查原样写回）才 200；
-  仅 id+task_id+stock_code 三字段也会 400"操作失败"。本项目执行链只写不删，
-  不受影响；如需按任务清理需主站提供按 task_id 批量删除端点（同 E2 语义）。
+以 swagger（`/swagger/v1/swagger.json` 的 `DeleteStockParamResultRequestDto`）为准并实测：
+
+- **本项目策略：只写入、不移除。** 执行链仅调用 `AddOrModify`（每个成功参数组合
+  写一行，按 task_id+task_index 覆盖）；全仓库没有任何 StockParamResult 的查询或
+  Delete 调用，迁移侧不提供删除能力，历史行清理由主站负责。
+- **重跑天然覆盖，无需删除**：AddOrModify 不带 id 时按业务键 **task_id + task_index**
+  upsert（**不含 stock_code**）——同键二次写入更新同一行（实测 id 不变、
+  return_rate 1.23→9.99，行数仍 1）。C 系重头重跑/重启不会堆行。
+- **update 分支不更新 stock_code**：实测同一 (task_id, task_index) 先写 AAA.SH、
+  再以 BBB.SH 写入，回查仍是 AAA.SH（仅指标字段被更新）。若重跑后同一 index 对应的
+  股票发生变化，行内代码会保留旧值，需主站确认是否预期。
+- **Delete 只按 task_id + task_index 删单条**：请求体只有这两个字段（task_index
+  缺省为 0），删除命中行返回 200，未命中返回 400"操作失败"。实测同 task_id 的
+  index 0/1/2 三行，`Delete({task_id})` 只删掉 index=0 一行，其余两行需逐个
+  `Delete({task_id, task_index})`。**不存在按 task_id 批量删除的端点**；如需按任务
+  清理，只能循环 task_index 0..N-1 并容忍 400。此前"需要整行字段才 200"是
+  task_index 缺省 0 恰好命中探针行导致的误判，已修正。
+- **ParamTaskResults/Delete 不级联**：`ParamTaskResults/Delete` 的 DTO 是
+  `ParamTaskIdRequestDto {task_id}`，会整删该任务的全部 ``t_param_task_results`` 行
+  （实测 3 行一次删净，重复删 400"操作失败"），但**不会删除同 task_id 的
+  StockParamResult 行**（实测残留，需再按 task_id+task_index 逐条删）。两张表是
+  两个独立端点，别混用。
+- **列表接口的 task_id/task_index 过滤不生效**：见缺陷 #6；按任务查结果目前没有
+  服务端手段，只能按 stock_code 过滤或全表翻页。
+
+## 附：2026-10-29 主线业务语义复核（t_param + K线 + 代理）
+
+复核范围：除 StockParamResult 外，双生项目实际使用的 17 个 t_param 控制器、
+StockData/StockDataUs、StockDic 代理、Sys* 网关读。结论：读写主通路基本满足，
+但存在 3 个硬缺口。
+
+### 硬缺口 A：数值主键插入的新 id 只在 ret_count，仓储丢失（P0，2026-10-29 已修复）
+
+实测 ParamTaskResults / ParamTaskResultsReturn / ParamGoogleSheetTokens /
+ParamTaskResultSummaryIndex 等数值主键表新行插入时 ``ret_obj=null``，新 id 由
+``ret_count`` 回带（Results=4611724、Token=9、SummaryIndex=7438）。
+``HttpRepositoryBase.save()`` 只经 ``_make_request`` 取 ``ret_obj``，插入后返回的
+记录没有 id。后果：
+
+- ``create_with_return`` 用 ``saved["id"]`` 写 ParamTaskResultKlineLinks →
+  ``result_id=null`` → 400（实测），任务保存失败且已插入的结果行残留（HTTP 无事务）；
+- Token 导入 ``add_entity`` 无法回写 ``entity.id``，导入响应 id 为空。
+
+修法：``save()`` 在“载荷无 id（插入）”分支改走 ``_make_request_with_count``，
+把 ``ret_count`` 作为新 id 回填；更新分支忽略 ret_count。
+
+### 硬缺口 B：生产 base 缺 E12 的 12 个端点（P0，2026-10-29 已加代码护栏；部署待主站）
+
+应用 ``.env`` 指向 ``https://stockapi.jaspil.cn``；其 swagger 相比 7070 缺
+ParamTaskKlineSources / ParamTaskRandomSeries / ParamTaskResultKlineLinks
+全部 12 个端点（7070 有、生产无）。C5/C7 随机 K 线（persist_snapshots）在生产
+环境会在建快照/写关联处 404。需主站部署 E12 或确认目标环境为 7070。
+
+### 硬缺口 C：跨表无事务，失败留半写（P1，2026-10-29 已加补偿；完全原子性待 E4）
+
+``transaction()`` 为空实现；``create_with_return`` 依次写 return → result →
+kline link，任一步失败前序行保留（实测 link 400 后 result 行残留，需手工清理）。
+本地 db 模式同事务，http 模式需补偿清理或远端事务端点（E4）。
+
+### 契约差异（不阻塞当前执行，需知晓）
+
+- ParamTaskResults/ModifyOrAdd **不按 (task_id, step_index) upsert**：同键写两次
+  产生两行（实测 4611720/4611721）。正常每 step 只写一次且重启前 data_cleanup
+  先删；超时重发/重复提交会堆行。
+- Results/Return/Logs 的 Delete 按 task_id 整任务删；按“老行”触发的清理会连带
+  删除同任务较新行（已在前文清理语义登记）。
+- 逐任务循环删除，非原子；中途失败留部分数据。
+
+### 并发残留（P2）
+
+Redis 裁决层覆盖 11 处临界区（状态机/Sheet 占用/token 对账/回测锁/调度锁），
+单 worker gthread=8 部署下有效。残留：``increment_usage`` / ``release_usage``
+的读-改-写不在 Redis 互斥内，并发启动两个任务时 token 计数可能丢更新/瞬时
+超额；``apply_in_use_counts`` 对账可纠正计数，容量校验窗口仍存在。建议套
+``token:{id}:usage`` 锁。
+
+### 已验证 OK（2026-10-29）
+
+- 核心列表过滤全部生效（不存在的值返回 0，无第二个“过滤被忽略”）：tasks 的
+  task_types/statuses/keyword/created_from、logs 的 task_id/level、results 的
+  task_ids、returns 的 task_id/stock_code、GoogleSheet 的 task_id/table_type、
+  run_locks 的 spreadsheet_id、summary_index 的 task_id/stock_keyword、
+  kline_sources/random_series/kline_links 的 task_id/stock_code/result_id、
+  stock_metadata 的 stock_code；分页 ret_count 与过滤一致。
+- ParamGoogleSheet 的 task_id 过滤实测映射 current_task_id（探针行验证后清理），
+  release_by_task 的“先过滤再校验 current_task_id”成立。
+- StockData/StockDataUs GetDataAllList：stock_code+begin_date 过滤生效、字段
+  （stock_open/max/min/close/volume/volume_price）与升序日期正确（沪市 37 行 /
+  美股 41 行）。
+- StockDic/GetProxyListByOne 返回 username/password/url/port 四字段，符合
+  proxy_manager 拼装。
+- 缺陷 #4/#5 已修复（见上文复核）。
+
+### 修复（2026-10-29，代码侧）
+
+- **A 已修复**：`HttpRepositoryBase.save()` 插入分支（载荷无 id）对开启
+  ``capture_insert_id`` 的仓储改走 ``modify_or_add(with_count=True)``，把
+  ``ret_count`` 回填为 id；``_with_generated_id`` 兼容数值回执。已开启：
+  TaskResult / GoogleSheetToken / GoogleSheet；ResultsReturn 由
+  ``create_with_return`` 直接取 ``ret_count``。7070 实测：结果 id=4611725、
+  收益 id=7839、随机K线关联 result_id=4611725（一致），探针已清理。
+- **B 已加代码护栏**：新增 `app/remote_api/capabilities.py::require_e12`
+  （进程内缓存，探测失败只记 debug）；快照仓储 create_source/create_series/
+  create_link 与 create_with_return 写前预检。生产 base 现在会在任务早期
+  明确报“远端未部署随机K线接口(E12) + 缺失端点”，不再跑到一半 404；
+  7070 预检通过。**端点部署仍需主站完成，代码无法替代。**
+- **C 已加补偿**：create_with_return 失败时关联行按 id 删除；结果/收益行
+  仅在确认本任务没有更早结果行（首步）时按 task_id 整删；存在更早结果行
+  时记录“部分写入”warning 并保留数据（远端无行级删除，任务级整删会误删
+  历史步骤）。完整原子性仍需远端事务端点（E4）。
+- 测试：新增 `tests/unit/test_http_repository_insert_id.py` 7 例（插入 id /
+  更新不走 count / 关联 result_id / 首步补偿 / 非首步不整删 / E12 预检 /
+  Token 回写）；相关仓储、Token、C 系回归 170+ 例通过。
 

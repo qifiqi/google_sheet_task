@@ -22,6 +22,7 @@ class GoogleSheetTokenHttpRepository(HttpRepositoryBase):
     """google_sheet_tokens 表远程访问；数值主键。"""
 
     group_name = "param_google_sheet_tokens"
+    capture_insert_id = True
 
     _DT_FIELDS = ("last_used_at", "created_at", "updated_at")
     _BOOL_FIELDS = ("is_active",)

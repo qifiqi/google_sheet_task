@@ -77,7 +77,7 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | `scheduled_task_repository.acquire_run_lock` / `release_run_lock` | 调度锁 CAS | 读-改-写（调度单线程，窗口可控） |
 | `backtest_repository.insert_product_cache_if_absent` | 幂等插入 | exists 检查 + DuplicateKey 兜底 |
 | 全部 `transaction()/commit=False` 组合（22 处） | 远端无事务 | 顺序独立提交，中途失败留部分写入 |
-| `task_result_repository.create_with_return` | 跨表写入 + id 回链 | 先写 return 再查最新行回链（同任务串行写入前提） |
+| `task_result_repository.create_with_return` | 跨表写入 + id 回链 | 已修复（2026-10-29）：收益/结果插入取 `ret_count` 回执；随机K线关联使用真实结果 id；失败时首步按任务补偿、非首步记录部分写入（完整原子性待 E4） |
 
 ### 6.2 查询能力缺口（性能问题，非正确性）
 
@@ -91,9 +91,9 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | `backtest_repository.delete_legacy_performance_analysis_jobs` | xpl_jobs 无过滤 | 全量扫描本地筛选 |
 | `*_repository.delete_by_task / delete_older_than / delete_by_ids` | 只有按 id Delete | 逐 id 删除（非原子）；logs 清理走 timestamp 升序扫描提前终止 |
 | `task_result_repository.list_paginated`（无 task_id 分支） | 无 join/类型过滤 | 任务 id 分块过滤结果后本地分页 |
-| `task_result_repository.list_by_task_fields`（fields 白名单投影，2026-09-28 dev_vue 新增） | **http 孪生缺失**：无字段投影端点 | **TODO(db-to-http)**：http 模式下 `/api/tasks/<id>/results?fields=` 报 AttributeError。补法：http 侧复用 `list_by_task` 取数通道后 Python 白名单投影，`return_date_range` 从 returns 控制器首末行取；长期按 §8 向远端要字段投影 DTO |
+| `task_result_repository.list_by_task_fields`（fields 白名单投影，2026-09-28 dev_vue 新增） | 无字段投影端点 | 已实现（2026-10-29）：整行拉取后本地白名单投影，`return_date_range` 从 returns 首末行取；`result` 大字段网络放大待远端投影 DTO 收敛 |
 | `task_log_repository.create_logs`（快照回灌批量写，2026-10-16 方案 B 新增） | 远端无批量创建端点（E9 裁定不提供） | **best-effort**：逐行 ModifyOrAdd 慢写、单次 2 秒超时（管线按次 timeout 覆盖），仅抛弃失败行并继续写剩余、不重试——本地文件日志有全量留存 |
-| `model_summary/jobs.py` 的 `task_repository.add_entity` / `task_log_repository.add_entity` | **http 孪生缺失**：实体流接口 | 重建任务在 http 模式不可用；该任务为本仓 **方案 B 例外**（批量粒度进度保持落库，不走 Redis 运行态），改造时一并补 http 孪生 |
+| `model_summary/jobs.py` 的 `task_repository.add_entity` / `task_log_repository.add_entity` | 实体流接口 | 已实现（2026-10-29）：实体经 `__table__` 列化后走 ModifyOrAdd；ParamTasks 的 UUID 回执可回写实体。数值主键表的新 id 回执缺口见 `03-remote-defect-register.md` 硬缺口 A。该任务仍为本仓 **方案 B 例外**（批量粒度进度保持落库，不走 Redis 运行态） |
 | `google_sheet_repository.get_by_spreadsheet_id` / `get_duplicate_row` | 无对应过滤 | 全量拉取本地匹配（registry 表小） |
 | `stock_metadata_repository.bulk_upsert` | 无批量端点 | 循环 upsert |
 

@@ -9,6 +9,7 @@ list_paginated 的任务类型过滤）按"每表一次查询 + 业务层拼接"
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -18,7 +19,14 @@ from app.repositories.http_backend.base import (
     dump_row,
     normalize_bool_fields,
 )
-from app.remote_api import RemoteApiNotFoundError, RemoteApiOperationError
+from app.remote_api import (
+    RemoteApiNotFoundError,
+    RemoteApiOperationError,
+    RemoteApiProtocolError,
+)
+from app.remote_api.capabilities import require_e12
+
+logger = logging.getLogger(__name__)
 
 # /api/results 列表的历史精简投影键（本地 _RESULT_SUMMARY_FIELDS 语义）。
 _RESULT_SUMMARY_KEYS = ("id", "task_id", "step_index", "success", "timestamp")
@@ -69,6 +77,7 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     """task_results（数值主键）与 task_results_return 双表远程访问。"""
 
     group_name = "param_task_results"
+    capture_insert_id = True
     _RETURN_GROUP = "param_task_results_return"
 
     _DT_FIELDS = ("timestamp", "created_at", "updated_at")
@@ -455,44 +464,130 @@ class TaskResultHttpRepository(HttpRepositoryBase):
     ):
         """TaskResult + TaskResultReturn 写入并回链 return_series_id。
 
-        TODO(db-to-http): 远端无跨表事务，两表顺序独立提交，中途失败会留下
-        孤儿收益序列行；return_series_id 优先取插入回执（远端生成的主键
-        字符串/对象），缺失时按 task_id 倒序回查兜底（同任务并发写入时存在
-        取错行竞态，执行链内同任务串行写入）。
+        远端无跨表事务（E4 未提供），本方法按“
+        收益序列 → 结果 → 随机K线关联”顺序写入，并在失败时做尽力补偿：
+        - 关联行按 id 安全删除；
+        - 结果/收益行仅在确认本任务没有更早结果行（首步）时按 task_id 整删；
+          存在更早结果行时不做任务级回收（会误删历史步骤），记录部分写入日志。
+        return_series_id 优先取插入回执 ``ret_count``（数值主键表新 id 不回
+        ``ret_obj``），缺失时按 task_id 倒序回查兜底。
         """
-        return_series_id = None
-        if return_fields:
-            saved_return = self.api.param_task_results_return.modify_or_add(
-                dump_row(return_fields, datetime_fields=self._RETURN_DT_FIELDS),
-            )
-            if isinstance(saved_return, dict) and saved_return.get("id") is not None:
-                return_series_id = saved_return["id"]
-            elif isinstance(saved_return, str) and saved_return.strip():
-                return_series_id = int(saved_return.strip())
-            else:
-                # 远端未回显主键：按 id 倒序回查该任务最新一行。
-                page = self.page(
-                    {"task_id": return_fields.get("task_id")},
-                    page_size=1,
-                    order_field="id", order_type="desc",
-                    group=self._RETURN_GROUP,
-                )
-                items = page["items"]
-                if items:
-                    return_series_id = items[0].get("id")
-
-        result_fields = dict(result_fields)
-        if return_series_id is not None:
-            result_fields["return_series_id"] = return_series_id
-        saved = self.save(dump_row(result_fields, datetime_fields=self._DT_FIELDS))
-        # 随机K线结果关联：远端 ParamTaskResultKlineLinks（E12，2026-10-29 上线）。
+        task_id = (result_fields or {}).get("task_id")
         if kline_series_id:
-            self.api.param_task_result_kline_links.modify_or_add(dump_row({
-                "result_id": saved.get("id"),
-                "task_id": saved.get("task_id"),
-                "series_id": int(kline_series_id),
-            }))
-        return saved
+            require_e12(self.api)
+        created_return_id = None
+        created_result: dict[str, Any] | None = None
+        created_link_id = None
+        try:
+            if return_fields:
+                raw, ret_count = self.api.param_task_results_return.modify_or_add(
+                    dump_row(return_fields, datetime_fields=self._RETURN_DT_FIELDS),
+                    with_count=True,
+                )
+                created_return_id = self._insert_id(raw, ret_count)
+                if created_return_id is None:
+                    # 远端未回显主键：按 id 倒序回查该任务最新一行。
+                    page = self.page(
+                        {"task_id": return_fields.get("task_id")},
+                        page_size=1,
+                        order_field="id", order_type="desc",
+                        group=self._RETURN_GROUP,
+                    )
+                    items = page["items"]
+                    if items:
+                        created_return_id = items[0].get("id")
+
+            payload = dict(result_fields)
+            if created_return_id is not None:
+                payload["return_series_id"] = created_return_id
+            created_result = self.save(
+                dump_row(payload, datetime_fields=self._DT_FIELDS)
+            )
+            # 随机K线结果关联：远端 ParamTaskResultKlineLinks（E12，2026-10-29 上线）。
+            if kline_series_id:
+                result_id = (created_result or {}).get("id")
+                if result_id is None:
+                    raise RemoteApiProtocolError(
+                        "远端未回传结果主键，无法写入随机K线关联"
+                    )
+                link = self.api.param_task_result_kline_links.modify_or_add(dump_row({
+                    "result_id": result_id,
+                    "task_id": (created_result or {}).get("task_id"),
+                    "series_id": int(kline_series_id),
+                }))
+                if isinstance(link, dict):
+                    created_link_id = link.get("id")
+            return created_result
+        except Exception:
+            self._compensate_partial_write(
+                task_id, created_result, created_return_id, created_link_id
+            )
+            raise
+
+    @staticmethod
+    def _insert_id(raw: Any, ret_count: int | None) -> Any:
+        """插入回执取 id：对象/字符串优先，数值主键表回退 ``ret_count``。"""
+        if isinstance(raw, dict) and raw.get("id") is not None:
+            return raw["id"]
+        if isinstance(raw, str) and raw.strip():
+            value = raw.strip()
+            try:
+                return int(value)
+            except ValueError:
+                return value
+        if raw is None and ret_count is not None:
+            return ret_count
+        return None
+
+    def _compensate_partial_write(
+        self,
+        task_id: Any,
+        created_result: dict[str, Any] | None,
+        created_return_id: Any,
+        created_link_id: Any,
+    ) -> None:
+        """失败后的尽力补偿；任务级整删只在“首步”时安全（远端无行级删除）。"""
+        if created_link_id is not None:
+            try:
+                self.api.param_task_result_kline_links.delete(
+                    {"id": self.normalize_id(created_link_id)}
+                )
+            except Exception as exc:
+                logger.warning("随机K线关联补偿删除失败 id=%s: %s", created_link_id, exc)
+        if not task_id:
+            return
+        created_result_id = (created_result or {}).get("id")
+        has_prior = False
+        try:
+            for row in self.iter_pages({"task_ids": [task_id]}, page_size=2):
+                if row.get("id") != created_result_id:
+                    has_prior = True
+                    break
+        except Exception as exc:
+            logger.warning(
+                "部分写入无法确认任务历史结果，跳过补偿: task_id=%s err=%s", task_id, exc
+            )
+            return
+        if has_prior:
+            logger.warning(
+                "任务结果部分写入（存在更早结果行，未做任务级回收）: "
+                "task_id=%s step=%s result_id=%s return_id=%s",
+                task_id,
+                (created_result or {}).get("step_index"),
+                created_result_id,
+                created_return_id,
+            )
+            return
+        for label, controller in (
+            ("结果", self.api.param_task_results),
+            ("收益序列", self.api.param_task_results_return),
+        ):
+            try:
+                controller.delete({"task_id": task_id})
+            except Exception as exc:
+                logger.warning(
+                    "部分写入补偿删除%s失败 task_id=%s: %s", label, task_id, exc
+                )
 
     def delete(self, result_id, commit=True):
         """删除单条结果；不存在返回 False。

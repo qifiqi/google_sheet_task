@@ -25,9 +25,10 @@ class _ModifyApi:
         self.calls = []
         self._returns = list(returns)
 
-    def modify_or_add(self, payload):
+    def modify_or_add(self, payload, *, with_count=False, timeout=None):
         self.calls.append(dict(payload))
-        return self._returns.pop(0) if self._returns else None
+        value = self._returns.pop(0) if self._returns else None
+        return (value, None) if with_count else value
 
 
 def _task_repo(returns):

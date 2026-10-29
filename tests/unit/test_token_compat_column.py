@@ -15,9 +15,9 @@ class _FakeTokenController:
     def __init__(self):
         self.payloads = []
 
-    def modify_or_add(self, payload):
+    def modify_or_add(self, payload, *, with_count=False, timeout=None):
         self.payloads.append(payload)
-        return "1"
+        return ("1", None) if with_count else "1"
 
 
 def test_http_add_entity_sends_unique_legacy_token_file_for_remote_compat():

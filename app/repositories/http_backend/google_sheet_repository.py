@@ -22,6 +22,7 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
     """google_sheet（registry）表远程访问；数值主键。"""
 
     group_name = "param_google_sheet"
+    capture_insert_id = True
 
     _DT_FIELDS = ("created_at", "updated_at")
     _BOOL_FIELDS = ("is_active", "is_in_use")

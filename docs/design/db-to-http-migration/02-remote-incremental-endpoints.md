@@ -47,6 +47,8 @@ POST /api/ParamTaskResults/DeleteByTaskIds    # ParamTaskLogs / ParamTaskResults
   `delete_older_than`（配合 E7 时间窗删除）、任务删除级联清理（results+returns+logs 三连）
 - 附：`/DeleteByTimeWindow`（`{"before": "2026-01-01T00:00:00", "limit": 5000}`）替代
   logs 清理的"timestamp 升序扫描提前终止"退化。
+- 范围外：`StockParamResult` 不参与 E2——本项目对该表**只写不删**（见
+  `03-remote-defect-register.md`），无需按 task_id 批量删除端点。
 
 ### E3 批量 ids 查询
 

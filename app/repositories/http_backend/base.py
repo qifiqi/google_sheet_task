@@ -41,6 +41,9 @@ class HttpRepositoryBase:
     """把远程标准 CRUD 接口转换成服务层使用的普通字典。"""
 
     group_name = ""
+    # 数值主键表的 ModifyOrAdd 插入回执：ret_obj 为空、新 id 在 ret_count。
+    # 仅对已实测该语义的仓储开启；更新分支不受影响。
+    capture_insert_id = False
 
     def __init__(self, api: StockApiClient | None = None) -> None:
         """注入统一远程调用器，便于测试替换远程客户端。"""
@@ -176,18 +179,29 @@ class HttpRepositoryBase:
         - 更新：``ret_obj`` 为空（只回成功信封），返回本次提交数据；
         - 插入：``ret_obj`` 为**主键字符串**（如 ``"0f88d30c59ea4685..."``），
           由远端生成 id，回填进返回记录（按仓储的 ``normalize_id`` 规则定类型）；
+        - 数值主键表（Results/Return/Tokens/GoogleSheet 等）插入时
+          ``ret_obj`` 为空、新 id 在 ``ret_count``：仓储开启 ``capture_insert_id``
+          后按插入回执回填；
         - 部分表仍回完整对象，按对象合并。
         ``id`` 显式为 ``None`` 时从载荷中剔除（插入不携带 id，交由远端生成）。
         ``timeout`` 按次覆盖单请求超时（秒），仅显式传入时改走带 timeout
         的控制器签名（当前仅 ParamTaskLogs.modify_or_add 支持）。
         """
         api_payload = self.to_api_payload(payload)
-        if api_payload.get("id") is None:
+        inserting = api_payload.get("id") is None
+        if inserting:
             api_payload.pop("id", None)
-        if timeout is None:
-            raw = self._controller().modify_or_add(api_payload)
+        controller = self._controller()
+        if timeout is None and inserting and self.capture_insert_id:
+            raw, ret_count = controller.modify_or_add(api_payload, with_count=True)
+            if raw is None and ret_count is not None:
+                return self.normalize_record(
+                    self._with_generated_id(api_payload, ret_count)
+                )
+        elif timeout is None:
+            raw = controller.modify_or_add(api_payload)
         else:
-            raw = self._controller().modify_or_add(api_payload, timeout=timeout)
+            raw = controller.modify_or_add(api_payload, timeout=timeout)
         if raw is None:
             return self.normalize_record(api_payload)
         if isinstance(raw, str):
@@ -197,11 +211,11 @@ class HttpRepositoryBase:
     def _with_generated_id(
         self,
         api_payload: dict[str, Any],
-        generated_id: str,
+        generated_id: str | int,
     ) -> dict[str, Any]:
-        """插入回执（主键字符串）回填载荷；按仓储主键规则转换类型。"""
-        value: Any = generated_id.strip()
-        if not value:
+        """插入回执（主键字符串或数值）回填载荷；按仓储主键规则转换类型。"""
+        value: Any = generated_id.strip() if isinstance(generated_id, str) else generated_id
+        if value is None or value == "":
             return api_payload
         try:
             value = self.normalize_id(value)

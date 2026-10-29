@@ -54,9 +54,15 @@ class ParamGoogleSheetApi(ControllerApi):
         """
         return self._make_request('POST', '/api/ParamGoogleSheet/GetInfoById', payload)
 
-    def modify_or_add(self, payload: Mapping[str, Any] | None = None) -> Any:
+    def modify_or_add(
+        self,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        with_count: bool = False,
+        timeout: float | None = None,
+    ) -> Any:
         """
-        新增/更新 Sheet 参数记录
+        新增/更新 Sheet 参数记录（插入时新 id 经 ``ret_count`` 回带）
 
             curl -X 'POST' \
               'http://stockapi.jaspil.cn/api/ParamGoogleSheet/ModifyOrAdd' \
@@ -64,4 +70,10 @@ class ParamGoogleSheetApi(ControllerApi):
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "spreadsheet_id": "..."}'
         """
-        return self._make_request('POST', '/api/ParamGoogleSheet/ModifyOrAdd', payload)
+        if with_count:
+            return self._make_request_with_count(
+                'POST', '/api/ParamGoogleSheet/ModifyOrAdd', payload, timeout=timeout
+            )
+        return self._make_request(
+            'POST', '/api/ParamGoogleSheet/ModifyOrAdd', payload, timeout=timeout
+        )

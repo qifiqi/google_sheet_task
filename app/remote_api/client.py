@@ -363,12 +363,14 @@ class StockApiClient:
         *,
         token: str | None = None,
         timeout: float | None = None,
+        probe: bool = False,
     ) -> tuple[Any, int | None]:
         """调用远程接口并返回 ``(ret_obj, ret_count)``。
 
         ``ret_count`` 是统一信封携带的记录计数（分页查询的匹配总数）；
         远端未返回时为 ``None``。分页仓储用它在 ``ret_obj`` 缺少 total
         字段时派生总数。``timeout`` 按次覆盖单请求超时（秒）。
+        ``probe=True`` 用于能力探测：失败只记 debug，不打 warning 堆栈。
         """
         # 唯一出站出口统一完成布尔 → 0/1 编码（远端布尔字段以整型承载，
         # JSON true/false 会在远端模型绑定阶段解析失败）。
@@ -387,15 +389,20 @@ class StockApiClient:
         try:
             envelope = transport.request(method, path, body, timeout=timeout)
         except RemoteApiError as exc:
-            logger.warning(
-                "远程接口调用失败: %s %s error=%s message=%s request_payload=%s",
-                method,
-                path,
-                exc.__class__.__name__,
-                str(exc),
-                json.dumps(self._safe_payload(body), ensure_ascii=False, default=str),
-                exc_info=True,
-            )
+            if probe:
+                logger.debug(
+                    "远程能力探测失败: %s %s error=%s", method, path, exc
+                )
+            else:
+                logger.warning(
+                    "远程接口调用失败: %s %s error=%s message=%s request_payload=%s",
+                    method,
+                    path,
+                    exc.__class__.__name__,
+                    str(exc),
+                    json.dumps(self._safe_payload(body), ensure_ascii=False, default=str),
+                    exc_info=True,
+                )
             raise
 
         code = envelope.get("ret_code", envelope.get("retCode"))
