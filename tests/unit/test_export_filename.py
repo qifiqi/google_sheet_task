@@ -4,11 +4,16 @@
 段间 `-`、段内 `_`；模型版本/价格复权/区间缺失整段省略，导出时间恒在。
 """
 
+import json
+import zipfile
 from datetime import datetime
+from io import BytesIO
 from types import SimpleNamespace
 
 from app.services.export_workbook_service import (
+    build_c7_stock_code_export_archive,
     build_export_filename,
+    build_task_export,
     compose_preview_stem,
     kline_bounds_from_params,
     kline_bounds_from_results,
@@ -16,6 +21,26 @@ from app.services.export_workbook_service import (
     model_version_from_results,
     price_adjust_filename_segment,
 )
+
+
+def _c11_task(config_overrides=None):
+    config = {
+        "sheets": [{"spreadsheet_id": "s", "sheet_name": "control", "title": "C1.1.0", "model_version": "c1_1"}],
+        "price_mode": "random_price",
+        "random_price_range": "high_low",
+        "parameters": [["SOXX"]],
+        "token_type": "file",
+        "token_file": "x",
+        "token_id": 1,
+    }
+    config.update(config_overrides or {})
+    # 导出链路拿到的是 ORM 实体：config 为 JSON 文本，不是 dict
+    return SimpleNamespace(id="t1", name="c1.1.0-三只股票", task_type="google_sheet_C1_1",
+                           config=json.dumps(config))
+
+
+def _c11_result(stock_code="SOXX"):
+    return {"parameters": {"stock_code": stock_code, "kline_key": "2026"}, "result": {}, "success": True, "step_index": 0}
 
 FROZEN_NOW = datetime(2026, 10, 23, 15, 30, 0)
 
@@ -132,3 +157,18 @@ def test_model_version_from_config_prefers_sheet_then_root():
     assert model_version_from_config({"model_version": "C7.0.3"}) == "c7_0_3"
     assert model_version_from_config({}) == ""
     assert model_version_from_config(None) == ""
+
+
+def test_single_task_export_reads_entity_config_for_price_segment():
+    """ORM 实体的 config 是 JSON 文本：单任务 Excel 也要带 rnd-hl 段。"""
+    export = build_task_export(_c11_task(), [_c11_result()])
+    assert "-rnd-hl-" in export.filename, export.filename
+
+
+def test_stock_zip_outer_and_members_carry_price_segment():
+    """按股票 zip：外层与成员名都要带价格段（与全局预览出口同口径）。"""
+    archive = build_c7_stock_code_export_archive(_c11_task(), [_c11_result()])
+    assert "-rnd-hl-" in archive.filename, archive.filename
+    with zipfile.ZipFile(BytesIO(archive.buffer.getvalue())) as bundle:
+        members = bundle.namelist()
+    assert members and all("rnd-hl" in name for name in members), members

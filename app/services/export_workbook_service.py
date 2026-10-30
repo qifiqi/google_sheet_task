@@ -1,4 +1,4 @@
-from app.utils.json_utils import dumps
+from app.utils.json_utils import dumps, loads
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -429,6 +429,20 @@ def model_version_from_results(results: list[dict[str, Any]], task: Any = None) 
     return resolve_model_version(_task_type(task), first_sheet)
 
 
+def _task_config_dict(task: Any) -> dict[str, Any]:
+    """任务实体（ORM）的 config 是 JSON 文本，统一解析为 dict 供命名/取值使用。"""
+    raw = getattr(task, "config", None)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def _excel_export(
     task: Any,
     worksheets: list[WorksheetData],
@@ -442,7 +456,7 @@ def _excel_export(
             model_version=model_version_from_results(results or [], task),
             kline_start=kline_start,
             kline_end=kline_end,
-            price_adjust=price_adjust_filename_segment(getattr(task, "config", None)),
+            price_adjust=price_adjust_filename_segment(_task_config_dict(task)),
         ),
         mimetype=EXCEL_MIMETYPE,
         workbook=build_workbook(worksheets),
@@ -557,6 +571,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     task_name = sanitize_export_filename(_task_name(task))
     # 混版本（C7 多表各选版本）时版本段省略；zip 外层按规范不带区间段。
     model_version = model_version_from_results(results, task)
+    price_adjust = price_adjust_filename_segment(_task_config_dict(task))
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
         for stock_code in sorted(grouped_results, reverse=True):
             stock_results = grouped_results[stock_code]
@@ -572,6 +587,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
                     stock_code,
                     stock_start,
                     stock_end,
+                    price_adjust=price_adjust,
                 )
             )
             filename = f"{filename_base}.xlsx"
@@ -587,6 +603,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
         filename=build_export_filename(
             f"{task_name}_按股票代码导出",
             model_version=model_version,
+            price_adjust=price_adjust,
             extension="zip",
         ),
         mimetype=ZIP_MIMETYPE,
