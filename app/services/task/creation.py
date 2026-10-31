@@ -80,12 +80,10 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
 
     normalized["count_mode"] = "total"
     normalized["market_type"] = "custom"
-    normalized["price_mode"] = None
-    normalized["kline_adjustment"] = None
+    for key in ("price_mode", "kline_adjustment", "start_date", "end_date"):
+        normalized.pop(key, None)
     normalized["date_range_mode"] = []
     normalized["exclude_recent_years"] = []
-    normalized["start_date"] = None
-    normalized["end_date"] = None
     return normalized
 
 

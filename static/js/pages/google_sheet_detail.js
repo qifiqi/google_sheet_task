@@ -230,15 +230,15 @@
                 : (config.token_selection_mode || '-');
             const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
             const configItems = [
-                { label: '电子表格ID', value: firstSheet.spreadsheet_id || config.spreadsheet_id || '-', icon: 'bi-link-45deg' },
-                { label: '工作表名称', value: firstSheet.sheet_name || config.sheet_name || '-', icon: 'bi-file-spreadsheet' },
+                { label: '电子表格ID', value: firstSheet.spreadsheet_id || '-', icon: 'bi-link-45deg' },
+                { label: '工作表名称', value: firstSheet.sheet_name || '-', icon: 'bi-file-spreadsheet' },
                 { label: '认证方式', value: config.token_type || '-', icon: 'bi-shield-lock' },
                 { label: 'Token 名称', value: config.token_name || '-', icon: 'bi-tag' },
                 { label: 'Token 选择模式', value: tokenSelectionMode, icon: 'bi-shuffle' },
                 { label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe' },
                 { label: '参数数量', value: config.parameters ? config.parameters.length : 0, icon: 'bi-list-ul' }
             ];
-            configItems.splice(2, 0, { label: 'Sheet Title', value: firstSheet.title || config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
+            configItems.splice(2, 0, { label: 'Sheet Title', value: firstSheet.title || '-', icon: 'bi-type' });
             const endDateIcon = 'bi-calendar-event';
             const marketTypeIcon = 'bi-graph-up-arrow';
             if (config.end_date || config.market_type || config.exchange_market || config.market || config.kline_data_source || config.data_source) {
@@ -1106,11 +1106,11 @@
         document.getElementById('edit-task-name').value = currentTaskData.name || '';
         document.getElementById('edit-task-description').value = currentTaskData.description || '';
         
-        // 填充Google Sheet配置（统一 sheets[1] 形态；旧平铺键仅作未迁移数据回退）
+        // 填充Google Sheet配置（统一 sheets[1] 形态）
         const firstSheet = (Array.isArray(config.sheets) && config.sheets[0]) || {};
-        document.getElementById('edit-spreadsheet-id').value = firstSheet.spreadsheet_id || config.spreadsheet_id || '';
-        document.getElementById('edit-sheet-name').value = firstSheet.sheet_name || config.sheet_name || '';
-        document.getElementById('edit-sheet-title').value = firstSheet.title || config.title || config.spreadsheet_title || '';
+        document.getElementById('edit-spreadsheet-id').value = firstSheet.spreadsheet_id || '';
+        document.getElementById('edit-sheet-name').value = firstSheet.sheet_name || '';
+        document.getElementById('edit-sheet-title').value = firstSheet.title || '';
         document.getElementById('edit-token-file').value = config.token_file || 'data/token.json';
         document.getElementById('edit-proxy-url').value = config.proxy_url || '';
         
@@ -1230,9 +1230,9 @@
 
         setButtonBusy(btn, true, '导出中…');
         try {
-            const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
-            const saveTarget = await prepareExcelSaveTarget(defaultFilename);
-                const response = await Api.endpoints.export.task(encodeURIComponent(currentTaskId));
+            // 先请求拿响应头里的统一规范文件名（含模型版本/价格复权段），再弹保存框；
+            // 服务端名缺失才回落任务名。
+            const response = await Api.endpoints.export.task(encodeURIComponent(currentTaskId));
             if (!response.ok) {
                 const text = await response.text();
                 let message = `导出失败，状态码 ${response.status}`;
@@ -1246,8 +1246,12 @@
                 return;
             }
 
+            const defaultFilename = ensureExcelExtension(
+                getExportFilenameFromResponse(response) || `${currentTaskData?.name || currentTaskId}.xlsx`
+            );
+            const saveTarget = await prepareExcelSaveTarget(defaultFilename);
             const blob = await response.blob();
-            await saveExcelBlob(blob, saveTarget, getExportFilenameFromResponse(response) || defaultFilename);
+            await saveExcelBlob(blob, saveTarget, defaultFilename);
         } catch (error) {
             if (error.name === 'AbortError') {
                 showNotification('已取消保存操作', 'info');

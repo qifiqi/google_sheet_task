@@ -44,9 +44,6 @@ if (versionParam && versionParam !== 'c4') {
                     const firstSheet = config.sheets[0] || {};
                     primarySpreadsheetId = firstSheet.spreadsheet_id || '';
                     primarySheetName = firstSheet.sheet_name || '';
-                } else {
-                    primarySpreadsheetId = config.spreadsheet_id || '';
-                    primarySheetName = config.sheet_name || '';
                 }
 
                 if (primarySpreadsheetId) {
@@ -383,9 +380,6 @@ if (versionParam && versionParam !== 'c4') {
                     const firstSheet = config.sheets[0] || {};
                     primarySpreadsheetId = firstSheet.spreadsheet_id || '';
                     primarySheetName = firstSheet.sheet_name || '';
-                } else {
-                    primarySpreadsheetId = config.spreadsheet_id || '';
-                    primarySheetName = config.sheet_name || '';
                 }
 
                 if (primarySpreadsheetId) {
@@ -1305,9 +1299,6 @@ if (versionParam && versionParam !== 'c4') {
                 const firstSheet = restartConfig.sheets[0] || {};
                 primarySpreadsheetId = firstSheet.spreadsheet_id || '';
                 primarySheetName = firstSheet.sheet_name || '';
-            } else {
-                primarySpreadsheetId = restartConfig.spreadsheet_id || '';
-                primarySheetName = restartConfig.sheet_name || '';
             }
 
             if (primarySpreadsheetId) {

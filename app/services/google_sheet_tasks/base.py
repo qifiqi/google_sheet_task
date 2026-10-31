@@ -163,7 +163,7 @@ class BaseGoogleSheetService:
         self.task_name = ''
         self.task = None
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
-        # 日志批量落库缓冲（见 _save_to_database；任务线程独享，锁只防收尾 flush 并发）
+        # 日志批量落库缓冲（见 _persist_log；任务线程独享，锁只防收尾 flush 并发）
         self._log_buffer = []
         self._log_buffer_lock = threading.Lock()
         self._log_last_flush_monotonic = time.monotonic()
@@ -652,10 +652,7 @@ class BaseGoogleSheetService:
             "count_mode": config_data.get('count_mode', 'n_plus_1'),
             "price_mode": config_data.get('price_mode', 'vwap_price'),
             "date_range_mode": config_data.get('date_range_mode', []),
-            "exclude_recent_years": config_data.get(
-                'exclude_recent_years',
-                config_data.get('exclude_years', []),
-            ),
+            "exclude_recent_years": config_data.get('exclude_recent_years', []),
             "end_date": config_data.get('end_date'),
             "start_date": config_data.get('start_date'),
             "market_type": config_data.get('market_type'),

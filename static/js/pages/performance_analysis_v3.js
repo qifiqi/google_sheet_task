@@ -2430,23 +2430,15 @@ async function exportDetails() {
             klineStart: klineRange.start,
             klineEnd: klineRange.end,
         });
-        const sourceFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
-        // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）
-        const resp = await Api.endpoints.export.backtestResultPerformanceAnalysis({
-            filename: sourceFilename,
-            filename_title: filenameSafeTitle,
-            analyze_result: active.metrics
-        });
-
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            const api = normalizeApiResponse(err);
-            throw new Error(api.message || `HTTP error! status: ${resp.status}`);
+        // 前端本地多 sheet 导出：数据明细八章 + 全部指标兜底，数据取自当前
+        // 数据集的指标字典，不再 POST /api/exports/performance-analysis 往返。
+        const sheets = PerformanceExport.buildSheets(active.metrics);
+        if (!sheets.length) {
+            showAlert('没有可导出的数据', 'warning');
+            return;
         }
-
-        const workbook = XLSX.read(await resp.text(), {type: 'string'});
-        XLSX.writeFile(workbook, defaultFilename, {compression: true});
+        excelExport.exportSheets(sheets, defaultFilename);
         showAlert(`文件已下载: ${defaultFilename}`, 'success');
     } catch (e) {
         if (e.name !== 'AbortError') {

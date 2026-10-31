@@ -25,7 +25,6 @@ RUN addgroup --system --gid 1000 appgroup \
 COPY --chown=appuser:appgroup app ./app
 COPY --chown=appuser:appgroup static ./static
 COPY --chown=appuser:appgroup templates ./templates
-COPY --chown=appuser:appgroup stock_sdk ./stock_sdk
 COPY --chown=appuser:appgroup run.py .
 COPY --chown=appuser:appgroup run.sh .
 

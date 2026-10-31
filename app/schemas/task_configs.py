@@ -5,6 +5,7 @@
   恰好 1 个元素，C4/C5/C7 多元素；多品回测因每个产品各有一张表，保留
   ``products[].sheet: SheetRef``（复用同一 SheetRef 定义）。
 - 公共段（token / K线取数）经 mixin 复用，全部任务类型共享同一份字段定义。
+- ``stock_codes`` 是从各类型执行参数派生的检索数组，不作为执行输入。
 - 模型声明所有已知业务键并做类型收口；``extra="allow"`` 保留执行期布局键
   （``c3_input_column_d``、``parameter_positions`` 等，多来自 SystemConfig
   合并兜底，任务 config 中仅偶尔出现），保证 model_dump 无损回写。
@@ -15,7 +16,10 @@
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+from app.models import TaskType
+from app.utils.model_version import normalize_model_version
 
 from app.models import TaskType
 from app.utils.model_version import normalize_model_version
@@ -99,6 +103,7 @@ class _BaseTaskConfig(TokenRefFields, KlineCommonFields):
 
     model_config = ConfigDict(extra="allow")
 
+    stock_codes: list[str] = []
     stock_name: str | None = None
     # Google Sheet 占用表关联键（update_task_config 占用迁移对比）
     google_sheet_id: str | int | None = None
@@ -109,6 +114,13 @@ class _SingleSheetMixin(BaseModel):
 
     mixin 自身不声明 sheets 字段，check_fields=False 供子类继承生效。
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_sheet_keys(cls, value: Any) -> Any:
+        if isinstance(value, dict) and any(key in value for key in ("spreadsheet_id", "sheet_name", "sheet", "spreadsheet_title")):
+            raise ValueError("Sheet 引用必须使用 sheets 数组，不能包含旧引用字段")
+        return value
 
     @field_validator("sheets", check_fields=False)
     @classmethod
@@ -122,7 +134,7 @@ class C3TaskConfig(_SingleSheetMixin, _BaseTaskConfig):
     """C3 单表任务（含 C31 拆分出的子任务，task_type=google_sheet）。"""
 
     sheets: list[SheetRef]
-    stock_code: str = ""
+    stock_code: str | None = None
     year_n: str | None = None
     end_date: str | None = None
     parameters: list[Any] = []
@@ -176,7 +188,7 @@ class BacktestTrainingConfig(_SingleSheetMixin, _BaseTaskConfig):
     """单品回测训练任务（sheet 引用统一为 sheets[1]）。"""
 
     sheets: list[SheetRef]
-    stock_code: str = ""
+    stock_code: str | None = None
     end_date: str | None = None
     recent_years: list[Any] = []
     full_years: list[Any] = []
@@ -236,11 +248,27 @@ TASK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+def primary_stock_code(config: Any) -> str:
+    """任务维度的代表股票代码：优先 stock_codes 首项（检索投影），再回落执行字段。
+
+    多股任务的 stock_codes 是完整股票池，这里只给"按任务"展示/分组用的代表值；
+    按组合执行时仍以 parameters 中的实际代码为准。
+    """
+    if not isinstance(config, dict):
+        return ""
+    codes = config.get("stock_codes")
+    if isinstance(codes, list):
+        for code in codes:
+            text = str(code or "").strip()
+            if text:
+                return text
+    return str(config.get("stock_code") or "").strip()
+
+
 def get_task_config_model(task_type: str | None) -> type[BaseModel] | None:
     """按任务类型取配置模型；未知类型返回 None（不校验，保持原样透传）。"""
-    if not task_type:
-        return None
-    return TASK_CONFIG_MODELS.get(str(task_type))
+    normalized = str(task_type or "").strip().lower()
+    return next((model for key, model in TASK_CONFIG_MODELS.items() if key.lower() == normalized), None)
 
 
 def validate_task_config_shape(task_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -252,7 +280,18 @@ def validate_task_config_shape(task_type: str, config: dict[str, Any]) -> dict[s
     model_cls = get_task_config_model(task_type)
     if model_cls is None:
         return config
-    validated = model_cls.model_validate(config)
-    # exclude_none：可空公共段字段（exchange_market 等）未提供时不落
-    # 显式 null，避免 config 堆积误导性空键；读取方一律 .get()，无键存在性依赖。
-    return validated.model_dump(mode="json", exclude_none=True)
+    candidate = {key: value for key, value in config.items() if key != "stock_codes"}
+    validated = model_cls.model_validate(candidate)
+    # 未提供的执行选项不能补空数组，否则会遮蔽执行器的默认行为。
+    shaped = validated.model_dump(mode="json", exclude_unset=True)
+    if isinstance(validated, _CSeriesBase):
+        codes = validated.parameters[0] if validated.parameters else []
+        codes = codes if isinstance(codes, list) else []
+    elif isinstance(validated, MultiProductConfig):
+        codes = [product.stock_code for product in validated.products]
+    else:
+        codes = [validated.stock_code]
+    shaped["stock_codes"] = list(dict.fromkeys(
+        str(code).strip().upper() for code in codes if code is not None and str(code).strip()
+    ))
+    return shaped

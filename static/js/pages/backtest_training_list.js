@@ -18,6 +18,9 @@ let paginationState = {
 };
 let isLoadingTasks = false;
 let currentPageTasks = [];
+let stockCodeFilter = '';
+let statusFilter = '';
+let keywordFilter = '';
 const selectedBatchExportTaskIds = new Set();
 
 function readStoredListPaginationState() {
@@ -65,7 +68,7 @@ function inferModelVersion(task) {
 
     const config = task.config || {};
     const sheets = Array.isArray(config.sheets) ? config.sheets : [];
-    const sheet = sheets.length && sheets[0] ? sheets[0] : (config.sheet || {});
+    const sheet = sheets.length && sheets[0] ? sheets[0] : {};
     const title = String(sheet.title || task.name || '').toUpperCase();
     // 详细版本：标题带子版本号时一并展示（如 C7.0.3）。
     if (title.includes('C7.0.3')) {
@@ -100,7 +103,7 @@ function renderTaskCell(task) {
     const taskName = task.name || '未命名任务';
     const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
         ? task.config.sheets[0]
-        : (task.config && task.config.sheet || {});
+        : {};
     const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
 
     return `
@@ -113,7 +116,7 @@ function getTaskSecondaryText(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const firstSheet = task.config && Array.isArray(task.config.sheets) && task.config.sheets[0]
         ? task.config.sheets[0]
-        : (task.config && task.config.sheet || {});
+        : {};
     const sheetName = (firstSheet && firstSheet.sheet_name) || '-';
     return `ID: ${shortId} · Sheet: ${sheetName}`;
 }
@@ -388,6 +391,16 @@ async function loadTasks(options = {}) {
         page: String(nextPage),
         per_page: String(nextPerPage)
     });
+    const code = stockCodeFilter.trim();
+    if (code) {
+        query.set('stock_code', code);
+    }
+    if (statusFilter) {
+        query.set('status', statusFilter);
+    }
+    if (keywordFilter.trim()) {
+        query.set('keyword', keywordFilter.trim());
+    }
     isLoadingTasks = true;
     try {
         const data = await Api.endpoints.task.list(query.toString());
@@ -508,6 +521,41 @@ document.getElementById('taskPagination').addEventListener('click', (event) => {
 document.getElementById('pageSizeSelect').addEventListener('change', (event) => {
     const nextPerPage = Number(event.target.value) || DEFAULT_PAGE_SIZE;
     loadTasks({ page: 1, perPage: nextPerPage });
+});
+
+// 状态 / 关键字 / 股票代码筛选：服务端过滤（分页/统计同步收敛），与多品列表页同款。
+document.getElementById('statusFilterSelect').addEventListener('change', (event) => {
+    statusFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('change', (event) => {
+    keywordFilter = event.target.value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('keywordFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        keywordFilter = document.getElementById('keywordFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('applyStockCodeFilterBtn').addEventListener('click', () => {
+    stockCodeFilter = document.getElementById('stockCodeFilterInput').value;
+    loadTasks({ page: 1 });
+});
+document.getElementById('stockCodeFilterInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        stockCodeFilter = document.getElementById('stockCodeFilterInput').value;
+        loadTasks({ page: 1 });
+    }
+});
+document.getElementById('resetAllFiltersBtn').addEventListener('click', () => {
+    document.getElementById('statusFilterSelect').value = '';
+    document.getElementById('keywordFilterInput').value = '';
+    document.getElementById('stockCodeFilterInput').value = '';
+    statusFilter = '';
+    keywordFilter = '';
+    stockCodeFilter = '';
+    loadTasks({ page: 1 });
 });
 
 document.getElementById('openBatchExportBtn').addEventListener('click', () => {

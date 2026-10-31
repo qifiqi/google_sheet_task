@@ -1,4 +1,4 @@
-from app.utils.json_utils import dumps
+from app.utils.json_utils import dumps, loads
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -29,11 +29,57 @@ from app.utils.task_types import TYPE_GOOGLE_SHEET, TYPE_GOOGLE_SHEET_C1_1, TYPE
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ZIP_MIMETYPE = "application/zip"
 
-# 统一导出文件名规范：{基名}-{模型版本}-{K线起}-{K线止}-{导出时间}.{扩展名}
-# 段间 `-`、段内 `_`；模型版本/区间缺失时整段省略；导出时间恒在。
+# 统一导出文件名规范：{基名}-{模型版本}-{价格}-{复权}-{K线起}-{K线止}-{导出时间}.{扩展名}
+# 段间 `-`、段内 `_`；模型版本/价格/复权/区间缺失时整段省略；导出时间恒在。
 EXPORT_FILENAME_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 # 基名+后缀总长上限（含扩展名），超长时截断基名，保护 Windows 路径长度。
 EXPORT_FILENAME_MAX_LENGTH = 180
+
+# 价格模式文件名段（统一英文 slug，与内部 K线字段 schema 同词）。
+PRICE_MODE_FILENAME_SLUGS = {
+    "kp_price": "open",
+    "sp_price": "close",
+    "vwap_price": "vwap",
+    "ohlc_price": "ohlc",
+    # 随机价是 price_mode 的取值之一（非独立开关），带随机区间子标记
+    "random_price": "rnd",
+}
+# 随机区间子标记：high_low 随机走 high 字段、open_close 随机走 close 字段（执行侧 base.py 口径）。
+RANDOM_PRICE_RANGE_FILENAME_SLUGS = {
+    "high_low": "hl",
+    "open_close": "oc",
+}
+# 复权文件名段：与腾讯源 qfq/hfq 词表一致的行业通用缩写。
+KLINE_ADJUSTMENT_FILENAME_SLUGS = {
+    "forward": "qfq",
+    "back": "hfq",
+    "none": "raw",
+}
+
+
+def price_adjust_filename_segment(config: Any) -> str:
+    """从任务配置构造价格/复权文件名段（统一规范，段内 `-` 相连）。
+
+    - 真实行情：`close-qfq`；价格或复权缺失时只带另一段，全缺返回空串。
+    - 随机价：`rnd-hl`/`rnd-oc`（区间未知回落 `rnd`），复权对随机价无语义，不拼接。
+    - 非 dict 配置（历史 JSON 串等）返回空串整段省略。
+    """
+
+    if not isinstance(config, dict):
+        return ""
+    price_mode = str(config.get("price_mode") or "").strip()
+    price_slug = PRICE_MODE_FILENAME_SLUGS.get(price_mode, "")
+    if not price_slug:
+        return ""
+    if price_mode == "random_price":
+        range_slug = RANDOM_PRICE_RANGE_FILENAME_SLUGS.get(
+            str(config.get("random_price_range") or "").strip(), ""
+        )
+        return f"rnd-{range_slug}" if range_slug else "rnd"
+    adjust_slug = KLINE_ADJUSTMENT_FILENAME_SLUGS.get(
+        str(config.get("kline_adjustment") or "").strip(), ""
+    )
+    return "-".join(part for part in (price_slug, adjust_slug) if part)
 
 # C5 分组 sheet 只展示业务关注列；kline_range 仅作为拆 sheet 的分组依据，不展示在表格里。
 C5_EXPORT_COLUMNS = [
@@ -273,12 +319,13 @@ def build_export_filename(
     kline_end: Any = "",
     extension: str = "xlsx",
     *,
+    price_adjust: str = "",
     now: datetime | None = None,
 ) -> str:
     """按统一规范组装导出文件名。
 
-    模型版本/K线区间缺失时整段省略，区间段成对出现（起止归一后按时间升序）；
-    导出时间段恒在；总长超上限时截断基名。
+    模型版本/价格复权段/K线区间缺失时整段省略，区间段成对出现（起止归一后按
+    时间升序）；导出时间段恒在；总长超上限时截断基名。
     """
 
     stamp = (now or datetime.now()).strftime(EXPORT_FILENAME_TIMESTAMP_FORMAT)
@@ -294,6 +341,7 @@ def build_export_filename(
     segments = [
         sanitize_export_filename(base),
         sanitize_export_filename(version_text) if version_text else "",
+        sanitize_export_filename(price_adjust) if str(price_adjust or "").strip() else "",
         start_text,
         end_text,
         stamp,
@@ -381,6 +429,20 @@ def model_version_from_results(results: list[dict[str, Any]], task: Any = None) 
     return resolve_model_version(_task_type(task), first_sheet)
 
 
+def _task_config_dict(task: Any) -> dict[str, Any]:
+    """任务实体（ORM）的 config 是 JSON 文本，统一解析为 dict 供命名/取值使用。"""
+    raw = getattr(task, "config", None)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def _excel_export(
     task: Any,
     worksheets: list[WorksheetData],
@@ -394,6 +456,7 @@ def _excel_export(
             model_version=model_version_from_results(results or [], task),
             kline_start=kline_start,
             kline_end=kline_end,
+            price_adjust=price_adjust_filename_segment(_task_config_dict(task)),
         ),
         mimetype=EXCEL_MIMETYPE,
         workbook=build_workbook(worksheets),
@@ -464,10 +527,11 @@ def compose_preview_stem(
     stock_code: Any,
     kline_start: Any,
     kline_end: Any,
+    price_adjust: str = "",
 ) -> str:
-    """按股票 zip 成员词干：`模型版本-股票代码_K线起-K线止`（不带任务名与时间戳）。
+    """按股票 zip 成员词干：`模型版本-价格复权-股票代码_K线起-K线止`（不带任务名与时间戳）。
 
-    缺段优雅降级：头部（版本/股票）与区间段各自以 '-' 连接，
+    缺段优雅降级：头部（版本/价格复权/股票）与区间段各自以 '-' 连接，
     两段都有时以 '_' 衔接；全缺返回空串。
     """
 
@@ -475,7 +539,7 @@ def compose_preview_stem(
     version_text = format_model_version(model_version) if str(model_version or "").strip() else ""
     head = "-".join(
         sanitize_export_filename(part)
-        for part in (version_text, str(stock_code or "").strip())
+        for part in (version_text, price_adjust if str(price_adjust or "").strip() else "", str(stock_code or "").strip())
         if str(part or "").strip()
     )
     start_text = normalize_filename_date(kline_start)
@@ -507,6 +571,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     task_name = sanitize_export_filename(_task_name(task))
     # 混版本（C7 多表各选版本）时版本段省略；zip 外层按规范不带区间段。
     model_version = model_version_from_results(results, task)
+    price_adjust = price_adjust_filename_segment(_task_config_dict(task))
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
         for stock_code in sorted(grouped_results, reverse=True):
             stock_results = grouped_results[stock_code]
@@ -522,6 +587,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
                     stock_code,
                     stock_start,
                     stock_end,
+                    price_adjust=price_adjust,
                 )
             )
             filename = f"{filename_base}.xlsx"
@@ -537,6 +603,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
         filename=build_export_filename(
             f"{task_name}_按股票代码导出",
             model_version=model_version,
+            price_adjust=price_adjust,
             extension="zip",
         ),
         mimetype=ZIP_MIMETYPE,

@@ -121,6 +121,9 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
         stock_code: Optional[str] = None,
+        token_name: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
     ) -> dict[str, Any]:
         page_data = task_repository.list_paginated_with_statistics(
             page=page,
@@ -130,6 +133,9 @@ class TaskQueryService:
             status=status,
             keyword=keyword,
             stock_code=stock_code,
+            token_name=token_name,
+            start_time=start_time,
+            end_time=end_time,
         )
         # 方案 B：运行中任务的进度在 Redis 运行态，逐行叠加。
         items = page_data["items"]
@@ -277,6 +283,9 @@ class TaskQueryMixin:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
         stock_code: Optional[str] = None,
+        token_name: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
     ) -> dict[str, Any]:
         return TaskQueryService(self).get_tasks_paginated(
             page=page,
@@ -286,6 +295,9 @@ class TaskQueryMixin:
             status=status,
             keyword=keyword,
             stock_code=stock_code,
+            token_name=token_name,
+            start_time=start_time,
+            end_time=end_time,
         )
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:

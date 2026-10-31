@@ -119,13 +119,16 @@ class TaskHttpRepository(HttpRepositoryBase):
         records = self.list_all_filtered(task_type=task_type, task_types=task_types)
         return list(records)
 
-    def list_all_filtered(self, *, task_type=None, task_types=None, status=None, created_from=None):
+    def list_all_filtered(self, *, task_type=None, task_types=None, status=None,
+                          keyword=None, created_from=None):
         payload: dict[str, Any] = {}
         types = list(task_types) if task_types else ([task_type] if task_type else [])
         if types:
             payload["task_types"] = types
         if status:
             payload["statuses"] = [status]
+        if keyword:
+            payload["keyword"] = keyword
         if created_from:
             payload["created_from"] = created_from
         return list(self.iter_pages(payload, order_field="created_at", order_type="desc"))
@@ -161,34 +164,80 @@ class TaskHttpRepository(HttpRepositoryBase):
 
     def list_paginated_with_statistics(self, page, per_page, task_type=None,
                                        task_types=None, status=None, keyword=None,
-                                       stock_code=None):
+                                       stock_code=None, token_name=None,
+                                       start_time=None, end_time=None):
         """任务分页 + 同过滤条件的聚合统计。
 
         统计口径对齐本地 SQL：按状态各查一次 total；pending_started 与
         完成时长本地判读。TODO(db-to-http): 完成时长需扫描全部 completed
         任务（含 config 大字段），任务量上千后应推动远端提供聚合端点。
 
-        stock_code：config JSON 里 "stock_code" 键值前缀匹配（本地 like 语义，
-        兼容 ": " 与 ":" 分隔）。远端无 JSON 内容过滤（TODO E7），给出该参数
-        时整集拉取本地过滤后分页，统计改由同一过滤集本地聚合。
+        stock_code/token_name/start_time/end_time：远端无对应过滤（TODO E7），
+        给出任一参数（或 status=pending 的 current_step>0 特例）时整集拉取
+        本地过滤后分页，统计改由同一过滤集本地聚合。
         """
         current_page = max(page or 1, 1)
         size = max(min(per_page or 10, 100), 1)
         list_status = status if (status and status != "all") else None
-        stock_needle = str(stock_code or "").strip().strip('"').replace("%", "")
+        stock_needle = str(stock_code or "").strip().strip('"')
+        token_needle = str(token_name or "").strip().strip('"')
+        start_dt = self._parse_dt(start_time) if start_time is not None else None
+        end_dt = self._parse_dt(end_time) if end_time is not None else None
+        need_refine = bool(
+            stock_needle or token_needle or start_dt or end_dt
+            or list_status == "pending"
+        )
 
-        if stock_needle:
+        if need_refine:
             rows = self.list_all_filtered(
                 task_type=task_type, task_types=task_types,
                 status=list_status, keyword=keyword or None,
+                created_from=start_dt.isoformat() if start_dt else None,
             )
 
-            def _stock_match(row):
+            def _config_dict(row):
                 config = row.get("config")
-                value = config.get("stock_code") if isinstance(config, dict) else None
-                return bool(value) and str(value).startswith(stock_needle)
+                return config if isinstance(config, dict) else {}
 
-            rows = [row for row in rows if _stock_match(row)]
+            def _stock_match(row):
+                codes = _config_dict(row).get("stock_codes")
+                if not isinstance(codes, list):
+                    return False
+                needle = stock_needle.lower()
+                return any(
+                    str(code or "").strip().lower().startswith(needle)
+                    for code in codes
+                    if str(code or "").strip()
+                )
+
+            def _token_match(row):
+                value = str(_config_dict(row).get("token_name") or "").strip()
+                return value.lower().startswith(token_needle.lower())
+
+            def _date_match(row):
+                created = self._parse_dt(row.get("created_at"))
+                if created is None:
+                    return False
+                if start_dt is not None and created < start_dt:
+                    return False
+                if end_dt is not None and created >= end_dt:
+                    return False
+                return True
+
+            def _pending_match(row):
+                return (
+                    row.get("status") == "pending"
+                    and int(row.get("current_step") or 0) > 0
+                )
+
+            if stock_needle:
+                rows = [row for row in rows if _stock_match(row)]
+            if token_needle:
+                rows = [row for row in rows if _token_match(row)]
+            if start_dt is not None or end_dt is not None:
+                rows = [row for row in rows if _date_match(row)]
+            if list_status == "pending":
+                rows = [row for row in rows if _pending_match(row)]
             total = len(rows)
             start = (current_page - 1) * size
             page_items = rows[start:start + size]

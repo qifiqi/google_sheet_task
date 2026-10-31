@@ -151,20 +151,45 @@
         <!-- 任务列表 -->
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <h4 class="text-primary fw-bold mb-2">任务列表</h4>
+                <h4 class="text-primary fw-bold mb-0">任务列表</h4>
 
-                <div class="btn-group" role="group">
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
-                    <select class="form-select form-select-sm w-auto" id="filter-select" onchange="filterTasks(this.value)">
-                        <option value="all">全部任务</option>
-                        <option value="running">执行中</option>
-                        <option value="completed">已完成</option>
-                        <option value="error">执行出错</option>
-                        <option value="cancelled">已取消</option>
-                        <option value="pending">待重启</option>
-                    </select>
+                <div class="d-flex align-items-center justify-content-end flex-wrap gap-2 flex-grow-1">
+                    <span class="text-muted small text-nowrap" id="filter-scope-hint"></span>
+                    <input type="text" class="form-control form-control-sm" id="keyword-filter-input"
+                           style="width: 150px;" placeholder="名称 / ID / 代码" aria-label="按名称、ID、股票代码或配置内容搜索任务">
+                    <input type="text" class="form-control form-control-sm" id="stock-code-filter-input"
+                           style="width: 130px;" placeholder="股票代码" aria-label="按股票代码筛选任务">
+                    <input type="text" class="form-control form-control-sm" id="token-filter-input"
+                           style="width: 110px;" placeholder="Token" aria-label="按Token筛选任务">
+                    <div class="d-flex align-items-center gap-1 text-nowrap">
+                        <input type="date" class="form-control form-control-sm" id="start-date-filter-input"
+                               style="width: 140px;" aria-label="创建起始日期" title="创建起始日期">
+                        <span class="text-muted">~</span>
+                        <input type="date" class="form-control form-control-sm" id="end-date-filter-input"
+                               style="width: 140px;" aria-label="创建结束日期" title="创建结束日期">
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="applyAdvancedFilters()">
+                            <i class="bi bi-search"></i> 查询
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetAdvancedFilters()">
+                            重置
+                        </button>
+                    </div>
+
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                        <select class="form-select form-select-sm w-auto" id="filter-select" onchange="filterTasks(this.value)">
+                            <option value="all">全部任务</option>
+                            <option value="running">执行中</option>
+                            <option value="completed">已完成</option>
+                            <option value="error">执行出错</option>
+                            <option value="cancelled">已取消</option>
+                            <option value="pending">待重启</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="card-body">

@@ -1,7 +1,7 @@
 """Task 仓储（契约见 docs/design/data-layer-refactor/02 §2.1）。"""
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import JSON, and_, case, cast, func, or_, select
 
 from app.extensions import db
 from app.exceptions import NotFoundError
@@ -41,14 +41,18 @@ class TaskRepository(BaseRepository):
         status=None,
         keyword=None,
         stock_code=None,
+        token_name=None,
+        start_time=None,
+        end_time=None,
     ):
         """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
 
         - status="pending" 特例：仅统计已开跑的待执行任务
           （status == pending AND current_step > 0），分页与统计一致；
-        - stock_code：按 config JSON 文本里的 "stock_code" 键值前缀匹配，
-          锚定键名避免误中 product_name/sheet 等其他字段；
-          兼容 json.dumps（": "）与 JSON.stringify（":"）两种分隔符；
+        - keyword：名称/描述/ID/config 文本模糊匹配；
+        - stock_code：stock_codes 数组元素不区分大小写的字面前缀匹配；
+        - token_name：按 config JSON 文本里的 "token_name" 键值前缀匹配；
+        - start_time/end_time：created_at 半开区间过滤 [start, end)；
         - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
         """
         query = Task.query
@@ -70,16 +74,48 @@ class TaskRepository(BaseRepository):
                     Task.name.ilike(pattern),
                     Task.description.ilike(pattern),
                     Task.id.ilike(pattern),
+                    Task.config.ilike(pattern),
                 )
             )
 
-        if stock_code:
-            needle = str(stock_code).strip().strip('"').replace("%", "")
+        if stock_code and str(stock_code).strip():
+            needle = str(stock_code).strip().lower()
+            pattern = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                values = cast(Task.config, JSON)["stock_codes"]
+                array = case((func.json_typeof(values) == "array", values), else_=cast("[]", JSON))
+                codes = func.json_array_elements_text(array).table_valued("value").lateral()
+                query = query.filter(select(1).select_from(codes).where(
+                    func.lower(codes.c.value).like(pattern, escape="\\")
+                ).correlate(Task).exists())
+            else:
+                valid_config = case((func.json_valid(Task.config) == 1, Task.config), else_="{}")
+                values = func.json_extract(valid_config, "$.stock_codes")
+                if dialect == "mysql":
+                    array = case((func.json_type(values) == "ARRAY", values), else_="[]")
+                    query = query.filter(func.json_search(
+                        func.lower(array), "one", pattern, "\\", "$[*]"
+                    ).isnot(None))
+                else:
+                    array = case((func.json_type(valid_config, "$.stock_codes") == "array", values), else_="[]")
+                    codes = func.json_each(array).table_valued("value")
+                    query = query.filter(select(1).select_from(codes).where(
+                        func.lower(codes.c.value).like(pattern, escape="\\")
+                    ).correlate(Task).exists())
+
+        if token_name:
+            needle = str(token_name).strip().strip('"').replace("%", "")
             if needle:
                 query = query.filter(or_(
-                    Task.config.like(f'%"stock_code": "{needle}%'),
-                    Task.config.like(f'%"stock_code":"{needle}%'),
+                    Task.config.like(f'%"token_name": "{needle}%'),
+                    Task.config.like(f'%"token_name":"{needle}%'),
                 ))
+
+        if start_time is not None:
+            query = query.filter(Task.created_at >= start_time)
+        if end_time is not None:
+            query = query.filter(Task.created_at < end_time)
 
         ordered_query = query.order_by(Task.created_at.desc())
         pagination = ordered_query.paginate(

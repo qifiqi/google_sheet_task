@@ -296,72 +296,6 @@
         }
     }
 
-    function applyV2ExportStyles(sheet) {
-        const border = {
-            top: {style: 'thin', color: {rgb: 'D0D0D0'}},
-            bottom: {style: 'thin', color: {rgb: 'D0D0D0'}},
-            left: {style: 'thin', color: {rgb: 'D0D0D0'}},
-            right: {style: 'thin', color: {rgb: 'D0D0D0'}}
-        };
-        const titleStyle = {
-            font: {name: 'Microsoft YaHei', sz: 12, bold: true},
-            fill: {fgColor: {rgb: 'F7E1A1'}},
-            alignment: {horizontal: 'center', vertical: 'center'},
-            border
-        };
-        const headerStyle = {
-            font: {name: 'Microsoft YaHei', sz: 11, bold: true},
-            fill: {fgColor: {rgb: 'FCECC5'}},
-            alignment: {horizontal: 'center', vertical: 'center'},
-            border
-        };
-        const firstColumnStyle = {
-            font: {name: 'Microsoft YaHei', sz: 10, bold: true},
-            fill: {fgColor: {rgb: 'F7E1A1'}},
-            alignment: {horizontal: 'center', vertical: 'center'},
-            border
-        };
-        const bodyStyle = {
-            font: {name: 'Microsoft YaHei', sz: 10},
-            alignment: {horizontal: 'center', vertical: 'center'},
-            border
-        };
-        const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-
-        for (let row = range.s.r; row <= range.e.r; row += 1) {
-            for (let column = range.s.c; column <= range.e.c; column += 1) {
-                const address = XLSX.utils.encode_cell({r: row, c: column});
-                const cell = sheet[address];
-                if (!cell || cell.v === '') continue;
-                cell.s = bodyStyle;
-            }
-        }
-
-        for (let column = 0; column < 4; column += 1) {
-            const address = XLSX.utils.encode_cell({r: 0, c: column});
-            const cell = sheet[address] || {t: 's', v: ''};
-            cell.s = titleStyle;
-            sheet[address] = cell;
-        }
-        [2, 24, 30].forEach(row => {
-            for (let column = 0; column <= range.e.c; column += 1) {
-                const cell = sheet[XLSX.utils.encode_cell({r: row, c: column})];
-                if (cell && cell.v !== '') cell.s = headerStyle;
-            }
-        });
-        for (let row = 3; row <= 23; row += 1) {
-            const cell = sheet[XLSX.utils.encode_cell({r: row, c: 0})];
-            if (cell && cell.v !== '') cell.s = firstColumnStyle;
-        }
-
-        sheet['!cols'] = [
-            {wch: 16}, {wch: 28}, {wch: 16}, {wch: 18},
-            {wch: 4}, {wch: 4}, {wch: 4}, {wch: 4}, {wch: 4},
-            {wch: 16}, {wch: 16}, {wch: 16}
-        ];
-        sheet['!freeze'] = {xSplit: 0, ySplit: 3, topLeftCell: 'A4', activePane: 'bottomLeft', state: 'frozen'};
-    }
-
     async function exportV1Details() {
         if (!state.lastResults) {
             showAlert('请先完成分析再导出', 'warning');
@@ -380,25 +314,16 @@
                 klineStart: klineRange.start,
                 klineEnd: klineRange.end,
             });
-            const sourceFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
-            // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）
-            const resp = await Api.endpoints.export.backtestResultPerformanceAnalysis({
-                filename: sourceFilename,
-                filename_title: filenameSafeTitle,
-                analyze_result: state.lastResults
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({}));
-                const api = normalizeApiResponse(err);
-                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
+            // 前端本地多 sheet 导出：指标总览/年度/滚动/月度/日度/超额/卡玛/索提诺/夏普/
+            // 修复天数/Sheet结果/全部指标，数据全部取自页面已持有的指标字典，
+            // 不再 POST /api/exports/performance-analysis 往返。
+            const sheets = PerformanceExport.buildSheets(state.lastResults);
+            if (!sheets.length) {
+                showAlert('没有可导出的数据', 'warning');
+                return;
             }
-
-            const workbook = XLSX.read(await resp.text(), {type: 'string'});
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            applyV2ExportStyles(sheet);
-            XLSX.writeFile(workbook, defaultFilename, {compression: true});
+            excelExport.exportSheets(sheets, defaultFilename);
             showAlert(`文件已下载: ${defaultFilename}`, 'success');
         } catch (e) {
             if (e.name !== 'AbortError') {

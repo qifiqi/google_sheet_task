@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
+from app.schemas.task_configs import primary_stock_code
 from app.utils.formatting import to_beijing_iso
 from app.constants.c_template_layout import (
     C3_METRIC_CELLS,
@@ -34,6 +35,7 @@ from app.utils.model_version import (
     resolve_model_version,
 )
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
+from app.services.export_workbook_service import build_export_filename, price_adjust_filename_segment
 from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
@@ -199,11 +201,23 @@ def _load_backtest_task_result(task_result_id: int):
 
 
 def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[str, str]:
+    """回测结果 CSV 文件名走统一命名规范（模型版本+价格/复权段+时间戳）。
+
+    filename_title（文件内报告标题）保持任务名原语义，仅文件名按规范组装；
+    任务配置缺失价格/复权段时整段省略，与 xlsx 导出同一套 slug。
+    """
     filename_title = "".join(
         char if char not in '\\/:*?"<>|' else "_"
         for char in str(task.name or "").strip()
     ).rstrip(" .") or f"backtest_result_{result_id}"
-    return f"{filename_title}.csv", filename_title
+    task_config = task.to_dict().get("config") or {}
+    filename = build_export_filename(
+        filename_title,
+        model_version=_infer_backtest_export_model_name(task_config, task.task_type),
+        price_adjust=price_adjust_filename_segment(task_config),
+        extension="csv",
+    )
+    return filename, filename_title
 
 
 def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> dict:
@@ -219,7 +233,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
         **calculate_metrics,
         "sheet_result": sheet_result,
         "model_name": model_name,
-        "stock_code": task_config.get("stock_code"),
+        "stock_code": primary_stock_code(task_config),
     }
     filename, filename_title = _build_backtest_result_export_filename(task, task_result.id)
     return {
@@ -842,7 +856,7 @@ def _build_global_preview_payload_from_results(task, task_results):
         parameters = loads(task_result.parameters) if task_result.parameters else {}
         year_key = str(parameters.get("kline_key") or "未分组")
         stock_code = str(
-            parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
+            parameters.get("stock_code") or primary_stock_code(task_config) or "未命名股票"
         ).strip().upper() or "未命名股票"
         group_key = f"{stock_code}::{year_key}"
         group = groups.setdefault(group_key, {
@@ -958,7 +972,7 @@ def _build_global_preview_payload_from_results(task, task_results):
             "id": task.id,
             "name": task.name,
             "status": task.status,
-            "stock_code": task_config.get("stock_code"),
+            "stock_code": primary_stock_code(task_config),
             "market_type": task_config.get("market_type"),
         },
         "summary": {
@@ -1012,7 +1026,7 @@ def _build_global_preview_initial_payload(task_id):
     for item in items:
         parameters = item["parameters"]
         if group_mode == "stock":
-            key = str(parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票").strip().upper()
+            key = str(parameters.get("stock_code") or primary_stock_code(task_config) or "未命名股票").strip().upper()
         else:
             key = str(parameters.get("kline_key") or "未分组")
         group = groups.setdefault(key, {"key": key, "label": key, "result_ids": [], "items": []})

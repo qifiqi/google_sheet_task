@@ -280,3 +280,48 @@ def test_log_entity_missing_timestamp_passes_through():
     repo.add_entity(_LogEntity())
 
     assert controller.saved[0]["timestamp"] is None
+
+
+def test_task_http_list_filters_stock_codes_token_and_dates():
+    """dev_vue 任务列表筛选在 http 孪生上的等价语义（本地过滤路径）。"""
+    import json
+
+    tasks = _FakeController(rows=[
+        {
+            "id": "t3", "name": "pending-task", "status": "pending",
+            "current_step": 1,
+            "config": json.dumps({"stock_codes": ["SOXX.US"], "token_name": "Alpha"}),
+            "created_at": "2026-10-03T10:00:00",
+        },
+        {
+            "id": "t2", "name": "other-stock", "status": "completed",
+            "current_step": 0,
+            "config": json.dumps({"stock_codes": ["ITB.US"], "token_name": "Beta"}),
+            "created_at": "2026-10-02T10:00:00",
+        },
+        {
+            "id": "t1", "name": "first", "status": "completed",
+            "current_step": 0,
+            "config": json.dumps({"stock_codes": ["QQQ.US", "SOXX.US"], "token_name": "Alpha"}),
+            "created_at": "2026-10-01T10:00:00",
+        },
+    ])
+    repo = TaskHttpRepository(api=_api(param_tasks=tasks))
+
+    page = repo.list_paginated_with_statistics(1, 10, stock_code="sox")
+    assert [row["id"] for row in page["items"]] == ["t3", "t1"]
+    assert page["pagination"]["total"] == page["aggregates"]["total"] == 2
+
+    page = repo.list_paginated_with_statistics(1, 10, token_name="alpha", stock_code="SOXX")
+    assert [row["id"] for row in page["items"]] == ["t3", "t1"]
+
+    page = repo.list_paginated_with_statistics(
+        1, 10,
+        start_time=datetime(2026, 10, 2),
+        end_time=datetime(2026, 10, 3),
+    )
+    assert [row["id"] for row in page["items"]] == ["t2"]
+
+    page = repo.list_paginated_with_statistics(1, 10, status="pending")
+    assert [row["id"] for row in page["items"]] == ["t3"]
+    assert page["aggregates"]["pending_started"] == 1

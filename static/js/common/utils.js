@@ -46,8 +46,11 @@ function formatModelVersion(value) {
 }
 
 // 统一导出文件名规范（与后端 build_export_filename 对偶）：
-// {基名}-{模型版本}-{K线起}-{K线止}-{导出时间}.{扩展名}
-// 段间 `-`、段内 `_`；模型版本/区间缺失时整段省略，导出时间恒在。
+// {基名}-{模型版本}-{价格/复权}-{K线起}-{K线止}-{导出时间}.{扩展名}
+// 段间 `-`、段内 `_`；模型版本/价格复权/区间缺失时整段省略，导出时间恒在。
+// 价格/复权段（priceAdjust，如 close-qfq / rnd-oc）slug 表见后端
+// export_workbook_service.PRICE_MODE_FILENAME_SLUGS / KLINE_ADJUSTMENT_FILENAME_SLUGS；
+// 当前仅后端任务导出携带，前端页面无该上下文时传空即可。
 function normalizeExportFilenameDate(value) {
   const head = String(value || "").trim().split(/[ T]/)[0];
   const match = head.match(/^(\d{4})[-/]?(\d{1,2})[-/]?(\d{1,2})$/);
@@ -74,6 +77,7 @@ function buildExportFilename(base, options) {
   const segments = [
     String(base || "").replace(/[\\/:*?"<>|]/g, "_").trim(),
     String(opts.modelVersion || "").trim(),
+    String(opts.priceAdjust || "").trim(),
     start,
     end,
     stamp,

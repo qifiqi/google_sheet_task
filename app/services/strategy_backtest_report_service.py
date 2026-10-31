@@ -222,8 +222,10 @@ class StrategyBacktestReportService:
         """按报告类型、产品代码+权重、方案组、K线范围和生成时间构造默认下载文件名。
 
         分段规范：段间 `-`、段内 `_`。组合段（RPT-M 现状）为 代码_权重；RPT-S 的
-        task 来源没有 products，用收益序列的股票代码补位；RPT-M 附方案组段（G组号）；
-        周期段取组合收益首末交易日（即报告真实 K 线范围）。任意信息缺失逐级回落，
+        task 来源没有 products，用收益序列的股票代码补位；随后是价格/复权段
+        （price_adjust，export_service 按任务配置回填，如 close-qfq / rnd-oc，
+        缺省省略）；RPT-M 附方案组段（G组号）；周期段取组合收益首末交易日
+        （即报告真实 K 线范围）。任意信息缺失逐级回落，
         最差退回 RPT-<类型>-<时间戳>。比例为 0 的产品不参与代码拼接；有效产品只剩
         1 个时前缀按 RPT-S 输出，单品权重恒为 100%，不再重复拼接。权重不带 % 后缀：
         纯 ASCII 文件名经 Content-Disposition 原样下发，前端 decodeURIComponent 遇到
@@ -251,6 +253,9 @@ class StrategyBacktestReportService:
             fragments = [task_stock_code]
 
         segments: list[str] = [*fragments]
+        price_adjust = str(getattr(request, "price_adjust", None) or "").strip()
+        if price_adjust:
+            segments.append(price_adjust)
         group_key = getattr(request, "group_key", None)
         if request.report_type == "RPT-M" and group_key not in (None, ""):
             segments.append(f"G{group_key}")
