@@ -294,3 +294,7 @@ Redis 裁决层覆盖 11 处临界区（状态机/Sheet 占用/token 对账/回�
   更新不走 count / 关联 result_id / 首步补偿 / 非首步不整删 / E12 预检 /
   Token 回写）；相关仓储、Token、C 系回归 170+ 例通过。
 
+
+## 补充：E12 读取路径未预检（2026-10-31 E2E）
+
+生产 base 缺 E12 时，C1.1 随机价任务在 `task_kline_snapshot_service.get_or_create_source → ParamTaskKlineSources/GetDataByPageList` 读取阶段直接收到 HTTP 404，未走 `require_e12`（该预检目前只在 create_source/create_series/create_link 写入路径）。建议后续把 `require_e12` 前移到快照读取入口，或在生产部署 E12 后再启用随机价任务。7070 上 C1.1 3/3 全链路通过（结果 id 4611726-4611728，kline_series_id=8）。

@@ -325,3 +325,43 @@ def test_task_http_list_filters_stock_codes_token_and_dates():
     page = repo.list_paginated_with_statistics(1, 10, status="pending")
     assert [row["id"] for row in page["items"]] == ["t3"]
     assert page["aggregates"]["pending_started"] == 1
+
+
+class _SheetCreateController:
+    def __init__(self):
+        self.saved = None
+
+    def modify_or_add(self, payload, with_count=False, timeout=None):
+        self.saved = dict(payload)
+        return (None, 46) if with_count else None
+
+
+def test_google_sheet_http_create_fills_model_defaults():
+    """远端 GoogleSheet 插入要求 registry_scope/非空时间戳，缺失会 500。"""
+    controller = _SheetCreateController()
+    repo = GoogleSheetHttpRepository(api=_api(param_google_sheet=controller))
+
+    row = repo.create({
+        "spreadsheet_id": "sheet-c11",
+        "name": "C1.1.0-1",
+        "table_type": "c1_1",
+        "is_active": True,
+    })
+
+    assert controller.saved["registry_scope"] == "c_series"
+    assert controller.saved["is_in_use"] is False
+    assert controller.saved["created_at"] and controller.saved["updated_at"]
+    assert row["id"] == 46
+
+
+def test_task_http_normalizes_null_progress_to_zero():
+    """远端新任务 current_step/total_steps 为 NULL：读取侧对齐本地模型默认 0。"""
+    task_row = {"id": "t-null", "name": "new", "status": "pending",
+                "current_step": None, "total_steps": None, "config": "{}"}
+    tasks = _FakeController(by_id={"t-null": task_row})
+    repo = TaskHttpRepository(api=_api(param_tasks=tasks))
+
+    task = repo.get_entity("t-null")
+
+    assert task.current_step == 0
+    assert task.total_steps == 0

@@ -6,8 +6,10 @@ is_in_use 过滤；registry_scope、spreadsheet_id 无服务端过滤，走全�
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+from app.models import google_sheet_registry_scope
 from app.repositories.http_backend.base import (
     HttpRepositoryBase,
     RemoteRecord,
@@ -155,9 +157,18 @@ class GoogleSheetHttpRepository(HttpRepositoryBase):
         return RemoteRecord(row) if row is not None else None
 
     def create(self, fields, commit=True):
-        # TODO(db-to-http): 数值主键由远端生成；ModifyOrAdd 若不回显 ret_obj，
-        # 返回记录缺 id，调用方如需 id 须以 spreadsheet_id 复查。
-        return self.save(dump_row(fields, datetime_fields=self._DT_FIELDS))
+        # 对齐本地模型 before_insert：registry_scope 由 table_type 派生，
+        # is_in_use/created_at/updated_at 有非空默认值；缺失时远端插入 500。
+        payload = dict(fields)
+        payload.setdefault(
+            "registry_scope",
+            google_sheet_registry_scope(payload.get("table_type")),
+        )
+        payload.setdefault("is_in_use", False)
+        now = datetime.now()
+        payload.setdefault("created_at", now)
+        payload.setdefault("updated_at", now)
+        return self.save(dump_row(payload, datetime_fields=self._DT_FIELDS))
 
     def update(self, sheet_id, fields, commit=True):
         row = self.get(sheet_id)

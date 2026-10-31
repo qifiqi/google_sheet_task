@@ -48,13 +48,20 @@ class TaskHttpRepository(HttpRepositoryBase):
         )
 
     def normalize_record(self, record):
-        """对齐本地 to_dict 语义：config JSON 串解析为 dict。"""
+        """对齐本地 to_dict 语义：config JSON 串解析为 dict。
+
+        远端插入的新任务不填 current_step/total_steps（本地模型默认 0），
+        读取侧统一补 0，避免执行链数值比较遇到 None。
+        """
         result = dict(record)
         if isinstance(result.get("config"), str):
             try:
                 result["config"] = json.loads(result["config"])
             except json.JSONDecodeError:
                 result["config"] = {}
+        for field in ("current_step", "total_steps"):
+            if result.get(field) is None:
+                result[field] = 0
         return RemoteRecord(result)
 
     # ---- 内部工具 ----
