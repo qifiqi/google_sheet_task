@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 
 from app.services.backtest_multi_product_service import normalize_multi_product_config
-import app.services.google_sheet_tasks.c4 as google_sheet_service_C4
+import app.services.google_sheet_tasks.c5 as google_sheet_service_C4
 from app.services.google_sheet_tasks.c4 import C4Service as C4GoogleSheetService
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.kline_adjustment import (
@@ -95,6 +95,7 @@ def test_multi_product_normalize_preserves_product_kline_adjustment():
 
 
 def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
+    """C4 复用 C5 骨架后：复权参数透传 Yahoo、K线取数不走东财、按 price_mode 投影。"""
     calls = {}
 
     class FakeYFApi:
@@ -128,37 +129,41 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
             calls["dfcf_kline"] = True
             return []
 
+    # C4Service 继承 C5Service：API 客户端在 C5 模块构造，桩打在 c5 模块
     monkeypatch.setattr(google_sheet_service_C4, "YFApi", FakeYFApi)
     monkeypatch.setattr(google_sheet_service_C4, "DFCJStockApi", FakeDFCFApi)
-    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    # 类级桩内置K线库读（不桩会真实请求内网服务）
     monkeypatch.setattr(
         "app.services.kline_service.KlineService.read_internal_kline_data",
         lambda self, **_kwargs: [],
     )
 
-    data, _column_a_length = C4GoogleSheetService._get_all_parameters(
+    service = C4GoogleSheetService({}, "task-id")
+    data, _column_a_length, kline_data_map = service._get_all_parameters(
         "AAPL",
         "total",
+        "sp_price",
         "2024-02-15",
         "2024-01-01",
         "us",
         [],
-        "back",
+        [],
+        [["AAPL"], [1], [2]],
+        adjust_type="back",
+        data_source="yahoo",
     )
 
-    assert calls["yf"] == {
-        "stock_code": "AAPL",
-        "period": "10y",
-        "adjust_type": "back",
-        "start_date": "2024-01-01",
-        "end_date": "2024-02-15",
-    }
+    assert calls["yf"]["stock_code"] == "AAPL"
+    assert calls["yf"]["adjust_type"] == "back"
+    assert calls["yf"]["start_date"] == "2024-01-01"
+    assert calls["yf"]["end_date"] == "2024-02-15"
     # 2026-10 起美股允许经东财搜索解析证券名称（软失败）；K 线取数仍不走东财。
     # FakeDFCFApi 返回缺 code 的残缺结果 + FakeYFApi 无 get_stock_name，
     # 正好覆盖两级取名全部失败仍正常返回的场景。
     assert "dfcf_kline" not in calls
-    # 窗口加宽以满足最少 30 根守卫；投影按收盘价（us 固定），首尾抽样断言
-    projected = data[0]["kline"]
+    # 窗口加宽以满足最少 30 根守卫；投影按 price_mode=sp_price（收盘价），
+    # 投影行入 kline_data_map（骨架契约），首尾抽样断言
+    projected = kline_data_map["2024-2024"]
     assert projected[0] == {"stock_date": "2024-01-01", "stock_val": 10}
     assert projected[-1] == {"stock_date": "2024-02-15", "stock_val": 55}
     assert len(projected) == 46

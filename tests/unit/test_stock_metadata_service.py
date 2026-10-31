@@ -77,6 +77,7 @@ def test_upsert_stock_metadata_reuses_pending_record_before_autoflush(app_factor
 
 
 def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, monkeypatch):
+    """C4 复用 C5 骨架后：搜索取名 → 元数据落库（source 按模型版本派生为 c4）。"""
     class FakeDfcfApi:
         def get_search_list_by_stock_code(self, stock_code, page_size):
             return [
@@ -101,20 +102,25 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
             ]
 
     app = app_factory
-    monkeypatch.setattr("app.services.google_sheet_tasks.c4.DFCJStockApi", FakeDfcfApi)
-    # C4 内联构造 KlineService，类级桩内置K线库读（不桩会真实请求内网服务）
+    # C4Service 继承 C5Service：API 客户端在 C5 模块构造，桩打在 c5 模块
+    monkeypatch.setattr("app.services.google_sheet_tasks.c5.DFCJStockApi", FakeDfcfApi)
+    # 类级桩内置K线库读（不桩会真实请求内网服务）
     monkeypatch.setattr(
         "app.services.kline_service.KlineService.read_internal_kline_data",
         lambda self, **_kwargs: [],
     )
     with app.app_context():
-        combinations, _column_a_length = C4GoogleSheetService._get_all_parameters(
+        service = C4GoogleSheetService({}, "task-id")
+        combinations, _column_a_length, _kline_data_map = service._get_all_parameters(
             "600519",
-            "single",
+            "total",
+            "sp_price",
             "2024-03-31",
             "2024-01-01",
             "cn",
             [],
+            [],
+            [["600519"], [1], [2]],
             adjust_type=None,
             data_source="dfcf",
         )
@@ -122,3 +128,5 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
         assert combinations[0]["stock_name"] == "贵州茅台"
         item = StockMetadata.query.filter_by(stock_code="600519.SH", market_type="cn").one()
         assert item.stock_name == "贵州茅台"
+        # 来源标记按 _model_version 派生，C4 任务不误记为 c5
+        assert item.source == "google_sheet_c4"
