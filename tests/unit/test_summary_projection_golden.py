@@ -204,3 +204,20 @@ def test_golden_result_mapper_flat_projection():
     assert payload["schema_version"] == "metrics.v1"
     assert payload["metrics"] == analyze_result or payload["metrics"]
     assert isinstance(payload["canonical_metrics"], dict)
+
+
+def test_pa_exporter_metric_format_survives_int_zero():
+    """metrics.py 在 downside_std==0 时把 sortino_ratio 写成 int 0，
+    经 TaskResult JSON 存取后原样保留；'.2' 精度格式对 int 抛
+    ValueError（多品结果页导出 500 的根因），此处锁定 int 容错。"""
+    fmt = performance_analyzer._format_export_metric
+    assert fmt(0, '.2') == fmt(0.0, '.2') == '0.0'
+    assert fmt(0, '.0f') == '0'
+    assert fmt(None, '.2') == '--'
+
+    data = {"analyze_result": json.loads(json.dumps(CALCULATE_METRICS)), "model_version": "vTest"}
+    data["analyze_result"]["start_sortino_ratio"] = [
+        {"annualized_return": 1.302, "avg_return": 0.1085, "downside_std": 0,
+         "negative_count": 0, "sortino_ratio": 0, "year": "all"}]
+    df = performance_analyzer.format_export_file_data(data)
+    assert df.iloc[21, 3] == '0.0'

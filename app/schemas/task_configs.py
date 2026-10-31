@@ -157,10 +157,6 @@ class _CSeriesBase(_BaseTaskConfig):
         return value
 
 
-class C4TaskConfig(_CSeriesBase):
-    """C4 批量取价任务。"""
-
-
 class C5TaskConfig(_CSeriesBase):
     """C5 批量校验任务（在 C4 段上增加 custom K线与随机价格段）。"""
 
@@ -170,6 +166,11 @@ class C5TaskConfig(_CSeriesBase):
     random_group_count: int | None = None
     # 随机序列模式：per_window 各窗口独立随机（默认）/ full_truncate 全区间生成后按窗口截断
     random_series_mode: str | None = None
+
+
+class C4TaskConfig(C5TaskConfig):
+    """C4 批量取价任务（模型与功能与 C5 完全同构，仅模型版本标记差异；
+    创建页表单整体复用 C5 形态，故直接继承 C5 段声明）。"""
 
 
 class C7TaskConfig(C5TaskConfig):

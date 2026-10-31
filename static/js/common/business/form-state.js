@@ -240,10 +240,17 @@
   function initFromUrlParams() {
     const params = new URLSearchParams(window.location.search);
     const templateId = params.get("template_id");
+    const editTaskId = params.get("edit_task_id");
     const restartTaskId = params.get("restart_task_id");
 
     if (templateId) {
       callPageHook("fillFormWithTemplate", templateId);
+      return;
+    }
+
+    if (editTaskId) {
+      // 编辑模式：与 restart 共用「任务配置→表单」回填通道，模式差异由页面侧按 URL 判定
+      fillFormWithRestartTask(editTaskId);
       return;
     }
 

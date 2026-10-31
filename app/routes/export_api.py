@@ -17,7 +17,6 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.backtest import StrategyBacktestReportSchema, parse_preview_runtime_params
 from app.schemas.task import TaskIdsBatchSchema
-from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
 from app.services.export_workbook_service import sanitize_export_filename
 from app.services.task import task_manager
@@ -170,13 +169,6 @@ def export_backtest_result(result_id):
         raise NotFoundError("任务结果不存在")
     task_manager.get_required_task(task_result["task_id"])
     return _file_response(export_service.export_backtest_result(result_id))
-
-
-@export_api_bp.route("/performance-analysis", methods=["POST"])
-@login_required
-@_export_limit
-def export_performance_analysis():
-    return _file_response(export_service.export_performance_analysis(parse_body(PerformanceAnalysisPayloadSchema).root))
 
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])

@@ -56,7 +56,7 @@
                     <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
                         <i class="bi bi-search"></i> 检查状态
                     </button>
-                    <a id="global-preview-link" href="/global-preview/single-product" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
+                    <a id="global-preview-link" href="/global-preview/single-product" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-eye"></i> 全局预览
                     </a>
                     <a href="/google-sheet/?version=c4" class="btn btn-secondary btn-sm">
@@ -150,7 +150,7 @@
                 <h4 class="card-title mb-0">
                     <i class="bi bi-gear"></i> 配置信息
                 </h4>
-                <button class="btn btn-primary btn-sm d-none" id="edit-config-btn" onclick="Biz.configEdit.openEditConfigModal()">
+                <button class="btn btn-primary btn-sm d-none" id="edit-config-btn" onclick="goEditTaskConfig()">
                     <i class="bi bi-pencil"></i> 编辑配置
                 </button>
             </div>
@@ -252,165 +252,7 @@
     </div>
 </div>
 
-<!-- 编辑配置模态框 -->
-<div class="modal fade" id="editConfigModal" tabindex="-1" aria-labelledby="editConfigModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="editConfigModalLabel">
-                    <i class="bi bi-pencil-square"></i> 编辑任务配置
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning" role="alert">
-                    <i class="bi bi-exclamation-triangle"></i> 
-                    <strong>注意：</strong>修改配置后，建议从头重新执行任务以确保数据一致性。如果从断点继续，请确保参数组合数量和顺序没有改变。
-                </div>
-                
-                <form id="edit-config-form">
-                    <!-- 任务基本信息卡片 -->
-                    <div class="card mb-3">
-                        <div class="card-body">
-                            <h6 class="mb-3"><i class="bi bi-info-circle"></i> 任务基本信息</h6>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="edit-task-name" class="form-label">任务名称</label>
-                                    <input type="text" class="form-control" id="edit-task-name" placeholder="请输入任务名称">
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label for="edit-task-description" class="form-label">任务描述</label>
-                                    <textarea class="form-control" id="edit-task-description" rows="2" placeholder="请输入任务描述"></textarea>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 主参数卡片：parameters[0] 作为可增删的小卡片列表 -->
-                    <div class="card mb-3">
-                        <div class="card-body">
-                            <h6 class="mb-3"><i class="bi bi-sliders"></i> 核心参数（parameters[0]）</h6>
-                            <div class="mb-2">
-                                <label class="form-label" for="edit-product-code-input">股票/产品代码</label>
-                                <div class="input-group mb-2">
-                                    <input type="text" class="form-control" id="edit-product-code-input" placeholder="如：600000,600001 或 600000 600001">
-                                    <button class="btn btn-outline-primary" type="button" id="edit-add-product-code-btn">添加</button>
-                                </div>
-                                <div class="form-text mb-2">支持逗号、空格等分隔符，一次可输入多个代码；仅作用于 parameters[0]。</div>
-                                <div id="edit-product-code-chips" class="product-code-chips d-flex flex-wrap gap-1"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Google Sheets 与更多参数卡片 -->
-                    <div class="card mb-0">
-                        <div class="card-body">
-                            <h6 class="mb-3"><i class="bi bi-gear"></i> 更多参数与 Sheets 配置</h6>
-
-                            <!-- Sheets 多行配置：每行三个输入框 -->
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="bi bi-table"></i> Sheets 配置
-                                </label>
-                                <div id="edit-sheets-list">
-                                    <!-- 每行通过 JS 生成：spreadsheet_id / title / sheet_name -->
-                                </div>
-                                <div class="text-center mt-2">
-                                    <div class="btn-group btn-group-sm" role="group">
-                                        <button type="button" class="btn btn-outline-primary" id="edit-add-sheet-btn">
-                                            <i class="bi bi-plus-circle"></i> 添加一行
-                                        </button>
-                                        <button type="button" class="btn btn-outline-danger" id="edit-remove-sheet-btn">
-                                            <i class="bi bi-dash-circle"></i> 删除最后一行
-                                        </button>
-                                    </div>
-                                </div>
-                                <small class="text-muted d-block mt-2">每行对应 config.sheets 中的一项，分别为 spreadsheet_id、title（可选）、sheet_name。</small>
-                            </div>
-
-                            <details class="mt-2">
-                                <summary class="text-muted">展开更多参数</summary>
-                                <div class="mt-3">
-                                    <div class="row mb-3">
-                                        <div class="col-md-3 mb-3">
-                                            <label class="form-label d-block">统计方式 count_mode</label>
-                                            <select class="form-select" id="edit-count-mode">
-                                                <option value="n_plus_1">n_plus_1</option>
-                                                <option value="total">total</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-3 mb-3">
-                                            <label class="form-label d-block">时间范围类型 date_range_mode</label>
-                                            <div>
-                                                <div class="form-check form-check-inline mb-1">
-                                                    <input class="form-check-input" type="checkbox" id="edit-date-range-full" value="full">
-                                                    <label class="form-check-label" for="edit-date-range-full">整年 full</label>
-                                                </div>
-                                                <div class="form-check form-check-inline mb-1">
-                                                    <input class="form-check-input" type="checkbox" id="edit-date-range-recent" value="recent">
-                                                    <label class="form-check-label" for="edit-date-range-recent">近年 recent</label>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-3 mb-3">
-                                            <label for="edit-start-date" class="form-label">开始日期 start_date</label>
-                                            <input type="date" class="form-control" id="edit-start-date">
-                                        </div>
-                                        <div class="col-md-3 mb-3">
-                                            <label for="edit-end-date" class="form-label">结束日期 end_date</label>
-                                            <input type="date" class="form-control" id="edit-end-date">
-                                        </div>
-                                    </div>
-
-                                    <div class="row mb-3">
-                                        <div class="col-md-4 mb-3">
-                                            <label for="edit-market-type" class="form-label">市场类型 market_type</label>
-                                            <input type="text" class="form-control" id="edit-market-type" placeholder="如：cn">
-                                        </div>
-                                        <div class="col-md-4 mb-3">
-                                            <label for="edit-proxy-url" class="form-label">代理地址 proxy_url</label>
-                                            <input type="text" class="form-control" id="edit-proxy-url" placeholder="可选，HTTP/HTTPS 代理URL">
-                                        </div>
-                                        <div class="col-md-4 mb-3">
-                                            <label for="edit-token-type" class="form-label">认证方式 token_type</label>
-                                            <select class="form-select" id="edit-token-type">
-                                                <option value="file">文件 token_file</option>
-                                                <option value="json">JSON token_json</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div class="row mb-3">
-                                        <div class="col-md-6 mb-3" id="edit-token-file-container">
-                                            <label for="edit-token-file" class="form-label">Token 文件路径 token_file</label>
-                                            <input type="text" class="form-control" id="edit-token-file" placeholder="如 data/token.json">
-                                        </div>
-                                        <div class="col-md-6 mb-3 d-none" id="edit-token-json-container">
-                                            <label for="edit-token-json" class="form-label">Token JSON 字符串 token_json</label>
-                                            <textarea class="form-control" id="edit-token-json" rows="3" placeholder="粘贴 JSON 字符串"></textarea>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="edit-parameters-raw" class="form-label">完整参数结构（只读/高级）</label>
-                                        <textarea class="form-control" id="edit-parameters-raw" rows="4" readonly></textarea>
-                                        <small class="text-muted">这里展示完整的 config.parameters JSON，仅供参考，真正提交时将以上方两个主参数为准构造 parameters[0]。</small>
-                                    </div>
-                                </div>
-                            </details>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" onclick="saveTaskConfig()">
-                    <i class="bi bi-save"></i> 保存配置
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- 编辑配置弹窗已迁移：编辑统一走创建页 edit 模式（/google-sheet/create?version=c4&edit_task_id=...） -->
 
     </div>
 

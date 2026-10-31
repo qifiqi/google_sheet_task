@@ -496,3 +496,86 @@ class TestUpdateConfigMerge:
             updated = task_repository.get("task-merge-2")
             config = updated["config"]  # to_dict 已解析为 dict
             assert "legacy_key" not in config
+
+    def test_full_replace_refreshes_token_snapshot(self, app_factory, monkeypatch):
+        """编辑换 token_id 后派生快照（token_name/token_file）随之刷新：update 与
+        create 走同一条派生链（normalize → hydrate → prepare → validate）。"""
+        with app_factory.app_context():
+            from app.extensions import db
+            from app.models import GoogleSheet
+            from app.repositories import task_repository
+            from app.services.task import task_manager
+
+            db.session.add(
+                GoogleSheet(name="s1", spreadsheet_id="s1", table_type="c3")
+            )
+            db.session.commit()
+
+            def fake_prepare(config):
+                resolved = dict(config)
+                if resolved.get("token_id") == 7:
+                    resolved["token_name"] = "token-7"
+                    resolved["token_file"] = "p7.json"
+                return resolved
+
+            monkeypatch.setattr(
+                "app.services.task.creation.get_google_sheet_token_service",
+                lambda: type("TokenSvc", (), {"prepare_task_config": staticmethod(fake_prepare)})(),
+            )
+
+            existing = {
+                "sheets": [{"spreadsheet_id": "s1", "sheet_name": "data", "title": ""}],
+                "stock_code": "600000.SH",
+                "token_type": "file",
+                "token_id": 5,
+                "token_name": "token-5",
+                "token_file": "p5.json",
+            }
+            task_repository.create({
+                "id": "task-edit-token",
+                "name": "edit-token",
+                "description": "",
+                "task_type": "google_sheet",
+                "config": json.dumps(existing),
+                "status": "pending",
+            })
+
+            task_manager.update_task_config(
+                "task-edit-token",
+                {
+                    "sheets": [{"spreadsheet_id": "s1", "sheet_name": "data", "title": ""}],
+                    "stock_code": "600000.SH",
+                    "token_type": "file",
+                    "token_id": 7,
+                },
+                merge_config=False,
+            )
+            config = task_repository.get("task-edit-token")["config"]
+            assert config["token_id"] == 7
+            assert config["token_name"] == "token-7"
+            assert config["token_file"] == "p7.json"
+            # 旧快照不残留（merge=False 全量覆盖）；检索投影仍由收口出口重建
+            assert "token_selection_mode" not in config
+            assert config["stock_codes"] == ["600000.SH"]
+
+    def test_update_config_rejects_running_task(self, app_factory, monkeypatch):
+        """running 任务禁改的硬守卫（编辑入口的前置约定）。"""
+        import pytest
+
+        from app.exceptions import ValidationError
+        from app.repositories import task_repository
+        from app.services.task import task_manager
+
+        task_repository.create({
+            "id": "task-edit-running",
+            "name": "running",
+            "description": "",
+            "task_type": "google_sheet",
+            "config": json.dumps({"sheets": [{"spreadsheet_id": "s", "title": ""}]}),
+            "status": "running",
+        })
+        with pytest.raises(ValidationError, match="正在运行的任务无法直接修改"):
+            task_manager.update_task_config(
+                "task-edit-running",
+                {"end_date": "2026-10-01"},
+            )

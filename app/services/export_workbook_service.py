@@ -49,6 +49,14 @@ RANDOM_PRICE_RANGE_FILENAME_SLUGS = {
     "high_low": "hl",
     "open_close": "oc",
 }
+# C1.1 真实价取值（random_price 模式的子标记）：AG 直写对应真实字段，
+# 文件名按真实价段并拼接复权段（与真实行情同口径）。
+REAL_PRICE_RANGE_FILENAME_SLUGS = {
+    "kp_price": "open",
+    "sp_price": "close",
+    "high_price": "high",
+    "low_price": "low",
+}
 # 复权文件名段：与腾讯源 qfq/hfq 词表一致的行业通用缩写。
 KLINE_ADJUSTMENT_FILENAME_SLUGS = {
     "forward": "qfq",
@@ -62,6 +70,8 @@ def price_adjust_filename_segment(config: Any) -> str:
 
     - 真实行情：`close-qfq`；价格或复权缺失时只带另一段，全缺返回空串。
     - 随机价：`rnd-hl`/`rnd-oc`（区间未知回落 `rnd`），复权对随机价无语义，不拼接。
+    - C1.1 真实价取值（random_price + kp/sp/high/low_price）：按真实价段并拼接复权段，
+      如 `close-qfq`。
     - 非 dict 配置（历史 JSON 串等）返回空串整段省略。
     """
 
@@ -72,9 +82,15 @@ def price_adjust_filename_segment(config: Any) -> str:
     if not price_slug:
         return ""
     if price_mode == "random_price":
-        range_slug = RANDOM_PRICE_RANGE_FILENAME_SLUGS.get(
-            str(config.get("random_price_range") or "").strip(), ""
-        )
+        range_value = str(config.get("random_price_range") or "").strip()
+        real_slug = REAL_PRICE_RANGE_FILENAME_SLUGS.get(range_value, "")
+        if real_slug:
+            # 真实价取值与真实行情同口径：价格段 + 复权段
+            adjust_slug = KLINE_ADJUSTMENT_FILENAME_SLUGS.get(
+                str(config.get("kline_adjustment") or "").strip(), ""
+            )
+            return "-".join(part for part in (real_slug, adjust_slug) if part)
+        range_slug = RANDOM_PRICE_RANGE_FILENAME_SLUGS.get(range_value, "")
         return f"rnd-{range_slug}" if range_slug else "rnd"
     adjust_slug = KLINE_ADJUSTMENT_FILENAME_SLUGS.get(
         str(config.get("kline_adjustment") or "").strip(), ""
@@ -320,12 +336,14 @@ def build_export_filename(
     extension: str = "xlsx",
     *,
     price_adjust: str = "",
+    stock_code: Any = "",
     now: datetime | None = None,
 ) -> str:
     """按统一规范组装导出文件名。
 
-    模型版本/价格复权段/K线区间缺失时整段省略，区间段成对出现（起止归一后按
-    时间升序）；导出时间段恒在；总长超上限时截断基名。
+    模型版本/股票代码（单股票场景，紧跟模型版本）/价格复权段/K线区间缺失时
+    整段省略，区间段成对出现（起止归一后按时间升序）；导出时间段恒在；
+    总长超上限时截断基名。
     """
 
     stamp = (now or datetime.now()).strftime(EXPORT_FILENAME_TIMESTAMP_FORMAT)
@@ -341,6 +359,7 @@ def build_export_filename(
     segments = [
         sanitize_export_filename(base),
         sanitize_export_filename(version_text) if version_text else "",
+        sanitize_export_filename(stock_code) if str(stock_code or "").strip() else "",
         sanitize_export_filename(price_adjust) if str(price_adjust or "").strip() else "",
         start_text,
         end_text,
@@ -529,9 +548,9 @@ def compose_preview_stem(
     kline_end: Any,
     price_adjust: str = "",
 ) -> str:
-    """按股票 zip 成员词干：`模型版本-价格复权-股票代码_K线起-K线止`（不带任务名与时间戳）。
+    """按股票 zip 成员词干：`模型版本-股票代码-价格复权_K线起-K线止`（不带任务名与时间戳）。
 
-    缺段优雅降级：头部（版本/价格复权/股票）与区间段各自以 '-' 连接，
+    缺段优雅降级：头部（版本/股票/价格复权）与区间段各自以 '-' 连接，
     两段都有时以 '_' 衔接；全缺返回空串。
     """
 
@@ -539,7 +558,7 @@ def compose_preview_stem(
     version_text = format_model_version(model_version) if str(model_version or "").strip() else ""
     head = "-".join(
         sanitize_export_filename(part)
-        for part in (version_text, price_adjust if str(price_adjust or "").strip() else "", str(stock_code or "").strip())
+        for part in (version_text, str(stock_code or "").strip(), price_adjust if str(price_adjust or "").strip() else "")
         if str(part or "").strip()
     )
     start_text = normalize_filename_date(kline_start)

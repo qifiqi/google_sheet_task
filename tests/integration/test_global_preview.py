@@ -147,9 +147,9 @@ def test_global_preview_stock_zip_honors_export_name(app_factory, monkeypatch):
         assert response.mimetype == "application/zip"
         content_disposition = response.headers["Content-Disposition"]
         assert 'filename="download.zip"' in content_disposition
-        # zip 外层保留任务名基名：手输名替换基名，模型版本 + 导出时间后缀照加
+        # zip 外层保留任务名基名：手输名替换基名，模型版本 + 单股票段 + 导出时间后缀照加
         assert re.search(
-            r"filename\*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA-C7.0.3-\d{8}_\d{6}\.zip$",
+            r"filename\*=UTF-8''%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA-C7.0.3-AAPL-\d{8}_\d{6}\.zip$",
             content_disposition,
         )
 
@@ -628,3 +628,29 @@ def test_single_product_preview_page_has_word_export_modal(app_factory, monkeypa
     assert 'id="wordExportResultList"' in body
     assert 'id="wordExportSelectAllBtn"' in body
     assert 'id="confirmWordExportBtn"' in body
+
+
+def test_global_preview_payload_supports_c1_1_export(app_factory):
+    """C1.1 走导出不再被类型白名单拦成“任务不存在”（db_to_http 线 b8645de0 §1.2 问题 3 的登记缺口）。"""
+    app = app_factory
+    with app.app_context():
+        db.session.add(Task(
+            id="c11-preview-export",
+            name="C1.1 预览导出",
+            task_type="google_sheet_C1_1",
+            status="completed",
+            config="{}",
+        ))
+        db.session.commit()
+        db.session.add(TaskResult(
+            task_id="c11-preview-export", step_index=0,
+            parameters='{"stock_code":"SPY.US","kline_key":"2026-2018"}',
+            result='{"result":{}}', success=True,
+        ))
+        db.session.commit()
+
+        payload = _build_global_preview_payload("c11-preview-export")
+
+        assert payload is not None
+        assert payload["summary"]["total_results"] == 1
+        assert payload["groups"][0]["columns"][0]["model_name"] == "C1.1.0"

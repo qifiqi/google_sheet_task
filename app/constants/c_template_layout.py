@@ -20,6 +20,8 @@ backtest_report_query_service、export_workbook_service、c7_result_normalizer
 
 from __future__ import annotations
 
+import re
+
 
 # ===========================================================================
 # C3 参数输入格：8 槽位（B5 佣金 + 7 业务参数）
@@ -187,3 +189,34 @@ SINGLE_PRODUCT_SUMMARY_ROW_LABELS = [
     ("max_drawdown", "模型回撤"),
     ("excess_drawdown", "超额回撤"),
 ]
+
+
+# ===========================================================================
+# C1.1 结果块摘要取数（E 列标签/F 列值，默认 F2:F26；c1_1_output_range 可按结果覆盖）
+# ===========================================================================
+# 概念键与 SUMMARY_METRIC_CELL_MAP 同词汇（return_rate 报表侧叫 return）；
+# 行偏移与 result_payload.C1_1_RESULT_FIELD_SPECS 行序一致：
+# 回报率=2、最大回撤=4、指数回报=6、指数最大回撤=8。
+# 超额回报/超额回撤两行由报表侧用相邻概念相减派生，不落单元格。
+C1_1_SUMMARY_METRIC_ROW_OFFSETS = {
+    "return": 2,
+    "max_drawdown": 4,
+    "index_return": 6,
+    "index_max_drawdown": 8,
+}
+C1_1_OUTPUT_RANGE_DEFAULT_ANCHOR = ("F", 2)
+
+
+def c1_1_summary_metric_cells(output_range) -> dict[str, str]:
+    """按结果块输出区间解析 C1.1 摘要取数单元格；非法区间回退默认锚点 F2。"""
+    start = str(output_range or "").split(":")[0].strip().upper()
+    match = re.fullmatch(r"([A-Z]+)(\d+)", start)
+    column_letter, anchor_row = (
+        (match.group(1), int(match.group(2)))
+        if match
+        else C1_1_OUTPUT_RANGE_DEFAULT_ANCHOR
+    )
+    return {
+        key: f"{column_letter}{anchor_row + offset}"
+        for key, offset in C1_1_SUMMARY_METRIC_ROW_OFFSETS.items()
+    }

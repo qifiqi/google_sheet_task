@@ -227,10 +227,18 @@
                                                     </div>
                                                     <input type="hidden" id="price_mode" value="random_price">
                                                     <div class="col-md-3">
-                                                        <label class="form-label" for="random_price_range">随机价格范围</label>
+                                                        <label class="form-label" for="random_price_range">AG 取价范围</label>
                                                         <select class="form-select" id="random_price_range">
-                                                            <option value="high_low" selected>最高价 - 最低价</option>
-                                                            <option value="open_close">开盘价 - 收盘价</option>
+                                                            <optgroup label="随机价">
+                                                                <option value="high_low" selected>最高价 - 最低价</option>
+                                                                <option value="open_close">开盘价 - 收盘价</option>
+                                                            </optgroup>
+                                                            <optgroup label="真实价">
+                                                                <option value="kp_price">开盘价（真实）</option>
+                                                                <option value="sp_price">收盘价（真实）</option>
+                                                                <option value="high_price">最高价（真实）</option>
+                                                                <option value="low_price">最低价（真实）</option>
+                                                            </optgroup>
                                                         </select>
                                                     </div>
                                                     <div class="col-md-3">
@@ -567,5 +575,26 @@
         };
     </script>
 <script src="/static/js/pages/google_sheet_c7_create.js"></script>
+<script>
+    // C1.1 专有：AG 取真实价（kp/sp/high/low_price）时无随机分组语义，
+    // 隐藏「随机组数」「随机序列模式」两个控件（后端同样归一为缺省）
+    (function () {
+        const REAL_RANGES = ['kp_price', 'sp_price', 'high_price', 'low_price'];
+        const rangeSelect = document.getElementById('random_price_range');
+        const groupWrap = document.getElementById('random_group_count')?.closest('.col-md-3');
+        const seriesWrap = document.getElementById('random_series_mode')?.closest('.col-md-3');
+        if (!rangeSelect || !groupWrap || !seriesWrap) return;
+        const syncRandomFieldVisibility = () => {
+            const isReal = REAL_RANGES.includes(rangeSelect.value);
+            groupWrap.classList.toggle('d-none', isReal);
+            seriesWrap.classList.toggle('d-none', isReal);
+        };
+        rangeSelect.addEventListener('change', syncRandomFieldVisibility);
+        // 表单恢复/回填在共享控制器内异步完成，延后一拍再校准一次
+        syncRandomFieldVisibility();
+        setTimeout(syncRandomFieldVisibility, 0);
+        document.addEventListener('DOMContentLoaded', syncRandomFieldVisibility);
+    })();
+</script>
 </body>
 </html>

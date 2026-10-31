@@ -14,6 +14,7 @@ report_charts = ModuleType("app.services.strategy_backtest_report_charts")
 report_charts.generate_report_charts = lambda *_args, **_kwargs: {}
 # 报告服务新增的相关系数热力图入口同样需要出现在桩上。
 report_charts.generate_correlation_heatmap = lambda *_args, **_kwargs: None
+report_charts.generate_same_direction_heatmap = lambda *_args, **_kwargs: None
 sys.modules.setdefault("app.services.strategy_backtest_report_charts", report_charts)
 
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
@@ -374,8 +375,9 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     with open('static/js/common/api.js', encoding='utf-8') as f:
         assert '/api/search-stocks' in f.read()
     assert "ratio: '100.00%'" in page_js
-    assert 'function applyV2ExportStyles' in page_js
-    assert 'XLSX.writeFile(workbook, defaultFilename' in page_js
+    # 前端本地多 sheet 导出（performanceExport 构建器 + excelExport 落盘）
+    assert 'PerformanceExport.buildSheets' in page_js
+    assert 'excelExport.exportSheets' in page_js
 
 
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory):

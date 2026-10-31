@@ -20,6 +20,10 @@ function init(V) {
         }
     }
     const GOOGLE_SHEET_TABLE_TYPE = V.tableType || 'c7';
+    // 页面任务族显示名：C7/C5/C4/C1.1 共享本控制器，提示文案按页面自述，不硬编码 c7
+    const PAGE_TASK_LABEL = ({ c7: 'C7', c5: 'C5', c4: 'C4', c1_1: 'C1.1' })[GOOGLE_SHEET_TABLE_TYPE] || 'C7';
+    // 编辑模式（detail 页编辑入口跳转 ?edit_task_id=）：复用 restart 回填通道，提交切 updateConfig 全量覆盖
+    const EDIT_TASK_ID = new URLSearchParams(location.search).get('edit_task_id') || '';
 
     // 表单共享状态（token 列表/待回填选择/产品代码）由 Biz.formState 持有，本页经其 API 访问
     let currentTaskId = null;
@@ -701,10 +705,18 @@ function init(V) {
 
         // mode-specific title/header
         if (mode === 'restart') {
-            document.title = '重启任务 - Google Sheet 参数批量校验';
-            const cardHeader = document.querySelector('.card-header h4');
-            if (cardHeader) {
-                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+            if (EDIT_TASK_ID) {
+                document.title = '编辑任务 - Google Sheet 参数批量校验';
+                const cardHeader = document.querySelector('.card-header h4');
+                if (cardHeader) {
+                    cardHeader.innerHTML = '<i class="bi bi-pencil-square"></i> 编辑任务 (任务ID: ' + EDIT_TASK_ID + ')';
+                }
+            } else {
+                document.title = '重启任务 - Google Sheet 参数批量校验';
+                const cardHeader = document.querySelector('.card-header h4');
+                if (cardHeader) {
+                    cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+                }
             }
         }
 
@@ -712,7 +724,7 @@ function init(V) {
         calculateCombinations();
 
         if (mode === 'restart') {
-            showNotification('已加载原任务配置', 'info');
+            showNotification(EDIT_TASK_ID ? '已加载任务配置，修改后点击「保存修改」' : '已加载原任务配置', 'info');
         } else {
             showNotification('已加载模板配置', 'success');
         }
@@ -1068,6 +1080,12 @@ function init(V) {
         document.getElementById('execute-btn').addEventListener('click', function() {
             submitTask();
         });
+
+        // 编辑模式：按钮与页面标题切换为「编辑任务」语义（回填复用 restart 通道）
+        if (EDIT_TASK_ID) {
+            const executeBtn = document.getElementById('execute-btn');
+            executeBtn.innerHTML = '<i class="bi bi-save"></i> 保存修改';
+        }
     }
 
     // 克隆一组仅用于展示的 Google Sheet 配置（移除重复ID，避免影响实际提交逻辑）
@@ -1521,9 +1539,31 @@ function init(V) {
             config: taskConfig
         };
 
-        Api.endpoints.task.create(taskData).then(function(data) {
+        // 编辑模式提交 updateConfig 全量覆盖（merge=false）；新建走 create。
+        const isEditMode = Boolean(EDIT_TASK_ID);
+        const requestPromise = isEditMode
+            ? Api.endpoints.task.updateConfig(EDIT_TASK_ID, {
+                name: finalTaskName,
+                description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
+                config: taskConfig,
+                merge: false
+            })
+            : Api.endpoints.task.create(taskData);
+
+        requestPromise.then(function(data) {
             executeBtn.disabled = false;
-            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+            executeBtn.innerHTML = isEditMode
+                ? '<i class="bi bi-save"></i> 保存修改'
+                : '<i class="bi bi-play-circle"></i> 创建任务并执行';
+
+            if (isEditMode) {
+                showNotification('配置已更新，正在返回详情页面...', 'success');
+                // 编辑保存成功不重置表单/不清草稿，直接返回详情页
+                setTimeout(function() {
+                    window.location.href = `/google-sheet/detail?task_id=${EDIT_TASK_ID}&version=${V.versionQuery || 'c7'}`;
+                }, 800);
+                return;
+            }
 
             currentTaskId = data.task_id;
             showNotification('任务创建成功，正在跳转到详情页面...', 'success');
@@ -1541,9 +1581,11 @@ function init(V) {
             }, 1000);
         }).catch(function(err) {
             executeBtn.disabled = false;
-            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+            executeBtn.innerHTML = isEditMode
+                ? '<i class="bi bi-save"></i> 保存修改'
+                : '<i class="bi bi-play-circle"></i> 创建任务并执行';
 
-            showNotification('创建任务失败: ' + (err && err.message ? err.message : '未知错误'), 'error');
+            showNotification((isEditMode ? '配置保存失败: ' : '创建任务失败: ') + (err && err.message ? err.message : '未知错误'), 'error');
         });
     }
 
@@ -1560,6 +1602,10 @@ function init(V) {
 
     // 保存表单数据到localStorage
     function saveFormData() {
+        if (EDIT_TASK_ID) {
+            // 编辑模式不写新建草稿，避免编辑内容污染下次新建的恢复数据
+            return;
+        }
         const formData = {
             task_name: document.getElementById('task_name').value,
             task_description: document.getElementById('task_description').value,
@@ -1693,7 +1739,7 @@ function init(V) {
         }
     }
 
-    // 清除保存的表单数据（仅清理 c7 自己的缓存）
+    // 清除保存的表单数据（仅清理本页任务族自己的缓存，键由 V.formStorageKey 区分）
     function clearSavedFormData() {
         try {
             localStorage.removeItem(V.formStorageKey || 'google_sheet_c7_form_data');
@@ -1705,8 +1751,8 @@ function init(V) {
             updateCustomKlineModeAvailability();
             // 重新计算组合数量
             calculateCombinations();
-            console.log('已清除 c7 表单缓存');
-            showNotification('已清除 c7 表单缓存', 'success');
+            console.log(`已清除 ${PAGE_TASK_LABEL} 表单缓存`);
+            showNotification(`已清除 ${PAGE_TASK_LABEL} 表单缓存`, 'success');
         } catch (e) {
             console.warn('无法清除localStorage数据:', e);
         }

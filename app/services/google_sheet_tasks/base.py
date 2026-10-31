@@ -18,7 +18,11 @@ from app.models import TaskLog, TaskStatus
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
-from app.services.kline_service import KlineService, get_kline_price_field
+from app.services.kline_service import (
+    KlineService,
+    REAL_PRICE_RANGE_FIELDS,
+    get_kline_price_field,
+)
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.task_kline_snapshot_service import (
     SnapshotLazyKlineMap,
@@ -774,6 +778,22 @@ class BaseGoogleSheetService:
         """
         if price_mode != "random_price":
             return combinations, kline_data_map
+        # 真实价取值（C1.1）：AG 写真实字段，无随机分组；投影占位 stock_val
+        # 按收盘价写入，这里重写为所选真实字段
+        _real_field = REAL_PRICE_RANGE_FIELDS.get(
+            str(random_price_range or "").strip().lower()
+        )
+        if _real_field:
+            rewritten_map = {
+                key: KlineService.build_price_rows(
+                    rows,
+                    price_mode,
+                    price_field=_real_field,
+                    include_ohlc=True,
+                )
+                for key, rows in kline_data_map.items()
+            }
+            return combinations, rewritten_map
         full_truncate = random_series_mode == RANDOM_SERIES_MODE_FULL_TRUNCATE
         if full_truncate and (not full_kline or not full_kline_key):
             raise ValueError("全区间截断模式需要全区间K线与窗口键")
@@ -985,8 +1005,14 @@ class BaseGoogleSheetService:
 
         price_field = get_kline_price_field(price_mode)
         if price_mode == 'random_price':
-            # 随机价格模式的取值字段随 random_price_range 变化
-            price_field = 'high' if random_price_range == 'high_low' else 'close'
+            # 随机价格模式的取值字段随 random_price_range 变化（真实价取值校验对应字段）
+            _real_field = REAL_PRICE_RANGE_FIELDS.get(
+                str(random_price_range or "").strip().lower()
+            )
+            if _real_field:
+                price_field = _real_field
+            else:
+                price_field = 'high' if random_price_range == 'high_low' else 'close'
         klines = require_kline_rows(
             parameter,
             market_type,

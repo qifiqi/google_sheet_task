@@ -95,6 +95,19 @@ def test_price_adjust_filename_segment_real_and_random():
         {"price_mode": "random_price", "random_price_range": "open_close"}
     ) == "rnd-oc"
     assert price_adjust_filename_segment({"price_mode": "random_price"}) == "rnd"
+    # C1.1 真实价取值：random_price 模式 + 真实区间 = 真实价段 + 复权段（与真实行情同口径）
+    assert price_adjust_filename_segment(
+        {"price_mode": "random_price", "random_price_range": "sp_price", "kline_adjustment": "forward"}
+    ) == "close-qfq"
+    assert price_adjust_filename_segment(
+        {"price_mode": "random_price", "random_price_range": "kp_price", "kline_adjustment": "back"}
+    ) == "open-hfq"
+    assert price_adjust_filename_segment(
+        {"price_mode": "random_price", "random_price_range": "high_price", "kline_adjustment": "none"}
+    ) == "high-raw"
+    assert price_adjust_filename_segment(
+        {"price_mode": "random_price", "random_price_range": "low_price"}
+    ) == "low"
     # 未知/缺失/非 dict 配置整段省略
     assert price_adjust_filename_segment({"price_mode": "unknown"}) == ""
     assert price_adjust_filename_segment({}) == ""
@@ -108,6 +121,11 @@ def test_build_export_filename_with_price_adjust_segment():
         price_adjust="close-qfq", now=FROZEN_NOW,
     )
     assert filename == "贵州茅台-C1.1.0-close-qfq-20230101-20231229-20261023_153000.xlsx"
+    # 股票段紧跟模型版本（仅单股票场景由调用方传入）
+    assert build_export_filename(
+        "贵州茅台", "c1_1", "2023-01-01", "2023-12-29",
+        price_adjust="close-qfq", stock_code="600519.SH", now=FROZEN_NOW,
+    ) == "贵州茅台-C1.1.0-600519.SH-close-qfq-20230101-20231229-20261023_153000.xlsx"
     # 段缺失整段省略（存量命名不受影响）
     assert build_export_filename("任务A", "", "", "", now=FROZEN_NOW) == \
         "任务A-20261023_153000.xlsx"
@@ -115,7 +133,7 @@ def test_build_export_filename_with_price_adjust_segment():
 
 def test_compose_preview_stem_with_price_adjust():
     stem = compose_preview_stem("c1_1", "600519", "2023-01-01", "2023-12-29", price_adjust="rnd-oc")
-    assert stem == "C1.1.0-rnd-oc-600519_20230101-20231229"
+    assert stem == "C1.1.0-600519-rnd-oc_20230101-20231229"
     assert compose_preview_stem("c1_1", "600519", "2023-01-01", "2023-12-29") == \
         "C1.1.0-600519_20230101-20231229"
 

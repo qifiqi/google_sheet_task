@@ -1,6 +1,10 @@
 
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
+// 编辑模式（detail 页编辑入口跳转 ?edit_task_id=）：回填任务配置，提交切 updateConfig 全量覆盖
+const EDIT_TASK_ID = new URLSearchParams(window.location.search).get('edit_task_id') || '';
+// 编辑模式的任务原描述（提交时原样带回，页面无描述输入框）
+let editTaskOriginalDescription = '';
 const STOCK_SEARCH_DEBOUNCE_MS = 1000;
 // C3 默认佣金镜像后端（common/contract-constants.js，改契约两侧同批）。
 const DEFAULT_C3_COMMISSION = window.BizConstants.DEFAULT_C3_COMMISSION;
@@ -1065,12 +1069,136 @@ async function importExcelFile(file) {
     }
 }
 
+// 编辑模式：加载任务并回填表单（与 Excel 导入同一套回填口径）
+async function loadTaskForEdit() {
+    try {
+        const data = await Api.endpoints.task.detail(encodeURIComponent(EDIT_TASK_ID));
+        const task = data && data.task ? data.task : null;
+        const config = task && task.config ? task.config : null;
+        if (!config) {
+            alert('加载任务配置失败：config 为空');
+            return;
+        }
+
+        // 任务名：显式回填并标记已手动修改，防自动命名覆盖
+        editTaskOriginalDescription = task.description || '';
+        if (task.name) {
+            taskNameInput.value = task.name;
+            taskNameTouched = true;
+        }
+        if (config.token_id) {
+            tokenIdSelect.value = String(config.token_id);
+        }
+
+        // Sheet：填链接并识别（renderSheetInfo 会推断模型版本/工作表并重置参数表）
+        const sheetRef = Array.isArray(config.sheets) ? config.sheets[0] : null;
+        if (sheetRef && sheetRef.spreadsheet_id) {
+            if (sheetRef.google_sheet_id) {
+                await loadBacktestGoogleSheets();
+                const preset = backtestGoogleSheets.find(
+                    (sheet) => String(sheet.id) === String(sheetRef.google_sheet_id)
+                );
+                if (preset) {
+                    selectedGoogleSheetId = Number(preset.id);
+                }
+            }
+            modelUrlInput.value = buildGoogleSheetUrl(sheetRef.spreadsheet_id);
+            await analyzeSheetInput();
+            // 识别后按任务配置回写真实工作表与标题（识别默认取第一个工作表）
+            if (sheetRef.sheet_name) {
+                selectedWorksheetName = String(sheetRef.sheet_name).trim();
+                sheetNamesEl.textContent = selectedWorksheetName || '-';
+            }
+            if (sheetRef.title) {
+                sheetTitle = String(sheetRef.title).trim();
+                sheetTitleEl.textContent = sheetTitle;
+            }
+        }
+
+        // 股票与市场：恢复联想对象，防止提交时丢 stock_name 等附带键
+        if (config.stock_code) {
+            stockCodeInput.value = String(config.stock_code).trim().toUpperCase();
+        }
+        if (config.market_type) {
+            setMarketTypeSelection(config.market_type);
+        }
+        selectedStockSuggestion = {
+            code: config.stock_code || '',
+            name: config.stock_name || '',
+            market_type: config.market_type || '',
+            exchange_market: config.exchange_market || '',
+            security_type_name: config.security_type_name || '',
+            source: config.stock_source || '',
+        };
+
+        // 价格模式：识别联动后按 config 回写（C7.0.3 锁 OHLC 的口径不变）
+        syncPriceModeForModel();
+        if (config.price_mode) {
+            const priceModeInput = document.getElementById('priceModeInput');
+            if (priceModeInput && !priceModeInput.disabled) {
+                priceModeInput.value = config.price_mode;
+            }
+        }
+        if (config.kline_adjustment) {
+            document.getElementById('klineAdjustmentInput').value = config.kline_adjustment;
+        }
+        if (config.kline_data_source) {
+            document.getElementById('klineDataSourceInput').value = config.kline_data_source;
+        }
+
+        // 参数表：c3 行首列为佣金（collectParameters 的逆操作），其余列按字段键投影
+        const rows = Array.isArray(config.parameters) ? config.parameters.slice() : [];
+        const isC3 = resolveModelVersion(currentModelVersion) === 'c3';
+        const tableRows = (isC3 ? rows.map((row) => (Array.isArray(row) ? row.slice(1) : [])) : rows)
+            .map((row) => {
+                const projected = {};
+                currentFields.forEach((field, index) => {
+                    projected[field.key] = String((Array.isArray(row) ? row[index] : '') ?? '').trim();
+                });
+                return projected;
+            });
+        if (isC3 && rows[0] && Array.isArray(rows[0]) && rows[0].length > 1) {
+            commissionInput.value = String(rows[0][0] ?? '');
+        }
+        resetParameterTable(tableRows);
+
+        // 年份窗口与结束日期
+        const recentYears = Array.isArray(config.recent_years) ? config.recent_years : [];
+        const fullYears = Array.isArray(config.full_years) ? config.full_years : [];
+        document.querySelectorAll('.recent-year').forEach((checkbox) => {
+            checkbox.checked = recentYears.includes(Number.parseInt(checkbox.value, 10));
+        });
+        recentYearsCheck.checked = recentYears.length > 0;
+        document.querySelectorAll('.full-year').forEach((checkbox) => {
+            checkbox.checked = fullYears.includes(Number.parseInt(checkbox.value, 10));
+        });
+        fullYearsCheck.checked = fullYears.length > 0;
+        if (config.end_date) {
+            endDateInput.value = String(config.end_date);
+        }
+        syncYearsWrapper();
+        syncYearsDisplay();
+
+        // 编辑模式外观：标题 + 提交按钮文案
+        document.title = '编辑任务 - 单品回测';
+        const createBtn = document.getElementById('createBtn');
+        if (createBtn) {
+            createBtn.innerHTML = '<i class="bi bi-save"></i> 保存修改';
+        }
+    } catch (error) {
+        alert(error.message || '加载任务配置失败');
+    }
+}
+
 async function createTask() {
     if (isCreatingTask) {
         return;
     }
 
-    const taskName = buildDefaultTaskName();
+    // 编辑模式以输入框中的任务名为准（新建沿用自动命名）
+    const taskName = EDIT_TASK_ID
+        ? (taskNameInput.value.trim() || buildDefaultTaskName())
+        : buildDefaultTaskName();
     const stockCode = stockCodeInput.value.trim().toUpperCase();
     const tokenId = tokenIdSelect.value;
     const parameters = collectParameters();
@@ -1144,8 +1272,23 @@ async function createTask() {
             config.security_type_name = selectedStockSuggestion.security_type_name || undefined;
             config.stock_source = selectedStockSuggestion.source || undefined;
         }
-        if (currentExcelImport) {
+        // 编辑模式不携带 excel_import（该键前后端类型冲突为已知问题，登记不修）
+        if (!EDIT_TASK_ID && currentExcelImport) {
             config.excel_import = currentExcelImport;
+        }
+
+        if (EDIT_TASK_ID) {
+            // 编辑提交：全量覆盖（merge=false），派生键由服务端统一重建
+            await Api.endpoints.task.updateConfig(EDIT_TASK_ID, {
+                name: taskName,
+                description: editTaskOriginalDescription
+                    || `backtest training task for ${sheetTitleEl.textContent.trim() || 'sheet'}`,
+                config,
+                merge: false
+            });
+            alert('配置已更新');
+            window.location.href = `/backtest-training/detail/${EDIT_TASK_ID}`;
+            return;
         }
 
         const data = await Api.endpoints.task.create({
@@ -1242,6 +1385,10 @@ stockSearchResults.addEventListener('click', (event) => {
 });
 
 loadStockMarkets();
+
+if (EDIT_TASK_ID) {
+    loadTaskForEdit();
+}
 
 document.addEventListener('click', (event) => {
     if (!event.target.closest('.stock-search-shell')) {

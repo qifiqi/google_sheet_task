@@ -30,8 +30,14 @@ class PerformanceReportExporterMixin:
 
     @staticmethod
     def _format_export_metric(value, format_spec):
-        """按给定格式输出指标，缺失值统一展示为占位符。"""
-        return '--' if value is None else f"{value:{format_spec}}"
+        """按给定格式输出指标，缺失值统一展示为占位符。
+
+        数值统一转 float：JSON 持久化往返会把 0.0 还原成 int 0，
+        而 '.2' 等带精度的格式对 int 抛 ValueError（Precision not allowed）。
+        """
+        if value is None:
+            return '--'
+        return f"{float(value):{format_spec}}" if isinstance(value, int) and not isinstance(value, bool) else f"{value:{format_spec}}"
 
     @staticmethod
     def _max_yearly_repair_days(yearly_repair_days):

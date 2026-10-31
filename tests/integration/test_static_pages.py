@@ -24,7 +24,8 @@ STATIC_PAGES = [
     ("/google-sheet/detail?task_id=static-fixture", "/static/js/pages/google_sheet_detail_dispatcher.js"),
     # F3: google_sheet_c4/c5/c7 六大页（create + detail）
     # P11 子批1：c5 create 页与 c7 共用 Biz.ctaskCreate 控制器（pages/google_sheet_c7_create.js）
-    ("/google-sheet/create?version=c4", "/static/js/pages/google_sheet_c4_create.js"),
+    # C4 创建页整体复用 C5 表单形态（差异仅在 __CTASK_CONFIG），同样共用该控制器
+    ("/google-sheet/create?version=c4", "/static/js/pages/google_sheet_c7_create.js"),
     ("/google-sheet/create?version=c5", "/static/js/pages/google_sheet_c7_create.js"),
     ("/google-sheet/create?version=c7", "/static/js/pages/google_sheet_c7_create.js"),
     ("/google-sheet/detail?version=c4", "/static/js/pages/google_sheet_c4_detail.js"),

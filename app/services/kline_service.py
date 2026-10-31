@@ -51,6 +51,15 @@ RANDOM_PRICE_RANGE_FIELDS = {
     "open_close": ("open", "close"),
 }
 
+# random_price 模式下的真实价取值（C1.1 专用）：AG 列不走随机生成，
+# 直接写对应真实字段（开盘/收盘/最高/最低）。
+REAL_PRICE_RANGE_FIELDS = {
+    "kp_price": "open",
+    "sp_price": "close",
+    "high_price": "high",
+    "low_price": "low",
+}
+
 
 def get_kline_price_field(price_mode: Any) -> str:
     """按任务价格类型(price_mode)返回标准K线价格字段；整个项目只允许这一份映射。"""
@@ -165,11 +174,19 @@ class KlineService:
             elif start_date is not None or end_date is not None:
                 if not (start_date <= date <= end_date):
                     continue
-            if normalized_mode == "random_price":
-                lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
-                lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
-                generator = random_generator or random
-                stock_val = round(generator.uniform(lower, upper), 3)
+            if normalized_mode == "random_price" and not price_field:
+                # 未显式指定 price_field 时才走随机/真实区间取价；显式 price_field 直接按字段投影
+                real_field = REAL_PRICE_RANGE_FIELDS.get(
+                    str(random_price_range or "").strip().lower()
+                )
+                if real_field:
+                    # 真实价取值：AG 直接写对应字段，不参与随机生成
+                    stock_val = kline.get(real_field)
+                else:
+                    lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
+                    lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
+                    generator = random_generator or random
+                    stock_val = round(generator.uniform(lower, upper), 3)
             else:
                 stock_val = kline[resolved_field]
             row = {"stock_date": date, "stock_val": stock_val}

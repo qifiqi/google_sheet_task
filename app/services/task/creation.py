@@ -23,7 +23,7 @@ from app.services.google_sheet_token_service import (
 )
 from app.utils.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
-from app.services.kline_service import KlineService
+from app.services.kline_service import REAL_PRICE_RANGE_FIELDS, KlineService
 from app.repositories import task_repository
 from app.utils.value_parser import coerce_bool
 from app.utils.database import transaction_required
@@ -87,10 +87,19 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
     return normalized
 
 
-def _validate_random_price_options(normalized: dict[str, Any]) -> dict[str, Any]:
-    """random_price 模式的随机范围/组数/序列模式公共校验（C7/C1.1 共用）。"""
+def _validate_random_price_options(
+    normalized: dict[str, Any], allow_real_range: bool = False
+) -> dict[str, Any]:
+    """random_price 模式的随机范围/组数/序列模式公共校验（C7/C1.1 共用）。
+
+    allow_real_range=True 时（C1.1）额外允许真实价取值区间（开盘/收盘/最高/最低），
+    此时无随机分组语义，random_group_count/random_series_mode 保持缺省。
+    """
+    allowed_ranges = {"high_low", "open_close"}
+    if allow_real_range:
+        allowed_ranges |= set(REAL_PRICE_RANGE_FIELDS)
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
-    if random_range not in {"high_low", "open_close"}:
+    if random_range not in allowed_ranges:
         raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
     series_mode = str(
         normalized.get("random_series_mode") or "per_window"
@@ -145,7 +154,7 @@ def _normalize_c1_1_random_price_config(config: dict[str, Any]) -> dict[str, Any
     if str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower() == KLINE_SOURCE_CUSTOM:
         return normalized
     normalized["price_mode"] = "random_price"
-    return _validate_random_price_options(normalized)
+    return _validate_random_price_options(normalized, allow_real_range=True)
 
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
@@ -220,7 +229,8 @@ class TaskCreationMixin:
             normalized["kline_data_source"] = KlineService.normalize_data_source(
                 normalized.get("kline_data_source", normalized.get("data_source"))
             )
-            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7","google_sheet_c1_1"):
+            # C4 与 C5 模型/表单同构（创建页整体复用 C5 形态），kline_source 约束同口径
+            if task_type.lower() in ("google_sheet_c4", "google_sheet_c5", "google_sheet_c7","google_sheet_c1_1"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
             if task_type.lower() == TYPE_GOOGLE_SHEET_C7:
                 normalized = _normalize_c7_random_price_config(normalized)
@@ -668,10 +678,18 @@ class TaskCreationMixin:
                 old_config = task["config"] if isinstance(task["config"], dict) else {}
                 effective_config = {**old_config, **new_config}
             else:
+                # 全量替换（新建页 edit 模式）：表单即全量字段，直接覆盖无脏键残留。
                 effective_config = new_config
+            # 与 create_task 同一条派生链（normalize → 股票名 hydrate → token 解析），
+            # 编辑换 token_id 后 token_name/token_file 随之刷新，编辑/创建同源。
             effective_config = self._normalize_task_config_for_type(
                 task["task_type"], effective_config
             )
+            if isinstance(effective_config, dict):
+                effective_config = _hydrate_stock_name_from_metadata(effective_config)
+                effective_config = get_google_sheet_token_service().prepare_task_config(
+                    effective_config
+                )
             if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(effective_config)
             if is_c_series_task_type(task["task_type"]):

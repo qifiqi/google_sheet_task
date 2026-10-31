@@ -23,17 +23,23 @@
     }
 
     Api.endpoints.task.detail(taskId).then(function (task) {
-        const version = taskTypeToVersion(task && task.task_type);
+        // /api/tasks/<id> 信封 data 形如 {task: {...}}，task_type 在内层。
+        const taskInfo = task && task.task ? task.task : task;
+        const version = taskTypeToVersion(taskInfo && taskInfo.task_type);
         const sp = new URLSearchParams(window.location.search);
         if (version) {
             sp.set('version', version);
             window.location.replace('/google-sheet/detail?' + sp.toString());
         } else {
-            // 未知类型/任务：落回默认 C3 详情页（原服务端缺省分支）。
+            // 未知类型：落服务端缺省分支（version=c3 → C3 详情页）；
+            // 不能原样 replace 回自身——无 version 会再次命中 dispatcher 造成刷新循环。
+            sp.set('version', 'c3');
             window.location.replace('/google-sheet/detail?' + sp.toString());
         }
     }).catch(function () {
+        // 查询失败（任务不存在/网络异常）：落 C3 详情页由页面内报错，同样不可回自身。
         const sp = new URLSearchParams(window.location.search);
+        sp.set('version', 'c3');
         window.location.replace('/google-sheet/detail?' + sp.toString());
     });
 })();

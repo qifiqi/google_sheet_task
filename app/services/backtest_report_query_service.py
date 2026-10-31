@@ -18,6 +18,7 @@ from app.constants.c_template_layout import (
     C3_PARAMETER_FIELDS,
     SINGLE_PRODUCT_SUMMARY_ROW_LABELS,
     SUMMARY_METRIC_CELL_MAP,
+    c1_1_summary_metric_cells,
 )
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
@@ -456,7 +457,32 @@ def _build_c3_summary_rows(task_id):
 
 
 
-def _build_parameter_header(parameters):
+# C1.1 真实价取值的价格类型展示名（random_price_range 子标记，与前端 config-edit 词表同义）。
+_C1_1_REAL_PRICE_RANGE_LABELS = {
+    "kp_price": "开盘价",
+    "sp_price": "收盘价",
+    "high_price": "最高价",
+    "low_price": "最低价",
+}
+
+
+def _c1_1_price_type_label(task_config):
+    """C1.1 真实价取值的列头价格名；随机区间/缺省返回空串（随机走 random-N key）。"""
+    return _C1_1_REAL_PRICE_RANGE_LABELS.get(
+        str((task_config or {}).get("random_price_range") or "").strip().lower(), ""
+    )
+
+
+def _build_parameter_header(parameters, price_type_label=""):
+    # C1.1 无参数组合：列标识 = 价格类型取值（随机价=random-N，真实价=收盘价等价格名，
+    # 由任务配置 random_price_range 解析，识别不了回落模型版本显示名）；
+    # 汇总表头/月度块组头/明细首行三处同源展示该取值。
+    if normalize_model_version(parameters.get("model_version")) == "c1_1":
+        random_group = parameters.get("random_group")
+        if random_group not in (None, ""):
+            return f"random-{random_group}"
+        return price_type_label or format_model_version(parameters.get("model_version"))
+
     parameter_values = parameters.get("parameter")
     if not isinstance(parameter_values, list) or not parameter_values:
         c7_values = [
@@ -545,6 +571,9 @@ def _get_summary_raw_metric(column, metric_key):
     model_name = str(column.get("model_name") or "C3").upper()
     if model_name == "C7" and column.get("model_version") == "c7_0_3":
         cell_map = SUMMARY_METRIC_CELL_MAP["C5"]
+    elif model_family(model_name) == "C1.1":
+        # C1.1 结果块是输出区间内的单列（默认 F2:F26），SUMMARY_METRIC_CELL_MAP 只覆盖 C3/C4/C5/C7
+        cell_map = c1_1_summary_metric_cells(column.get("c1_1_output_range"))
     else:
         cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
     cell_key = cell_map.get(metric_key)
@@ -833,11 +862,13 @@ def _query_global_preview_results(task_id, result_ids=None):
     return task_result_repository.list_preview_entities(task_id, result_ids=result_ids)
 
 
-def _build_global_preview_payload_from_results(task, task_results):
+def _build_global_preview_payload_from_results(task, task_results, *, include_monthly_returns=False):
     """将单产品 TaskResult 转换为全局预览使用的表格数据格式。
 
     单产品页面以“股票 + 年份区间”分组、以每条成功结果作为动态列；
     行指标来自 绩效分析 摘要格式化逻辑，缺失结果仍保留列以便用户识别失败步骤。
+    ``include_monthly_returns`` 仅供导出侧打开：成功列附带逐月收益序列
+    （metrics.monthly_excess_returns），预览 API 保持两级懒加载轻量不透传。
     """
     task_config = task.to_dict().get("config") or {}
     return_series_by_id = {
@@ -889,7 +920,10 @@ def _build_global_preview_payload_from_results(task, task_results):
                 )
                 if task_result.success and task_result.return_series_id else None
             ),
-            "header": _build_parameter_header(parameters),
+            "header": _build_parameter_header(
+                parameters, _c1_1_price_type_label(task_config)
+            ),
+            "c1_1_output_range": parameters.get("c1_1_output_range"),
             "model_name": model_name,
             "model_version": (
                 _resolve_result_model_version(parameters)
@@ -913,6 +947,13 @@ def _build_global_preview_payload_from_results(task, task_results):
             return_rows=_get_task_result_return_rows(task_result, return_series_by_id),
             cache_key=task_result.return_series_id,
         )
+        if include_monthly_returns:
+            column["monthly_returns"] = calculate_metrics.get("monthly_excess_returns") or []
+            # 年度收益复用执行期回算结果（calculate_year_returns，同 Word 报告 1.2 分年度收益率口径）。
+            column["year_returns"] = _merge_year_returns(
+                calculate_metrics.get("index_returns_rate"),
+                calculate_metrics.get("start_returns_rate"),
+            )
         period_text, summary_rows = _extract_summary_rows(calculate_metrics)
         summary_rows = _with_excess_return_preview_row(
             summary_rows, column, calculate_metrics
@@ -986,15 +1027,19 @@ def _build_global_preview_payload_from_results(task, task_results):
     }
 
 
-def _build_global_preview_payload(task_id):
+def _build_global_preview_payload(task_id, include_monthly_returns=False):
     """兼容全量调用；页面首屏不应使用该函数。"""
     task = task_repository.get_entity(task_id)
+    # 单品全局预览页面向 C 系列全族开放（含 C1.1，db_to_http 线 b8645de0 §1.2 问题 3 的既有登记缺口）。
     if not task or normalize_task_type(task.task_type) not in {
         "backtest_training", "google_sheet", "google_sheet_c4", "google_sheet_c5", "google_sheet_c7",
+        "google_sheet_c1_1",
     }:
         return None
     return _build_global_preview_payload_from_results(
-        task, _query_global_preview_results(task_id)
+        task,
+        _query_global_preview_results(task_id),
+        include_monthly_returns=include_monthly_returns,
     )
 
 
@@ -1291,12 +1336,193 @@ def _write_multi_product_group_sheet(sheet, group, payload):
     return len(header)
 
 
+def _merge_year_returns(index_records, start_records):
+    """把执行期年度收益回算（calculate_year_returns 产物）合并为
+    [{year, index_annual_return, start_annual_return}, ...]；畸形记录跳过。
+
+    与 Word 报告"1.2 分年度收益率"同源同口径（index_returns_rate / start_returns_rate
+    的 annual_return 字段）；超额侧由消费方相减派生。
+    """
+    index_by_year = {}
+    start_by_year = {}
+    for records, bucket, field in (
+        (index_records, index_by_year, "annual_return"),
+        (start_records, start_by_year, "annual_return"),
+    ):
+        for item in records or []:
+            if not isinstance(item, dict):
+                continue
+            year = str(item.get("year") or "").strip()
+            if not year:
+                continue
+            bucket[year] = item.get(field)
+    years = sorted(set(index_by_year) | set(start_by_year))
+    return [
+        {
+            "year": year,
+            "index_annual_return": index_by_year.get(year),
+            "start_annual_return": start_by_year.get(year),
+        }
+        for year in years
+    ]
+
+
+def _is_finite_number(value):
+    """数值守卫：仅接受有限 int/float（bool 与 NaN/inf 均视为无效）。"""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _year_returns_lookup(columns):
+    """把各结果列的年度收益回算整理为 {年: {column_key: (指数年度, 模型年度)}}。"""
+    lookup = {}
+    for column in columns or []:
+        records = column.get("year_returns") if isinstance(column, dict) else None
+        if not records:
+            continue
+        column_key = column.get("column_key")
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            year = str(item.get("year") or "").strip()
+            if not year:
+                continue
+            lookup.setdefault(year, {})[column_key] = (
+                item.get("index_annual_return"),
+                item.get("start_annual_return"),
+            )
+    return lookup
+
+
+def _monthly_returns_grid(columns):
+    """把各结果列的月度序列整理为 {年: {月: {column_key: (指数, 模型, 超额)}}}。
+
+    年份取各列并集；year_month 非 YYYY-MM 的畸形记录跳过（与 Word 报告
+    _monthly_by_year 同口径）。指数取 index_monthly_return、模型取
+    start_monthly_return、超额取 monthly_excess_return_diff。
+    """
+    grid: "OrderedDict[str, dict]" = OrderedDict()
+    for column in columns or []:
+        records = column.get("monthly_returns") if isinstance(column, dict) else None
+        if not records:
+            continue
+        column_key = column.get("column_key")
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            year, _, month = str(item.get("year_month") or "").partition("-")
+            if not (len(year) == 4 and year.isdigit() and month.isdigit()):
+                continue
+            grid.setdefault(year, {}).setdefault(int(month), {})[column_key] = (
+                item.get("index_monthly_return"),
+                item.get("start_monthly_return"),
+                item.get("monthly_excess_return_diff"),
+            )
+    return grid
+
+
+def _append_monthly_returns_block(sheet, columns, styles):
+    """在指标表下方追加每月收益率表：按年分块、全年行 + 月份 12→1 倒序，
+    每个结果列一组「指数/模型/超额」。
+
+    年份行身兼列名行：A 列年份 + 各组「指数/模型/超额」平铺（无合并单元格，
+    不重复组头取值，多结果列靠列位与顶部指标块对应）；每块 = 列名行 + 「全年」
+    汇总行 + 12 行月份。全年收益复用执行期回算（column.year_returns，同 Word
+    报告 1.2 口径），超额 = 模型 − 指数；组内所有列都无年度数据时省去全年行
+    （老任务产物回退 13 行块），缺月/缺年留空。
+    """
+    grid = _monthly_returns_grid(columns)
+    if not grid:
+        return
+
+    annual_by_year = _year_returns_lookup(columns)
+    has_annual = any(annual_by_year.values())
+
+    month_header_fill = styles["month_header_fill"]
+    first_col_fill = styles["first_col_fill"]
+    title_font = styles["title_font"]
+    header_font = styles["header_font"]
+    body_font = styles["body_font"]
+    center_alignment = styles["center_alignment"]
+    thin_border = styles["thin_border"]
+
+    # 指标表与月度表之间空两行；之后每个年块依次铺开。
+    block_start = sheet.max_row + 3
+    row_cursor = block_start
+    year_header_rows = []
+    annual_rows = set()
+    for year in sorted(grid.keys(), reverse=True):
+        months_map = grid[year]
+        year_header_rows.append(row_cursor)
+        sheet.cell(row=row_cursor, column=1, value=int(year))
+        for column_index, _column in enumerate(columns):
+            col_start = 2 + column_index * 3
+            for offset, label in enumerate(("指数", "模型", "超额")):
+                sheet.cell(row=row_cursor, column=col_start + offset, value=label)
+
+        if has_annual:
+            # 全年汇总行：复用执行期年度回算，超额 = 模型 − 指数（与汇总表一致）。
+            annual_rows.add(row_cursor + 1)
+            sheet.cell(row=row_cursor + 1, column=1, value="全年")
+            year_triples = annual_by_year.get(year) or {}
+            for column_index, column in enumerate(columns):
+                col_start = 2 + column_index * 3
+                pair = year_triples.get(column.get("column_key"))
+                if not pair:
+                    continue
+                index_value, start_value = pair
+                for offset in range(3):
+                    if offset == 2:
+                        if not _is_finite_number(index_value) or not _is_finite_number(start_value):
+                            continue
+                        value = float(start_value) - float(index_value)
+                    else:
+                        value = (index_value, start_value)[offset]
+                        if not _is_finite_number(value):
+                            continue
+                    cell = sheet.cell(row=row_cursor + 1, column=col_start + offset, value=value)
+                    cell.number_format = "0.00%"
+
+        for month in range(12, 0, -1):
+            month_row = row_cursor + 2 + (12 - month) if has_annual else row_cursor + 1 + (12 - month)
+            sheet.cell(row=month_row, column=1, value=month)
+            month_values = months_map.get(month) or {}
+            for column_index, column in enumerate(columns):
+                col_start = 2 + column_index * 3
+                triple = month_values.get(column.get("column_key"))
+                for offset in range(3):
+                    value = triple[offset] if triple else None
+                    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                        cell = sheet.cell(row=month_row, column=col_start + offset, value=float(value))
+                        cell.number_format = "0.00%"
+        row_cursor += 14 if has_annual else 13
+
+    # 月度表自建样式：年块首行整行橙色列头（年份 + 指数/模型/超额），
+    # 全年行加粗突出，月份行 A 列沿用首列黄底。
+    for row_index in range(block_start, row_cursor):
+        for col_index in range(1, 2 + len(columns) * 3):
+            cell = sheet.cell(row=row_index, column=col_index)
+            cell.alignment = center_alignment
+            cell.border = thin_border
+            cell.font = body_font
+            if row_index in year_header_rows:
+                cell.fill = month_header_fill
+                cell.font = title_font if col_index == 1 else header_font
+            elif col_index == 1:
+                cell.fill = first_col_fill
+            if row_index in annual_rows:
+                cell.font = header_font
+        if row_index in year_header_rows:
+            sheet.row_dimensions[row_index].height = 24
+
+
 def _build_global_preview_workbook(payload):
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)
     header_fill = PatternFill("solid", fgColor="F7E1A1")
     sub_header_fill = PatternFill("solid", fgColor="FCECC5")
+    # 月度收益率表列头行（橙色，着色6 浅色40%），与指标表黄头区分。
+    month_header_fill = PatternFill("solid", fgColor="F4B183")
     first_col_fill = PatternFill("solid", fgColor="F7E1A1")
     title_font = Font(name="Microsoft YaHei", size=12, bold=True)
     header_font = Font(name="Microsoft YaHei", size=11, bold=True)
@@ -1307,6 +1533,7 @@ def _build_global_preview_workbook(payload):
     styles = {
         "header_fill": header_fill,
         "sub_header_fill": sub_header_fill,
+        "month_header_fill": month_header_fill,
         "first_col_fill": first_col_fill,
         "title_font": title_font,
         "header_font": header_font,
@@ -1344,6 +1571,8 @@ def _build_global_preview_workbook(payload):
             width_map = {"A": 14, "B": 22}
             for column_index in range(3, header_length + 1):
                 width_map[get_column_letter(column_index)] = 16
+            summary_max_row = sheet.max_row
+            summary_max_col = sheet.max_column
         else:
             task = payload.get("task") or {}
             stock_code = task.get("stock_code") or group.get("year") or task.get("name") or ""
@@ -1371,6 +1600,10 @@ def _build_global_preview_workbook(payload):
                     values.append((row.get("values") or {}).get(column.get("column_key"), ""))
                 sheet.append(values)
 
+            # 先捕获指标区边界：月度收益率块追加后，样式循环与“区间”列只覆盖指标区。
+            summary_max_row = sheet.max_row
+            summary_max_col = sheet.max_column
+
             if columns:
                 sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
             sheet.freeze_panes = "A3"
@@ -1381,14 +1614,17 @@ def _build_global_preview_workbook(payload):
             }
             for column_index in range(4, len(header) + 1):
                 width_map[get_column_letter(column_index)] = 18
+            # 指标区边界已在上方捕获；月度收益率块追加在指标表下方，
+            # 下方样式循环与“区间”列定位均只以指标区为准，不被月度块撑动。
+            _append_monthly_returns_block(sheet, columns, styles)
         for key, width in width_map.items():
             sheet.column_dimensions[key].width = width
 
         sheet.row_dimensions[1].height = 26
         sheet.row_dimensions[2].height = 24
 
-        max_row = sheet.max_row
-        max_col = sheet.max_column
+        max_row = summary_max_row
+        max_col = summary_max_col
         for row_index in range(1, max_row + 1):
             for col_index in range(1, max_col + 1):
                 cell = sheet.cell(row=row_index, column=col_index)

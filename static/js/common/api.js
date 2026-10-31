@@ -444,18 +444,6 @@
       backtestResult: function (resultId) {
         return fetch("/api/exports/backtest-results/" + resultId);
       },
-      // 多品回测结果 CSV 导出（multi 结果页），文件流下载，返回原始 Response。
-      backtestResultPerformanceAnalysis: function (payload) {
-        return fetch("/api/exports/performance-analysis", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken":
-              document.querySelector('meta[name="csrf-token"]')?.content || "",
-          },
-          body: JSON.stringify(payload),
-        });
-      },
       // 回测 Word 报告导出（RPT-S/RPT-M），文件流下载，返回原始 Response。
       wordReport: function (payload) {
         return fetch("/api/exports/backtest-reports/word", {
@@ -480,9 +468,9 @@
           body: JSON.stringify(payload),
         });
       },
-      // 模型汇总 CSV 导出（admin 模型汇总页），文件流下载，返回原始 Response；
+      // 模型汇总 Excel 导出（admin 模型汇总页），文件流下载，返回原始 Response；
       // 页面沿用 JWT Authorization 头，经 options 透传。
-      modelSummaryCsv: function (query, options) {
+      modelSummaryExcel: function (query, options) {
         return fetch(
           "/api/exports/model-summary" + (query ? "?" + query : ""),
           options,

@@ -221,6 +221,28 @@ def test_default_filename_appends_group_and_period_for_rpt_m():
     assert filename.startswith("RPT-M-600519_50-SCHD.US_50-G2-20240101_20241231-")
 
 
+def test_default_filename_inserts_model_version_and_price_adjust_segments():
+    """模型版本段（显示层格式化）+ 价格/复权段依次插入组合段之后、G组号之前。"""
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-S", [{"stock_code": "600519", "ratio": "100"}])
+    request.metadata = {"model_version": "c1_1"}
+    request.price_adjust = "close-qfq"
+
+    filename = service._default_filename(request, period_text="20240101_20241231")
+
+    assert filename.startswith("RPT-S-600519-C1.1.0-close-qfq-20240101_20241231-")
+
+
+def test_default_filename_omits_model_version_when_metadata_missing():
+    """metadata 缺失（无任务身份来源）时模型版本与价格复权段整段省略。"""
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-S", [{"stock_code": "600519", "ratio": "100"}])
+
+    filename = service._default_filename(request)
+
+    assert filename.startswith("RPT-S-600519-")
+
+
 def test_default_filename_uses_task_stock_and_period_for_rpt_s():
     service = StrategyBacktestReportService()
     request = _filename_request("RPT-S", [])
