@@ -272,7 +272,8 @@
           showNotification("加载原任务配置失败：config为空", "error");
           return;
         }
-        callPageHook("loadRestartConfig", configRaw, taskId);
+        // 第 4 参透传完整 task：编辑模式需要回填任务名/描述（restart 不消费该参数）
+        callPageHook("loadRestartConfig", configRaw, taskId, task);
       })
       .catch((err) => {
         console.error("加载原任务失败:", err);

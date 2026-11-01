@@ -598,6 +598,7 @@ function init(V) {
     function applyConfigToForm(rawConfig, options = {}) {
         const mode = options.mode || 'template';
         const originalTaskId = options.originalTaskId || '';
+        const sourceTask = options.task || null;
 
         let config = rawConfig;
         if (typeof config === 'string') {
@@ -710,6 +711,15 @@ function init(V) {
                 const cardHeader = document.querySelector('.card-header h4');
                 if (cardHeader) {
                     cardHeader.innerHTML = '<i class="bi bi-pencil-square"></i> 编辑任务 (任务ID: ' + EDIT_TASK_ID + ')';
+                }
+                // 编辑模式回填任务名/描述（config 不含任务级字段，经 form-state 透传）
+                if (sourceTask) {
+                    if (sourceTask.name) {
+                        document.getElementById('task_name').value = sourceTask.name;
+                    }
+                    if (sourceTask.description) {
+                        document.getElementById('task_description').value = sourceTask.description;
+                    }
                 }
             } else {
                 document.title = '重启任务 - Google Sheet 参数批量校验';
@@ -1944,12 +1954,13 @@ function init(V) {
         };
     }
 
-    // 加载重启配置
-    function loadRestartConfig(restartConfigRaw, originalTaskId) {
+    // 加载重启/编辑配置（第 4 参为完整 task，编辑模式消费，restart 忽略）
+    function loadRestartConfig(restartConfigRaw, originalTaskId, task) {
         try {
             applyConfigToForm(restartConfigRaw, {
                 mode: 'restart',
-                originalTaskId: originalTaskId
+                originalTaskId: originalTaskId,
+                task: task || null
             });
         } catch (e) {
             console.warn('加载重启配置失败:', e);
