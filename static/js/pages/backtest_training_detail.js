@@ -211,6 +211,15 @@
         button.title = canStop ? '停止当前回测任务' : '当前状态不可停止';
     }
 
+    // 编辑配置入口：running 任务不可编辑（服务端 update_task_config 同口径硬校验）
+    function updateEditConfigButton(status) {
+        const button = document.getElementById('editConfigBtn');
+        if (!button) {
+            return;
+        }
+        button.classList.toggle('d-none', status === 'running');
+    }
+
     function renderValue(value) {
         if (value === null || value === undefined || value === '') {
             return '<span class="text-body-secondary">-</span>';
@@ -1032,6 +1041,7 @@
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
+            updateEditConfigButton(task.status);
             renderTaskConfig(currentTaskConfig);
             renderParameterTable(currentTaskConfig);
             updateTaskResultSectionMode(currentTaskConfig);
@@ -1273,3 +1283,11 @@
     });
 
     window.addEventListener('beforeunload', stopAutoRefresh);
+
+    // 编辑配置入口：跳转创建页 edit 模式（回填与提交由 backtest_training_create.js 处理）
+    window.goEditTaskConfig = function () {
+        if (!currentTaskId) {
+            return;
+        }
+        window.location.href = `/backtest-training/create?edit_task_id=${encodeURIComponent(currentTaskId)}`;
+    };

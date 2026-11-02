@@ -22,7 +22,7 @@ from app.services.google_sheet_tasks.result_payload import (
     build_c1_1_summary_fields,
     to_decimal_ratio,
 )
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, REAL_PRICE_RANGE_FIELDS
 
 
 logger = get_logger(__name__)
@@ -121,10 +121,16 @@ class C1_1Service(BaseGoogleSheetService):
         if batch["kline_source"] == "auto" and batch["price_mode"] != "random_price":
             raise ValueError("C1.1 必须使用随机价格（price_mode=random_price）")
         random_price_range = str(batch.get("random_price_range") or "high_low").strip().lower()
-        if random_price_range not in ("high_low", "open_close"):
-            raise ValueError("随机价格范围仅支持最高最低或开盘收盘")
+        if random_price_range not in ("high_low", "open_close") and \
+                random_price_range not in REAL_PRICE_RANGE_FIELDS:
+            raise ValueError("AG 取价仅支持随机（最高最低/开盘收盘）或真实开盘/收盘/最高/最低价")
         batch["random_price_range"] = random_price_range
-        batch["random_group_count"] = max(1, int(batch.get("random_group_count") or 1))
+        if random_price_range in REAL_PRICE_RANGE_FIELDS:
+            # 真实价取值无随机分组语义，组数/序列模式归一为缺省
+            batch["random_group_count"] = 1
+            batch["random_series_mode"] = "per_window"
+        else:
+            batch["random_group_count"] = max(1, int(batch.get("random_group_count") or 1))
         # custom 模式 _get_custom_parameters 签名不含 batch，随机配置挂实例
         self._random_price_range = random_price_range
         self._random_group_count = batch["random_group_count"]
@@ -207,6 +213,7 @@ class C1_1Service(BaseGoogleSheetService):
         )
 
     def _stamp_combination(self, combination: dict, batch: dict) -> None:
+        super()._stamp_combination(combination, batch)
         combination['c1_1_output_range'] = self._get_c1_1_layout(batch["_config_data"])["output_range"]
 
     def _get_all_parameters(self, parameter, count_mode, price_mode, end_date, start_date, market_type,

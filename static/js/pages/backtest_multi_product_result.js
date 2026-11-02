@@ -211,7 +211,7 @@
         }
     }
 
-    async function exportV1Details() {
+    function exportV1Details() {
         if (!state.lastResults) {
             Biz.showAlert('请先完成分析再导出', 'warning');
             return;
@@ -221,68 +221,26 @@
         if (btn) btn.disabled = true;
 
         try {
-            const defaultFilename = `${state.exportBaseName || 'backtest_result'}_details.csv`;
-
-            const resp = await Api.endpoints.export.backtestResultPerformanceAnalysis({
-                filename: defaultFilename,
-                filename_title: state.exportBaseName || 'backtest_result',
-                model_name: state.lastResults.model_name || 'C3',
-                analyze_result: state.lastResults
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({}));
-                throw new Error(err.message || `HTTP error! status: ${resp.status}`);
-            }
-
-            const blob = await resp.blob();
-            
-            // Try to use File System Access API (only works in secure contexts with user gesture)
-            if (window.showSaveFilePicker && location.protocol === 'https:' && navigator.userAgent.includes('Chrome')) {
-                try {
-                    const fileHandle = await window.showSaveFilePicker({
-                        suggestedName: defaultFilename,
-                        types: [{
-                            description: 'CSV files',
-                            accept: { 'text/csv': ['.csv'] }
-                        }]
-                    });
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    Biz.showAlert('文件已保存', 'success');
-                    return;
-                } catch (err) {
-                    if (err.name !== 'AbortError') {
-                        console.warn('File System Access API failed, falling back to download:', err);
-                    } else {
-                        Biz.showAlert('用户取消了保存操作', 'info');
-                        return;
-                    }
+            // 纯前端多 sheet 导出：数据全部来自页面已加载的指标字典，
+            // 不再 POST /api/exports/performance-analysis 往返。
+            const klineRange = extractKlineRangeFromMetrics(state.lastResults);
+            const defaultFilename = buildExportFilename(
+                state.exportBaseName || `backtest_result_${state.resultId}`,
+                {
+                    modelVersion: state.lastResults.model_name || '',
+                    klineStart: klineRange.start,
+                    klineEnd: klineRange.end,
                 }
-            }
-            
-            // Fallback: Create download with prompt for filename
-            const userFilename = prompt('请输入文件名:', defaultFilename);
-            if (userFilename === null) {
-                Biz.showAlert('用户取消了保存操作', 'info');
+            );
+            const sheets = PerformanceExport.buildSheets(state.lastResults);
+            if (!sheets.length) {
+                Biz.showAlert('没有可导出的数据', 'warning');
                 return;
             }
-            
-            const finalFilename = userFilename.trim() || defaultFilename;
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = finalFilename.endsWith('.csv') ? finalFilename : finalFilename + '.csv';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-            Biz.showAlert(`开始下载：${finalFilename}`, 'success');
+            excelExport.exportSheets(sheets, defaultFilename);
+            Biz.showAlert(`文件已下载: ${defaultFilename}`, 'success');
         } catch (e) {
-            if (e.name !== 'AbortError') {
-                Biz.showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
-            }
+            Biz.showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
         } finally {
             if (btn) btn.disabled = false;
         }

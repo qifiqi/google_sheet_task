@@ -1,4 +1,3 @@
-import csv
 import io
 import json
 import time
@@ -17,6 +16,11 @@ from app.services.model_summary_service import (
 
 def _metrics(metrics):
     return {"metrics_payload": {"metrics": metrics}}
+
+
+def _export_dicts(payload):
+    rows = payload["rows"]
+    return [dict(zip(rows[0], row)) for row in rows[1:]]
 
 
 def _flat_metrics(flat):
@@ -1098,7 +1102,7 @@ def test_query_all_results_filters_by_market_type(app_factory):
         assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL.US"]
 
 
-def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
+def test_export_rows_uses_query_filters_and_ignores_pagination(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-a", name="600519"))
@@ -1110,19 +1114,19 @@ def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"stock_code": "600519", "page": 1, "per_page": 1},
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert [row["任务名"] for row in rows] == ["600519", "600519"]
         assert [row["结果 ID"] for row in rows] == ["21", "20"]
         assert all(row["产品/股票"] == "600519.SH" for row in rows)
-        assert "000001" not in payload["content"]
+        assert all("000001" not in cell for row in payload["rows"] for cell in row)
 
 
-def test_export_csv_applies_period_filter(app_factory):
+def test_export_rows_applies_period_filter(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-600776-东方通信"))
@@ -1141,17 +1145,17 @@ def test_export_csv_applies_period_filter(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"period_filter": "recent_1y", "summary_type": "task", "page": 1, "per_page": 10},
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert [row["结果 ID"] for row in rows] == ["170"]
         assert rows[0]["年份/区间"] == "2026-2025"
 
 
-def test_export_csv_places_task_type_after_task_name(app_factory):
+def test_export_rows_places_task_type_after_task_name(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-a", task_type="google_sheet_C5", name="600519"))
@@ -1159,16 +1163,16 @@ def test_export_csv_places_task_type_after_task_name(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"stock_code": "600519", "page": 1, "per_page": 10},
         )
 
-        header = next(csv.reader(io.StringIO(payload["content"])))
+        header = payload["rows"][0]
         assert header.index("任务名") < header.index("类型") < header.index("return beats")
 
 
-def test_export_csv_prefers_kline_range_for_year_interval(app_factory):
+def test_export_rows_prefers_kline_range_for_year_interval(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-a", name="600519"))
@@ -1181,16 +1185,16 @@ def test_export_csv_prefers_kline_range_for_year_interval(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(task_id="task-a", reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"stock_code": "600519", "page": 1, "per_page": 10},
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert rows[0]["年份/区间"] == "2025-01-01 ~ 2025-12-31"
 
 
-def test_export_csv_supports_all_results_query(app_factory):
+def test_export_rows_supports_all_results_query(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-a", name="600519"))
@@ -1200,17 +1204,17 @@ def test_export_csv_supports_all_results_query(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(task_id="task-a", reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"best_only": "false", "stock_code": "600519", "page": 1, "per_page": 1},
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert [row["结果 ID"] for row in rows] == ["22", "21", "20"]
         assert [row["return beats"] for row in rows] == ["13.00%", "5.00%", "9.00%"]
 
 
-def test_export_csv_joins_parameter_list_values(app_factory):
+def test_export_rows_joins_parameter_list_values(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-600776-东方通信"))
@@ -1222,7 +1226,7 @@ def test_export_csv_joins_parameter_list_values(app_factory):
         ))
         db.session.commit()
 
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {
                 "best_only": "false",
@@ -1233,11 +1237,11 @@ def test_export_csv_joins_parameter_list_values(app_factory):
             },
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert rows[0]["参数"] == "4,0.92,0.3,1,0,0"
 
 
-def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
+def test_export_rows_joins_a1_b1_when_parameter_list_missing(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-002916-深南电路"))
@@ -1249,7 +1253,7 @@ def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
         ))
         db.session.commit()
 
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {
                 "best_only": "false",
@@ -1260,11 +1264,11 @@ def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
             },
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert rows[0]["参数"] == "11,3"
 
 
-def test_export_csv_uses_custom_safe_filename(app_factory):
+def test_export_rows_uses_custom_safe_filename(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-a", name="600519"))
@@ -1272,7 +1276,7 @@ def test_export_csv_uses_custom_safe_filename(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(task_id="task-a", reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {
                 "stock_code": "600519",
@@ -1282,10 +1286,10 @@ def test_export_csv_uses_custom_safe_filename(app_factory):
             },
         )
 
-        assert payload["filename"] == "东方通信_全部结果.csv"
+        assert payload["filename"] == "东方通信_全部结果.xlsx"
 
 
-def test_export_csv_preserves_backtest_display_metrics(app_factory):
+def test_export_rows_preserves_backtest_display_metrics(app_factory):
     app = app_factory
     with app.app_context():
         db.session.add(_task(task_id="task-bt", task_type="backtest_training", name="回测任务"))
@@ -1311,18 +1315,17 @@ def test_export_csv_preserves_backtest_display_metrics(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(task_id="task-bt", reset=True)
-        payload = model_summary_service.export_csv(
+        payload = model_summary_service.export_rows(
             _User(),
             {"task_type": "backtest_training", "page": 1, "per_page": 1},
         )
 
-        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        rows = _export_dicts(payload)
         assert rows[0]["年化收益"] == "12.00%"
         assert rows[0]["年化超额收益"] == "4.00%"
 
 
-@pytest.mark.skip(reason="待修复：CSV_MIMETYPE 自带 charset 且 send_file 对 text/* 再追加，Content-Type 出现重复 charset")
-def test_export_model_summary_api_returns_csv_download(app_factory, monkeypatch):
+def test_export_model_summary_api_returns_excel_download(app_factory, monkeypatch):
     app = app_factory
     monkeypatch.setenv("AUTH_ENABLED", "false")
     with app.app_context():
@@ -1340,13 +1343,17 @@ def test_export_model_summary_api_returns_csv_download(app_factory, monkeypatch)
     )
 
     assert response.status_code == 200
-    assert response.content_type == "text/csv; charset=utf-8"
+    assert response.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert "attachment;" in response.headers["Content-Disposition"]
-    assert "filename*=UTF-8''%E4%B8%9C%E6%96%B9%E9%80%9A%E4%BF%A1_%E5%85%A8%E9%83%A8%E7%BB%93%E6%9E%9C.csv" in response.headers["Content-Disposition"]
-    text = response.data.decode("utf-8-sig")
-    rows = list(csv.DictReader(io.StringIO(text)))
-    assert rows[0]["产品/股票"] == "600519.SH"
-    assert rows[0]["return beats"] == "19.00%"
+    assert "filename*=UTF-8''%E4%B8%9C%E6%96%B9%E9%80%9A%E4%BF%A1_%E5%85%A8%E9%83%A8%E7%BB%93%E6%9E%9C.xlsx" in response.headers["Content-Disposition"]
+    from openpyxl import load_workbook
+
+    worksheet = load_workbook(io.BytesIO(response.data)).active
+    values = list(worksheet.iter_rows(values_only=True))
+    header = [str(cell) for cell in values[0]]
+    first_row = dict(zip(header, values[1]))
+    assert first_row["产品/股票"] == "600519.SH"
+    assert first_row["return beats"] == "19.00%"
 
 
 def test_rebuild_batches_by_task_not_result(app_factory):

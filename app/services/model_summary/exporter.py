@@ -1,9 +1,7 @@
-"""单模型历史结果汇总索引 · CSV 导出（facade 的导出 mixin）。"""
+"""单模型历史结果汇总索引 · 表格导出数据（facade 的导出 mixin）。"""
 
 from __future__ import annotations
 
-import csv
-import io
 from app.utils.json_utils import dumps
 import re
 from datetime import datetime
@@ -76,16 +74,16 @@ def _interval_display_value(item: dict[str, Any]) -> str:
 
 
 class SummaryExportMixin:
-    """汇总索引 CSV 导出：翻页聚合查询载荷后统一渲染。"""
+    """汇总索引导出：翻页聚合查询载荷后统一渲染为二维表格行。"""
 
-    def export_csv(
+    def export_rows(
         self,
         user: Any,
         filters: dict[str, Any],
         *,
         ignore_permissions: bool = False,
     ) -> dict[str, Any]:
-        """处理export_csv相关逻辑。"""
+        """翻页聚合全部命中项，返回 [{filename, rows(含表头), count}] 供 xlsx 组装。"""
         export_filters = dict(filters)
         export_filters["page"] = 1
         export_filters["per_page"] = 200
@@ -110,7 +108,7 @@ class SummaryExportMixin:
 
         return {
             "filename": self._export_filename(export_filters, summary_type),
-            "content": self._render_csv(columns, items),
+            "rows": self._render_rows(columns, items),
             "count": len(items),
         }
 
@@ -118,12 +116,12 @@ class SummaryExportMixin:
         """处理_export_filename相关逻辑。"""
         custom_filename = self._safe_filename_part(filters.get("filename"))
         if custom_filename and custom_filename != "all":
-            return custom_filename if custom_filename.lower().endswith(".csv") else f"{custom_filename}.csv"
+            return custom_filename if custom_filename.lower().endswith(".xlsx") else f"{custom_filename}.xlsx"
 
         task_type = self._safe_filename_part(filters.get("task_type") or "all")
         stock_code = self._safe_filename_part(filters.get("stock_code") or "all")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"model_summary_{summary_type}_{task_type}_{stock_code}_{timestamp}.csv"
+        return f"model_summary_{summary_type}_{task_type}_{stock_code}_{timestamp}.xlsx"
 
     def _safe_filename_part(self, value: Any) -> str:
         """处理_safe_filename_part相关逻辑。"""
@@ -133,10 +131,9 @@ class SummaryExportMixin:
         text = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", text)
         return text[:80] or "all"
 
-    def _render_csv(self, columns: list[dict[str, str]], items: list[dict[str, Any]]) -> str:
-        """处理_render_csv相关逻辑。"""
-        buffer = io.StringIO(newline="")
-        writer = csv.writer(buffer)
+    def _render_rows(self, columns: list[dict[str, str]], items: list[dict[str, Any]]) -> list[list[str]]:
+        """渲染表头 + 数据行为二维字符串列表（xlsx 组装侧统一做单元格类型处理）。"""
+        rows: list[list[str]] = []
         headers = (
             [label for _key, label in CSV_LEADING_COLUMNS]
             + ["参数"]
@@ -144,7 +141,7 @@ class SummaryExportMixin:
             + [column.get("label") or column.get("key") or "" for column in columns]
             + [label for _key, label in CSV_TRAILING_COLUMNS]
         )
-        writer.writerow(headers)
+        rows.append(headers)
 
         for item in items:
             metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
@@ -162,8 +159,8 @@ class SummaryExportMixin:
                 self._csv_column_value(item, key)
                 for key, _label in CSV_TRAILING_COLUMNS
             )
-            writer.writerow(row)
-        return buffer.getvalue()
+            rows.append(row)
+        return rows
 
     def _csv_column_value(
         self,

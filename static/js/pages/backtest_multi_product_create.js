@@ -1,6 +1,10 @@
 
 const TASK_API_BASE = '/api/tasks';
 const TASK_TYPE = 'backtest_multi_product';
+// 编辑模式（detail 页编辑入口跳转 ?edit_task_id=）：回填任务配置，提交切 updateConfig 全量覆盖
+const EDIT_TASK_ID = new URLSearchParams(window.location.search).get('edit_task_id') || '';
+// 编辑模式的任务原名/原描述/原批次 ID（提交时原样带回，页面无对应输入框）
+const editTaskOriginal = { name: '', description: '', fixed_product_batch_id: '' };
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
         <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统按当前市场自动补手续费（A股 0.035%，美股 0.002%）；每行 7 列时第 1 列按手续费处理。</div>
@@ -882,6 +886,84 @@ async function loadBacktestTokens() {
     }
 }
 
+// 编辑模式：加载任务并按产品逐卡片回填（与新建同一套卡片/参数表机制）
+async function loadTaskForEdit() {
+    try {
+        const data = await Api.endpoints.task.detail(encodeURIComponent(EDIT_TASK_ID));
+        const task = data && data.task ? data.task : null;
+        const config = task && task.config ? task.config : null;
+        if (!config) {
+            throw new Error('加载任务配置失败：config 为空');
+        }
+        editTaskOriginal.name = task.name || '';
+        editTaskOriginal.description = task.description || '';
+        editTaskOriginal.fixed_product_batch_id = config.fixed_product_batch_id || '';
+
+        if (config.start_date) {
+            document.getElementById('startDate').value = config.start_date;
+        }
+        if (config.end_date) {
+            document.getElementById('endDate').value = config.end_date;
+        }
+        if (config.token_id) {
+            document.getElementById('tokenId').value = String(config.token_id);
+        }
+
+        // 移除初始占位产品卡片，按 config 逐产品回填
+        getProductCards().forEach((card) => card.remove());
+
+        const products = Array.isArray(config.products) ? config.products : [];
+        for (const product of products) {
+            const sheet = product.sheet || {};
+            addProduct({
+                product_name: product.product_name,
+                stock_code: product.stock_code,
+                market_type: product.market_type,
+                kline_adjustment: product.kline_adjustment,
+                price_mode: product.price_mode,
+                kline_data_source: product.kline_data_source,
+                ratio: product.ratio,
+                is_fixed: product.is_fixed,
+                sheet_url: sheet.spreadsheet_id
+                    ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheet.spreadsheet_id)}/edit`
+                    : '',
+            });
+            const card = getProductCards()[getProductCards().length - 1];
+            if (product.exchange_market) {
+                card.dataset.exchangeMarket = product.exchange_market;
+            }
+            // Sheet 元数据按 config 直写并标记已识别：既满足提交校验，
+            // 也让 addProduct 内的自动识别因同 ID 直接跳过，保住回填的参数行
+            if (sheet.spreadsheet_id) {
+                card.dataset.spreadsheetId = sheet.spreadsheet_id;
+                card.dataset.sheetName = sheet.sheet_name || 'data';
+                card.dataset.sheetTitle = sheet.title || '';
+                card.dataset.lastAnalyzedSpreadsheetId = sheet.spreadsheet_id;
+                card.dataset.sheetStatus = 'success';
+                setSheetInfo(card, `${sheet.title || sheet.spreadsheet_id} / ${sheet.sheet_name || 'data'}`, 'small text-success sheet-info');
+            }
+            // 版本 + 参数行（c3 行含佣金列，与 collectParameterRows 口径一致）
+            const version = inferModelVersion(sheet.title || '');
+            resetParameterTable(card, version);
+            (Array.isArray(product.parameters) ? product.parameters : []).forEach((row) => {
+                addParameterRow(card, Array.isArray(row) ? row : []);
+            });
+            updateProductSummary(card);
+        }
+
+        // 编辑模式外观：提交按钮与状态区切换为「保存修改」语义
+        const createButton = document.getElementById('createBtn');
+        if (createButton) {
+            createButton.innerHTML = '<i class="bi bi-save"></i> 保存修改';
+        }
+        createStatus.className = 'small text-body-secondary align-self-center';
+        createStatus.textContent = '编辑模式：修改后点击「保存修改」';
+    } catch (error) {
+        createStatus.className = 'small text-danger align-self-center';
+        createStatus.textContent = error.message || '加载任务配置失败';
+    }
+}
+
 async function createTask() {
     createStatus.className = 'small text-body-secondary align-self-center';
     createStatus.textContent = '';
@@ -896,6 +978,31 @@ async function createTask() {
         const endDate = document.getElementById('endDate').value;
         if (!startDate || !endDate) throw new Error('请选择 K 线数据时间范围');
         if (!tokenIdSelect.value) throw new Error('请选择回测 Token');
+
+        if (EDIT_TASK_ID) {
+            // 编辑提交：单组任务原地全量覆盖，不重新拆固定品组
+            createStatus.className = 'small text-body-secondary align-self-center';
+            createStatus.textContent = '正在保存配置...';
+            await Api.endpoints.task.updateConfig(EDIT_TASK_ID, {
+                name: editTaskOriginal.name || buildTaskName(products),
+                description: editTaskOriginal.description || 'multi product backtest task',
+                config: {
+                    start_date: startDate,
+                    end_date: endDate,
+                    token_type: 'file',
+                    token_id: Number(tokenIdSelect.value),
+                    fixed_product_batch_id: editTaskOriginal.fixed_product_batch_id || buildBatchId(),
+                    // 旧版累计收益直接加权算法已停用，固定使用日收益加权后复利。
+                    weighting_mode: 'daily_compound',
+                    products
+                },
+                merge: false
+            });
+            createStatus.className = 'small text-success align-self-center';
+            createStatus.textContent = '配置已更新，正在返回详情页面...';
+            window.location.href = `/backtest-multi-product/detail/${EDIT_TASK_ID}`;
+            return;
+        }
 
         for (let index = 0; index < taskGroups.length; index += 1) {
             const groupProducts = taskGroups[index];
@@ -1288,6 +1395,11 @@ loadStockMarkets().then(() => {
     // 全局参数表先就位（含 C3 手续费默认值），产品卡片创建时才能继承。
     resetParameterTable(globalParamSection, 'c3');
     initParameterHelpPopover(globalParamSection);
+    if (EDIT_TASK_ID) {
+        // 编辑模式：移除初始占位卡片，按任务配置逐产品回填
+        loadTaskForEdit();
+        return;
+    }
     addProduct({ ratio: 50 });
     addProduct({ ratio: 50 });
 }).catch((error) => {

@@ -360,8 +360,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory, monkeypatch):
     with open('static/js/common/api.js', encoding='utf-8') as f:
         assert '/api/search-stocks' in f.read()
     assert "ratio: '100.00%'" in page_js
-    # 前端本地多 sheet 导出（2026-10 起不再走 CSV 接口/applyV2ExportStyles）
-    assert '/static/js/common/performanceExport.js' in body
+    # 前端本地多 sheet 导出（performanceExport 构建器 + excelExport 落盘）
     assert 'PerformanceExport.buildSheets' in page_js
     assert 'excelExport.exportSheets' in page_js
 

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import csv
 from app.utils.json_utils import loads, JSONDecodeError
 from dataclasses import dataclass
 from datetime import datetime
-from io import BytesIO, StringIO
+from io import BytesIO
 from queue import Queue
 from threading import Thread
 from typing import Any, BinaryIO, Callable, Iterable
@@ -34,11 +33,13 @@ from app.services.export_workbook_service import (
     build_c7_stock_code_export_archive,
     build_export_filename,
     build_task_export,
+    build_workbook,
     compose_preview_stem,
     model_version_from_config,
     normalize_filename_date,
     price_adjust_filename_segment,
     sanitize_export_filename,
+    WorksheetData,
     EXCEL_MIMETYPE,
     ZIP_MIMETYPE,
 )
@@ -57,7 +58,6 @@ logger = get_logger(__name__)
 
 DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PDF_MIMETYPE = "application/pdf"
-CSV_MIMETYPE = "text/csv; charset=utf-8"
 MAX_BATCH_TASKS = 10
 
 # Word 导出缓存 TTL 的系统配置键（分钟）；缺省回落到代码默认值。
@@ -188,18 +188,19 @@ class ExportService:
         if not merged_results:
             raise ValidationError("所选任务均无结果数据")
 
+        # 导出投影不含 parameters（性能考虑），K线区间分组在此恒为单组；
+        # 与旧 CSV 保持内容等价：一张扁平滑表，行序沿用 build_c3_worksheets 的排序。
         worksheets = build_c3_worksheets(merged_results)
-        csv_buffer = StringIO(newline="")
-        writer = csv.writer(csv_buffer)
-        if worksheets:
-            writer.writerow(worksheets[0].header)
-            for worksheet in worksheets:
-                writer.writerows(worksheet.rows)
-        raw = csv_buffer.getvalue().encode("utf-8-sig")
-        buffer = BytesIO(raw)
+        merged_rows = [row for worksheet in worksheets for row in worksheet.rows]
+        workbook = build_workbook([
+            WorksheetData(name="合并导出", header=worksheets[0].header, rows=merged_rows),
+        ])
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".csv"
-        return GeneratedFile(filename, CSV_MIMETYPE, buffer, len(raw))
+        filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".xlsx"
+        return GeneratedFile(filename, EXCEL_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
     def export_global_preview(
         self,
@@ -232,6 +233,7 @@ class ExportService:
         filename = build_export_filename(
             base,
             model_version=self._preview_model_text(task, payload),
+            stock_code=self._preview_stock_text(task, payload),
             kline_start=kline_start,
             kline_end=kline_end,
             price_adjust=price_adjust_filename_segment(task.to_dict().get("config")),
@@ -261,7 +263,13 @@ class ExportService:
         model_text = self._preview_model_text(task, payload)
         price_adjust = price_adjust_filename_segment(task.to_dict().get("config"))
         return GeneratedStream(
-            filename=build_export_filename(base, model_version=model_text, extension="zip", price_adjust=price_adjust),
+            filename=build_export_filename(
+                base,
+                model_version=model_text,
+                stock_code=self._preview_stock_text(task, payload),
+                extension="zip",
+                price_adjust=price_adjust,
+            ),
             mimetype=ZIP_MIMETYPE,
             generate=lambda: self._stream_stock_zip(payload, model_text, price_adjust=price_adjust),
         )
@@ -290,6 +298,7 @@ class ExportService:
                 member_stem = build_export_filename(
                     f"{sanitize_export_filename(task.name)}_global_preview",
                     model_version=self._preview_model_text(task, payload),
+                    stock_code=self._preview_stock_text(task, payload),
                     kline_start=kline_start,
                     kline_end=kline_end,
                     price_adjust=price_adjust_filename_segment(task.to_dict().get("config")),
@@ -317,16 +326,6 @@ class ExportService:
         buffer, mimetype = performance_analyzer.export_file(export_data)
         return GeneratedFile(export_data["filename"], mimetype, buffer, buffer.getbuffer().nbytes)
 
-    def export_performance_analysis(self, payload: dict[str, Any]) -> GeneratedFile:
-        """导出绩效分析结果。"""
-        if not isinstance(payload, dict) or not payload:
-            raise ValidationError("请求数据不能为空")
-        buffer, mimetype = performance_analyzer.export_file(payload)
-        filename = payload.get("filename") or "performance_analysis_export.csv"
-        if not str(filename).lower().endswith(".csv"):
-            filename = f"{filename}.csv"
-        return GeneratedFile(sanitize_export_filename(filename), mimetype, buffer, buffer.getbuffer().nbytes)
-
     def export_model_summary(
         self,
         user: Any,
@@ -334,21 +333,25 @@ class ExportService:
         *,
         ignore_permissions: bool = False,
     ) -> GeneratedFile:
-        """处理export_model_summary相关逻辑。"""
-        payload = model_summary_service.export_csv(
+        """模型汇总导出：分页聚合 + 权限过滤在服务端完成，输出单 sheet xlsx。"""
+        payload = model_summary_service.export_rows(
             user,
             filters,
             ignore_permissions=ignore_permissions,
         )
-        if payload.get("status") != "success":
+        if payload.get("status") not in (None, "success"):
             raise ValidationError(payload.get("message") or "模型汇总导出失败")
-        content = "\ufeff" + (payload.get("content") or "")
-        raw = content.encode("utf-8")
-        buffer = BytesIO(raw)
-        filename = sanitize_export_filename(payload.get("filename") or "model_summary.csv")
-        if not filename.lower().endswith(".csv"):
-            filename = f"{filename}.csv"
-        return GeneratedFile(filename, CSV_MIMETYPE, buffer, len(raw))
+        rows = payload.get("rows") or []
+        if len(rows) < 2:
+            raise ValidationError("没有可导出的模型汇总数据")
+        workbook = build_workbook([WorksheetData(name="模型汇总", header=rows[0], rows=rows[1:])])
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        filename = sanitize_export_filename(payload.get("filename") or "model_summary.xlsx")
+        if not filename.lower().endswith(".xlsx"):
+            filename = f"{filename}.xlsx"
+        return GeneratedFile(filename, EXCEL_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
     def export_backtest_word(self, report_request: StrategyBacktestReportSchema) -> GeneratedFile:
         """生成策略回测 Word 报告并返回内存字节流。
@@ -399,12 +402,21 @@ class ExportService:
         }
         codes |= {str(item.stock_code or "").strip() for item in payload.index_benchmarks}
         codes.discard("")
-        # 默认文件名价格/复权段：按 task_id 回查任务配置（RPT-S 直传 returns /
-        # Google Sheet 来源无任务身份时省略该段，回落既有命名）。
-        if not str(payload.price_adjust or "").strip() and report_request.task_id:
+        # 默认文件名价格/复权段与模型版本段：按 task_id 回查任务配置
+        # （RPT-S 直传 returns / Google Sheet 来源无任务身份时省略该段，
+        # 回落既有命名）。模型版本回填 metadata 后既供文件名段、也与
+        # RPT-M 任务载荷的报告元数据行同源。
+        if report_request.task_id and (
+            not str(payload.price_adjust or "").strip()
+            or not str(payload.metadata.get("model_version") or "").strip()
+        ):
             try:
                 task = self._get_task(str(report_request.task_id))
-                payload.price_adjust = price_adjust_filename_segment(task.to_dict().get("config"))
+                task_config = task.to_dict().get("config") or {}
+                if not str(payload.price_adjust or "").strip():
+                    payload.price_adjust = price_adjust_filename_segment(task_config)
+                if not str(payload.metadata.get("model_version") or "").strip():
+                    payload.metadata["model_version"] = model_version_from_config(task_config)
             except NotFoundError:
                 payload.price_adjust = None
         cache_meta = {
@@ -469,7 +481,8 @@ class ExportService:
                 ratios_override=ratios_override,
                 runtime_params=runtime_params,
             )
-        return build_global_preview_payload(task.id)
+        # 导出侧附带逐月收益序列（月收益率表数据源）；预览 API 不透传保持轻量。
+        return build_global_preview_payload(task.id, include_monthly_returns=True)
 
     def _stream_stock_zip(self, payload: dict[str, Any], model_text: str = "", price_adjust: str = ""):
         """按股票流式生成 ZIP 文件。"""
@@ -532,6 +545,21 @@ class ExportService:
         if config_version:
             return config_version
         return _infer_backtest_export_model_name(task_config, task.task_type)
+
+    @staticmethod
+    def _preview_stock_text(task: Task, payload: dict[str, Any]) -> str:
+        """预览导出的股票段：仅单品且整任务恰一只股票时写（多股票无单一语义省略）。
+
+        与 _preview_kline_bounds 同风格从分组收敛；多品导出直接省略。
+        """
+        if str(task.task_type or "").strip().lower() == "backtest_multi_product":
+            return ""
+        stock_codes = {
+            str(group.get("stock_code") or "").strip().upper()
+            for group in payload.get("groups") or []
+            if isinstance(group, dict) and str(group.get("stock_code") or "").strip()
+        }
+        return next(iter(stock_codes)) if len(stock_codes) == 1 else ""
 
     @staticmethod
     def _preview_kline_bounds(payload: dict[str, Any]) -> tuple[str, str]:

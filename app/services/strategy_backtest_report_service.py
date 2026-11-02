@@ -222,9 +222,10 @@ class StrategyBacktestReportService:
         """按报告类型、产品代码+权重、方案组、K线范围和生成时间构造默认下载文件名。
 
         分段规范：段间 `-`、段内 `_`。组合段（RPT-M 现状）为 代码_权重；RPT-S 的
-        task 来源没有 products，用收益序列的股票代码补位；随后是价格/复权段
+        task 来源没有 products，用收益序列的股票代码补位；随后是模型版本段
+        （metadata.model_version，export_service 按任务配置回填）与价格/复权段
         （price_adjust，export_service 按任务配置回填，如 close-qfq / rnd-oc，
-        缺省省略）；RPT-M 附方案组段（G组号）；周期段取组合收益首末交易日
+        各自缺省省略）；RPT-M 附方案组段（G组号）；周期段取组合收益首末交易日
         （即报告真实 K 线范围）。任意信息缺失逐级回落，
         最差退回 RPT-<类型>-<时间戳>。比例为 0 的产品不参与代码拼接；有效产品只剩
         1 个时前缀按 RPT-S 输出，单品权重恒为 100%，不再重复拼接。权重不带 % 后缀：
@@ -253,6 +254,11 @@ class StrategyBacktestReportService:
             fragments = [task_stock_code]
 
         segments: list[str] = [*fragments]
+        # 模型版本段（payload.metadata 来自任务配置或任务构建的 RPT-M 载荷；
+        # 与 xlsx/csv 导出同一显示层格式化，slug c1_1 → C1.1.0）
+        raw_version = str((getattr(request, "metadata", None) or {}).get("model_version") or "").strip()
+        if raw_version:
+            segments.append(format_model_version(raw_version))
         price_adjust = str(getattr(request, "price_adjust", None) or "").strip()
         if price_adjust:
             segments.append(price_adjust)

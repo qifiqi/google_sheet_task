@@ -33,7 +33,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
     let currentRefreshFrequency = 60000; // 固定1分钟刷新
     let taskStartTime = null; // 存储任务开始时间
     let currentTaskData = null; // 存储当前任务数据
-    let editConfigModal = null; // 编辑配置模态框实例
+    let editConfigModal = null; // （历史）编辑配置模态框实例；弹窗已迁移至创建页 edit 模式
 
     // 页面加载完成后获取任务详情
     document.addEventListener('DOMContentLoaded', function () {
@@ -47,73 +47,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         }
         console.log('获取到的任务ID:', currentTaskId);
 
-        // 初始化编辑配置模态框
-        const modalElement = document.getElementById('editConfigModal');
-        if (modalElement && typeof bootstrap !== 'undefined') {
-            editConfigModal = new bootstrap.Modal(modalElement);
-        }
-
-        // 绑定编辑弹窗内的事件（chips & sheets）
-        const addCodeBtn = document.getElementById('edit-add-product-code-btn');
-        const codeInput = document.getElementById('edit-product-code-input');
-        if (addCodeBtn && codeInput) {
-            const addCodes = function () {
-                const raw = (codeInput.value || '').trim();
-                if (!raw) return;
-                const parts = raw.split(/[\s,，]+/).map(v => v.trim()).filter(v => v);
-                const existing = Biz.configEdit.collectEditProductCodesFromChips();
-                Biz.configEdit.renderEditProductCodeChips(existing.concat(parts));
-                codeInput.value = '';
-            };
-            addCodeBtn.addEventListener('click', addCodes);
-            codeInput.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addCodes();
-                }
-            });
-        }
-
-        const addSheetBtn = document.getElementById('edit-add-sheet-btn');
-        const removeSheetBtn = document.getElementById('edit-remove-sheet-btn');
-        if (addSheetBtn) {
-            addSheetBtn.addEventListener('click', function () {
-                const list = document.getElementById('edit-sheets-list');
-                if (!list) return;
-                const row = document.createElement('div');
-                row.className = 'row g-2 align-items-end mb-2 edit-sheet-row';
-                row.innerHTML = `
-                    <div class="col-md-4">
-                        <label class="form-label small mb-1">spreadsheet_id</label>
-                        <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label small mb-1">title</label>
-                        <input type="text" class="form-control form-control-sm edit-sheet-title" value="">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label small mb-1">sheet_name</label>
-                        <input type="text" class="form-control form-control-sm edit-sheet-name" value="">
-                    </div>
-                `;
-                list.appendChild(row);
-            });
-        }
-        if (removeSheetBtn) {
-            removeSheetBtn.addEventListener('click', function () {
-                const list = document.getElementById('edit-sheets-list');
-                if (!list) return;
-                const rows = list.querySelectorAll('.edit-sheet-row');
-                // 导出排序规则：
-                // 1) 按 stock_code 降序
-                // 2) 按 kline_range 的完整日期区间排序：先结束日期，再开始日期，都是降序
-                // 3) 同一完整日期区间内按 xm 升序，空值和 0 排最前
-                // 4) 同一 xm 内按 ReturnBeats 降序
-                if (rows.length > 1) {
-                    list.removeChild(rows[rows.length - 1]);
-                }
-            });
-        }
+        // 编辑配置已迁移到创建页 edit 模式：编辑按钮跳转 /google-sheet/create?version=c1_1&edit_task_id=...
+        // （回填/校验/提交全量覆盖均由共享控制器 Biz.ctaskCreate 处理）
 
         if (currentTaskId) {
             // 从配置加载默认刷新频率
@@ -285,8 +220,10 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         });
     }
 
-    // ===== 编辑配置模态框辅助函数 =====
-    window.openEditConfigModal = Biz.configEdit.openEditConfigModal;
+    // ===== 编辑配置入口：跳转创建页 edit 模式（回填与提交由 Biz.ctaskCreate 处理）=====
+    window.goEditTaskConfig = function () {
+        window.location.href = `/google-sheet/create?version=${CURRENT_VERSION}&edit_task_id=${encodeURIComponent(currentTaskId || '')}`;
+    };
 
     // 加载任务配置
     function formatExcludedYears(value) {
@@ -372,7 +309,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
 
         const configItems = [
             {label: '统计方式', value: Biz.configEdit.formatCountMode(config.count_mode || 'total'), icon: 'bi-calculator'},
-            {label: '价格类型', value: isCustomKline ? '自定义K线（不适用）' : Biz.configEdit.formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
+            // 真实价取值（kp/sp/high/low_price）不是随机价，价格类型直接展示对应真实价
+            {label: '价格类型', value: isCustomKline ? '自定义K线（不适用）' : (Biz.configEdit.isRealPriceRange(config) ? Biz.configEdit.formatRandomPriceRange(config.random_price_range) : Biz.configEdit.formatPriceMode(config.price_mode || 'vwap_price')), icon: 'bi-currency-exchange'},
             {label: 'K线来源', value: Biz.configEdit.formatKlineSource(config.kline_source || 'auto'), icon: 'bi-activity'},
             {label: 'K线复权', value: isCustomKline ? '自定义K线（不适用）' : Biz.configEdit.formatKlineAdjustment(config.kline_adjustment || 'forward'), icon: 'bi-sliders'},
             {label: '市场类型', value: Biz.configEdit.formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
@@ -1393,119 +1331,5 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
             });
         }
 
-        // 保存任务配置
-        function saveTaskConfig() {
-            try {
-                // 收集基本信息
-                const name = document.getElementById('edit-task-name').value.trim();
-                const description = document.getElementById('edit-task-description').value.trim();
-
-                if (!name) {
-                    showNotification('请输入任务名称', 'error');
-                    return;
-                }
-
-                // 主参数：从 chips 收集 parameters[0]
-                const params0 = Biz.configEdit.collectEditProductCodesFromChips();
-                if (!params0 || params0.length === 0) {
-                    showNotification('请至少添加一个产品代码（parameters[0]）', 'error');
-                    return;
-                }
-
-                // sheets：从多行输入收集
-                // sheets：从多行输入收集（逐表附加键 model_version/google_sheet_id 随行保留）
-                const sheets = Biz.configEdit.collectEditSheetsRows();
-
-                // 其它参数
-                // 自定义K线模式只能 total + 空日期/市场，切换来源不在详情页开放
-                const isCustomKline = Biz.configEdit.isEditCustomKline();
-                const countMode = isCustomKline
-                    ? 'total'
-                    : (document.getElementById('edit-count-mode').value || 'total');
-                const fullModeEl = document.getElementById('edit-date-range-full');
-                const recentModeEl = document.getElementById('edit-date-range-recent');
-                const dateRangeModeList = [];
-                if (!isCustomKline) {
-                    if (fullModeEl && fullModeEl.checked) {
-                        dateRangeModeList.push('full');
-                    }
-                    if (recentModeEl && recentModeEl.checked) {
-                        dateRangeModeList.push('recent');
-                    }
-                    if (dateRangeModeList.length === 0) {
-                        dateRangeModeList.push('full');
-                        if (fullModeEl) {
-                            fullModeEl.checked = true;
-                        }
-                    }
-                }
-                const startDate = isCustomKline
-                    ? null
-                    : (document.getElementById('edit-start-date').value || null);
-                const endDate = isCustomKline
-                    ? null
-                    : (document.getElementById('edit-end-date').value || null);
-                const marketType = isCustomKline
-                    ? 'custom'
-                    : (document.getElementById('edit-market-type').value.trim() || null);
-
-                const tokenType = document.getElementById('edit-token-type').value;
-                const tokenFile = document.getElementById('edit-token-file').value.trim();
-                const tokenJson = document.getElementById('edit-token-json').value.trim();
-                const proxyUrl = document.getElementById('edit-proxy-url').value.trim();
-
-                if (tokenType === 'file' && !tokenFile) {
-                    showNotification('请输入 Token 文件路径', 'error');
-                    return;
-                }
-                if (tokenType === 'json' && !tokenJson) {
-                    showNotification('请输入 Token JSON 字符串', 'error');
-                    return;
-                }
-
-                const klinePriceConfig = Biz.configEdit.collectEditKlinePriceFields();
-                if (klinePriceConfig === null) {
-                    return;
-                }
-
-                const config = {
-                    ...klinePriceConfig,
-                    count_mode: countMode,
-                    date_range_mode: dateRangeModeList,
-                    start_date: startDate,
-                    end_date: endDate,
-                    market_type: marketType,
-                    // parameters[0] 以产品代码为准；其余参数组原样保留（打开弹窗时暂存）
-                    parameters: [params0].concat(Biz.configEdit.takeEditExtraParameters()),
-                    sheets: sheets,
-                    proxy_url: proxyUrl || null,
-                    token_type: tokenType,
-                    token_file: tokenFile,
-                    token_json: tokenJson
-                };
-
-                const requestData = {
-                    name: name,
-                    description: description,
-                    config: config
-                };
-
-                Api.endpoints.task.updateConfig(currentTaskId, requestData).then(function (data) {
-                    showNotification('配置更新成功', 'success');
-
-                    // 关闭模态框
-                    if (editConfigModal) {
-                        editConfigModal.hide();
-                    }
-
-                    // 刷新任务详情
-                    loadTaskDetail();
-                }).catch(function (err) {
-                    const errorMessage = (err && err.message) ? err.message : '未知错误';
-                    showNotification(`配置更新失败: ${errorMessage}`, 'error');
-                });
-            } catch (e) {
-                showNotification(`保存配置时出错: ${e.message}`, 'error');
-                console.error('保存配置错误:', e);
-            }
-        }
+        // 保存任务配置已迁移：编辑统一走创建页 edit 模式
+        // （goEditTaskConfig 跳转 /google-sheet/create?version=c1_1&edit_task_id=...）

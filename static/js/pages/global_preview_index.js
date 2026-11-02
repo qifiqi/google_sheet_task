@@ -110,6 +110,24 @@ async function loadMetadataGroup(group, message) {
     finally { setLoading('', false); }
 }
 
+// 详情页回落地址：预览页无固定来源页（直达/刷新场景），按任务类型拼详情页；
+// C 系列直接带 version 落详情页（版本映射同 google_sheet_detail_dispatcher），
+// backtest_training/multi_product 各自详情页。
+function taskDetailUrl(taskType, taskId) {
+    // 任务类型大小写以库为准（历史存 google_sheet_C1_1），统一小写后映射。
+    const type = String(taskType || '').toLowerCase();
+    if (type === 'backtest_training') return `/backtest-training/detail/${encodeURIComponent(taskId)}`;
+    if (type === 'backtest_multi_product') return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}`;
+    const version = {
+        google_sheet_c5: 'c5',
+        google_sheet_c7: 'c7',
+        google_sheet_c1_1: 'c1_1',
+        google_sheet_c4: 'c4',
+        google_sheet: 'c3',
+    }[type] || 'c3';
+    return `/google-sheet/detail?task_id=${encodeURIComponent(taskId)}&version=${version}`;
+}
+
 async function queryTask(event) {
     if (event && event.preventDefault) event.preventDefault();
     currentTaskId = document.getElementById('taskIdInput').value.trim();
@@ -118,6 +136,9 @@ async function queryTask(event) {
     setLoading('正在读取分组…');
     try {
         const data = await Api.endpoints.previewHub.task(encodeURIComponent(currentTaskId));
+        const backLink = document.getElementById('backToDetailLink');
+        backLink.href = taskDetailUrl(data.task?.task_type, currentTaskId);
+        backLink.classList.remove('d-none');
         if (!data.supported) return showMessage(data.message, 'info');
         groupMode = data.initial?.group_mode || 'year';
         previewGroups = data.initial?.groups || [];

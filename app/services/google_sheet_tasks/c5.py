@@ -300,6 +300,7 @@ class C5Service(BaseGoogleSheetService):
             parameters,
             adjust_type=adjust_type,
             data_source=data_source,
-            source_label="google_sheet_c5",
+            # 按模型版本派生来源标记：C4 继承本类后自动记 google_sheet_c4
+            source_label=f"google_sheet_{self._model_version}",
             random_series_mode=random_series_mode,
         )

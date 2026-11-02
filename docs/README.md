@@ -56,6 +56,7 @@ docs/
 | [ponytail-audit-2026-09](design/ponytail-audit-2026-09/01-审计报告.md) | partial | P01~P07/P10/P17 完成；P11 剩余、P12、P14 E4、P15 未完（跟踪表见 02 §4） |
 | [deadcode-audit-2026-10](design/deadcode-audit-2026-10/README.md) | partial | 高置信删除与重复合并已执行；C4 get_bdl 合并、SDK 裁剪、分页双轨等未完 |
 | [metrics-unify-2026-09](design/metrics-unify-2026-09/指标计算与单品多品统一方案.md) | partial | V1 引擎 / summary_contract 已统一；行号锚点漂移，验收章节为历史产物 |
+| [random-price-global-preview-2026-10](design/random-price-global-preview-2026-10/适配方案.md) | partial | C1.1 列头标识与导出白名单已落地（10-30）；C7 随机组成对列/年份分组切割/前端与 Excel 成对渲染未实施 |
 
 存根（implemented，正文在 archive/）：api-model-query-audit、code-audit-2026-09、constants-audit-2026-09（2026-10-24 收官，10-25 归档）、data-layer-refactor、frontend-refactor、routes-restructure-2026-09、sso-integration-2026-09、mobile-adaptation-audit-2026-09、multi-index-word-report、performance-analysis-v3、vue-frontend-fix-2026-09。
 
@@ -67,7 +68,7 @@ docs/
 ## model_update/ 与 release-notes/
 
 - `model_update/`：按月归并的变更记录（每月一篇汇总，2026-10-16 起不再新增单篇），**大改必写**（AGENTS.md 红线）；入口见 [变更日志.md](project-memory/变更日志.md)。
-- `release-notes/`：2026-09-15 发布说明与团队周报（历史快照）。
+- `release-notes/`：2026-09-15 发布说明与团队周报（历史快照）、[2026-10-29 发布说明](release-notes/2026-10-29-发布说明.md)（v1.1，dev_vue→main）。
 
 ## 引用纪律
 

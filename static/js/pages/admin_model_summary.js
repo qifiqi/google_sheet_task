@@ -370,7 +370,7 @@
         return asciiMatch ? asciiMatch[1] : "";
     }
 
-    function openExportCsvModal() {
+    function openExportExcelModal() {
         const bestOnly = document.getElementById("bestOnly").value;
         const stockCode = document.getElementById("stockCode").value.trim();
         if (bestOnly === "false" && !stockCode) {
@@ -380,7 +380,7 @@
         const filenameInput = document.getElementById("exportFilename");
         filenameInput.value = defaultExportFilename();
         document.getElementById("exportSummaryText").textContent = describeExportFilters();
-        const modalElement = document.getElementById("exportCsvModal");
+        const modalElement = document.getElementById("exportExcelModal");
         const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
         modal.show();
         modalElement.addEventListener("shown.bs.modal", () => {
@@ -389,18 +389,18 @@
         }, { once: true });
     }
 
-    async function exportSummaryCsv() {
-        const exportButton = document.getElementById("exportCsvBtn");
-        const confirmButton = document.getElementById("confirmExportCsvBtn");
+    async function exportSummaryExcel() {
+        const exportButton = document.getElementById("exportExcelBtn");
+        const confirmButton = document.getElementById("confirmExportExcelBtn");
         const filename = document.getElementById("exportFilename").value.trim();
         const params = collectParams();
         if (filename) params.set("filename", filename);
 
         setButtonBusy(exportButton, true, '导出中…');
         setButtonBusy(confirmButton, true, '导出中…');
-        document.getElementById("statusText").textContent = "正在生成 CSV...";
+        document.getElementById("statusText").textContent = "正在生成 Excel...";
         try {
-            const response = await Api.endpoints.export.modelSummaryCsv(params.toString(), {
+            const response = await Api.endpoints.export.modelSummaryExcel(params.toString(), {
                 headers: { Authorization: `Bearer ${getToken()}` },
             });
             if (!response.ok) {
@@ -411,13 +411,13 @@
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.href = url;
-            link.download = getExportFilenameFromResponse(response) || "model_summary.csv";
+            link.download = getExportFilenameFromResponse(response) || "model_summary.xlsx";
             document.body.appendChild(link);
             link.click();
             link.remove();
             URL.revokeObjectURL(url);
-            bootstrap.Modal.getOrCreateInstance(document.getElementById("exportCsvModal")).hide();
-            document.getElementById("statusText").textContent = "CSV 已开始下载";
+            bootstrap.Modal.getOrCreateInstance(document.getElementById("exportExcelModal")).hide();
+            document.getElementById("statusText").textContent = "Excel 已开始下载";
         } finally {
             setButtonBusy(exportButton, false);
             setButtonBusy(confirmButton, false);
@@ -503,15 +503,15 @@
         runSummaryQuery();
     });
     document.getElementById("refreshBtn").addEventListener("click", () => runSummaryQuery());
-    document.getElementById("exportCsvBtn").addEventListener("click", () => {
+    document.getElementById("exportExcelBtn").addEventListener("click", () => {
         try {
-            openExportCsvModal();
+            openExportExcelModal();
         } catch (error) {
             document.getElementById("statusText").textContent = error.message;
             alert(error.message || "导出失败");
         }
     });
-    document.getElementById("confirmExportCsvBtn").addEventListener("click", () => exportSummaryCsv().catch((error) => {
+    document.getElementById("confirmExportExcelBtn").addEventListener("click", () => exportSummaryExcel().catch((error) => {
         document.getElementById("statusText").textContent = error.message;
         alert(error.message || "导出失败");
     }));

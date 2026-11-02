@@ -151,28 +151,40 @@ def test_c3_empty_kline_does_not_write_sheet(app_factory):
         assert service.google_sheet.updates == []
 
 def test_c4_execute_parameter_combination_reraises_sheet_errors():
+    """C4 复用 C5 骨架后：Sheet 层异常经记录后原样上抛，不被吞成假成功。"""
     service = C4GoogleSheetService({}, "task-id")
 
     class BrokenSheet:
         title = "broken"
+        spreadsheet_id = "broken-id"
 
         def clear_range(self, _range):
             raise RuntimeError("sheet unavailable")
 
     service.google_sheets = [BrokenSheet()]
 
+    kline_rows = [
+        {"stock_date": f"2024-01-{day:02d}", "stock_val": 10 + day}
+        for day in range(1, 31)
+    ]
+
     with pytest.raises(RuntimeError, match="sheet unavailable"):
         service._execute_parameter_combination(
             10,
-            {"kline": [{"stock_date": "2024-01-01", "stock_val": 10}]},
+            {"kline_key": "2024-2024", "A1": "7", "B1": "3"},
+            {"combination": {"kline_key": "2023-2023"}},
             {
-                "c4_input_column_a": "A",
-                "c4_input_column_b": "B",
-                "c4_output_range_1": "D2:D3",
-                "c4_output_range_2": "E2:E3",
-                "c4_output_column_j": "J",
-                "c4_output_column_l": "L",
+                "c5_input_column_a": "A",
+                "c5_input_column_b": "B",
+                "c5_parameter_positions": ["A1", "B1"],
+                "c5_check_positions": ["G1", "H1"],
+                "c5_output_range_1": "D2:D3",
+                "c5_output_range_2": "E2:E3",
+                "c5_output_column_j": "J",
+                "c5_output_column_l": "L",
+                "market_type": "cn",
             },
+            {"2024-2024": kline_rows},
         )
 
 
