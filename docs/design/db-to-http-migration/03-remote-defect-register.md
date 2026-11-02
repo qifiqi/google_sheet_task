@@ -1,10 +1,11 @@
 # 远端缺陷登记：ParamTasks/ModifyOrAdd 插入分支失败（2026-10-17）
 
-> **2026-10-20 更新：开发实例已修复，线上未部署。**
-> `http://172.18.20.20:7070`（开发实例，与线上共用同一数据库）已按新契约工作：
-> 插入不携带 `id`，`ret_obj` 直接返回 32 位主键字符串（无连字符），
-> `id: null` 也接受。`https://stockapi.jaspil.cn`（线上）仍为旧版本、插入仍失败，
-> 待部署。消费方（本仓）已按新契约改造：任务创建不发送本地 uuid，以返回 id 为准。
+> **2026-11-02 更新：主站线上（stockapi.jaspil.cn）新契约已部署**——2026-10-28/10-31
+> 端到端验证均以线上为 `STOCK_BASE_URL` 实测任务创建/删除通过（见月度汇总
+> 2026-10-31「合并后端到端任务验证」）。本节余下内容为历史排查记录。
+> 开发实例 7070 于 2026-10-20 修复：插入不携带 `id`，`ret_obj` 直接返回 32 位
+> 主键字符串（无连字符），`id: null` 也接受。消费方（本仓）按新契约改造：
+> 任务创建不发送本地 uuid，以返回 id 为准。
 
 ## 现象
 
@@ -295,6 +296,8 @@ Redis 裁决层覆盖 11 处临界区（状态机/Sheet 占用/token 对账/回�
   Token 回写）；相关仓储、Token、C 系回归 170+ 例通过。
 
 
-## 补充：E12 读取路径未预检（2026-10-31 E2E）
+## 补充：E12 读取路径未预检（2026-10-31 E2E）——已实施（2026-11-02）
 
-生产 base 缺 E12 时，C1.1 随机价任务在 `task_kline_snapshot_service.get_or_create_source → ParamTaskKlineSources/GetDataByPageList` 读取阶段直接收到 HTTP 404，未走 `require_e12`（该预检目前只在 create_source/create_series/create_link 写入路径）。建议后续把 `require_e12` 前移到快照读取入口，或在生产部署 E12 后再启用随机价任务。7070 上 C1.1 3/3 全链路通过（结果 id 4611726-4611728，kline_series_id=8）。
+生产 base 缺 E12 时，C1.1 随机价任务在 `task_kline_snapshot_service.get_or_create_source → ParamTaskKlineSources/GetDataByPageList` 读取阶段直接收到 HTTP 404，未走 `require_e12`（该预检目前只在 create_source/create_series/create_link 写入路径）。
+
+**已实施（2026-11-02，`TaskKlineSnapshotHttpRepository`）**：`require_e12` 前移覆盖全部读路径入口（`get_source` / `get_source_by_id` / `get_series` / `get_series_by_id` / `count_series_by_task` / `list_series_with_source` / `list_series_bundle` / `count_links_by_series` / `list_link_result_ids`），缺失时报"E12 缺失"明确错误而非裸 404；**清理路径（`delete_by_task` / `delete_links_by_result_ids`，data_cleanup 重启/删除链路消费）对 E12 缺失容忍为 0 行放行**——远端无三表端点 ⇒ 表必为空、无行可清，任务重启/删除不被阻断（此前这里会裸 404 炸掉任意任务的重启，比读取路径更隐蔽）。C1.1 真实价四区间在展开层早退、不读写快照，生产缺 E12 也可跑。7070 上 C1.1 3/3 全链路通过（结果 id 4611726-4611728，kline_series_id=8）。

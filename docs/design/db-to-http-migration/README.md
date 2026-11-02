@@ -4,7 +4,7 @@
 
 ## 1. 目标与边界
 
-- 数据层（repositories）全量接入远程 DY.Stock.Api（`172.18.20.20:8081`，接口契约见 swagger 文档）；本地 DB 层暂时保留为回退（`DATA_ACCESS_MODE=db`），原 ORM 仓储代码零改动，仅新增 HTTP 孪生实现。
+- 数据层（repositories）全量接入远程 DY.Stock.Api（测试环境 `http://172.18.20.20:7070`，生产 `https://stockapi.jaspil.cn`，接口契约见 swagger 文档）；本地 DB 层暂时保留为回退（`DATA_ACCESS_MODE=db`），原 ORM 仓储代码零改动，仅新增 HTTP 孪生实现。
 - 登录改为单 Token 子服务模式：前端在 header `Token` 字段携带主 Web 颁发的令牌；本服务经 `POST /api/SysUser/GetUserInfo` 校验、`POST /api/SysUser/GetUserRoleList` 读取路由表（菜单）。本地 JWT/RBAC/SSO 全部停用（代码注释保留）。
 - 仪表盘与看门狗整体停用（注释保留）。
 - 无法接入的数据层函数：就地 `TODO(db-to-http)` 标注 + 本文 §6 登记。
@@ -84,7 +84,7 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 | 方法 | 缺口 | 退化策略 |
 |---|---|---|
 | `task_repository.list_paginated_with_statistics`（完成时长聚合） | 无聚合端点 | 扫描全部 completed 任务，任务量上千需远端聚合端点 |
-| `task_repository.list_by_name` / `list_distinct_task_types` / `clear_created_by` / `list_by_ids` | 无 name/created_by/ids 过滤 | 全量拉取本地处理（低频路径） |
+| `task_repository.list_by_name`（keyword 预过滤 + 本地精确匹配，2026-11-02） / `list_distinct_task_types` / `clear_created_by` / `list_by_ids` | 无 created_by/ids 过滤（keyword 模糊已具备） | 除 list_by_name 外仍全量拉取本地处理（低频路径） |
 | `task_repository.count_grouped_by_*` / `count_daily_*` | 无 group by | 按状态/类型逐查询 total；按日拉窗口内数据本地分组 |
 | `task_repository.list_by_status_ordered` / `get_latest_task_id_by_type` 等双键排序 | 单一 order_field | 近似单字段排序 |
 | `backtest_repository.dedupe_best_per_task` / `page_summary_index(best_per_stock)` | 无窗口函数 | 拉取后本地分组去重（O(索引行数)） |
@@ -113,7 +113,7 @@ app/remote_api/                     ← 唯一 HTTP 出口（2026-09-16 重构�
 - HTTP 仓储可在单测中注入假 adapter（各孪生构造函数接受 `client` 参数）。
 - 已验证：双模式 `create_app()` 启动；原 sdk_client 端点注册表 97 条路径全部移植为 `app/remote_api/controllers/` 的具体接口函数（2026-09-16 重构，见 `docs/model_update/2026-09-16-remote-api-refactor.md`）；分页 total 派生、config JSON 解析、404→False 映射（内联桩测试）。
 - 退役特性的既有测试（本地 JWT/RBAC/SSO 共 5 个模块）标注 skip；`test_unified_envelope`/`test_rate_limiting` 等走 HTTP client 的用例改用 `AUTH_ENABLED=false` mock 用户验证契约。
-- 已知与迁移无关的既有失败（改动前后一致，见基线核对）：`test_kline_service` 5 例、`test_c_series_services` 日期相关 1 例、`test_global_preview` excess_sharpe 1 例等共 16 例。
+- 已知与迁移无关的既有失败（基线随主线演进，2026-11-02 刷新）：全量回归 **1204 passed / 2 failed / 56 skipped**（`--ignore tests/integration/test_secret_masking.py`）；2 红为 `test_c1_1_service` 阈值/全损断言存量（dev_vue 同样存在），skipped 为单 Token 模式退役特性与待修登记项。
 
 ## 8. 后续工作
 

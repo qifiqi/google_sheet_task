@@ -15,6 +15,7 @@ from app.repositories.http_backend.base import (
     dump_row,
 )
 from app.remote_api.capabilities import require_e12
+from app.remote_api.exceptions import RemoteApiError
 
 _SOURCE_DT = ("created_at",)
 _SERIES_DT = ("created_at",)
@@ -59,9 +60,24 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
             return None
         return self.normalize_record(self._as_mapping(raw, "详情"))
 
+    def _require_e12(self, tolerant: bool = False) -> bool:
+        """读路径 E12 预检（2026-11-02 前移，覆盖缺陷登记"读取路径未预检"）。
+
+        缺失时默认抛 RemoteApiError（任务早期明确报错）；``tolerant=True`` 供
+        清理路径使用——远端无三表端点 ⇒ 表必为空，无行可清，吞掉返回 False。
+        """
+        try:
+            require_e12(self.api)
+        except RemoteApiError:
+            if not tolerant:
+                raise
+            return False
+        return True
+
     # ---- 源快照 ----
 
     def get_source(self, task_id: str, stock_code: str, kline_key: str):
+        self._require_e12()
         rows = [
             row for row in self.iter_pages(
                 {"task_id": task_id, "stock_code": stock_code, "kline_key": kline_key},
@@ -70,6 +86,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return _first(rows)
 
     def get_source_by_id(self, source_id: int):
+        self._require_e12()
         return self.get(source_id)
 
     def create_source(self, fields: dict, commit: bool = True):
@@ -86,6 +103,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         random_price_range: str,
         random_group: int,
     ):
+        self._require_e12()
         rows = [
             row for row in self.iter_pages(
                 {
@@ -101,6 +119,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return _first(rows)
 
     def get_series_by_id(self, series_id: int):
+        self._require_e12()
         return self._get_via(self._GROUP_SERIES, series_id)
 
     def get_series_owner(self, series_id: int):
@@ -117,6 +136,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         stock_code: str = "",
         random_group: int | None = None,
     ) -> int:
+        self._require_e12()
         payload: dict[str, Any] = {"task_id": task_id}
         if (stock_code or "").strip():
             payload["stock_code"] = stock_code.strip()
@@ -133,6 +153,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         stock_code: str = "",
         random_group: int | None = None,
     ):
+        self._require_e12()
         payload: dict[str, Any] = {"task_id": task_id}
         if (stock_code or "").strip():
             payload["stock_code"] = stock_code.strip()
@@ -176,6 +197,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
 
     def list_series_bundle(self, task_id: str):
         """导出用：任务全部序列（含 values_json）与源快照（含数组大字段）。"""
+        self._require_e12()
         rows = [
             self._get_via(self._GROUP_SERIES, series_id)
             for series_id in (
@@ -197,6 +219,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
     # ---- 结果关联 ----
 
     def count_links_by_series(self, task_id: str, series_id: int) -> int:
+        self._require_e12()
         page = self.page(
             {"task_id": task_id, "series_id": series_id},
             group=self._GROUP_LINKS,
@@ -204,6 +227,7 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
         return int(page.get("total") or 0)
 
     def list_link_result_ids(self, task_id: str, series_id: int) -> list[int]:
+        self._require_e12()
         rows = list(self.iter_pages(
             {"task_id": task_id, "series_id": series_id},
             group=self._GROUP_LINKS,
@@ -221,6 +245,10 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
 
     def delete_links_by_result_ids(self, result_ids: list[int], commit: bool = True):
         """按结果集清关联（远端无 result_ids 批量端点：逐 result_id 分页定位后删除）。"""
+        if not result_ids:
+            return 0
+        if not self._require_e12(tolerant=True):
+            return 0
         deleted = 0
         for result_id in result_ids or []:
             for row in list(self.iter_pages({"result_id": result_id}, group=self._GROUP_LINKS)):
@@ -233,6 +261,8 @@ class TaskKlineSnapshotHttpRepository(HttpRepositoryBase):
 
     def delete_by_task(self, task_id: str, commit: bool = True):
         """任务级三表清理：links → series → sources，逐 id 删除（非原子）。"""
+        if not self._require_e12(tolerant=True):
+            return 0
         deleted = 0
         for row in list(self.iter_pages({"task_id": task_id}, group=self._GROUP_LINKS)):
             try:

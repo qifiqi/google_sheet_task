@@ -4,7 +4,9 @@
 > [02-remote-incremental-endpoints.md](02-remote-incremental-endpoints.md) 的 E10–E12。
 > 命名对齐现有约定：`POST /api/<Controller>/<Action>`，统一信封
 > `{"ret_code", "ret_msg", "ret_count", "ret_obj"}`，布尔 0/1 编码，`Token` 请求头鉴权。
-> 本仓库侧消费方：`app/repositories/http_backend/` 孪生仓储（当前临时走本地 DB，端点就绪后切换）。
+> 本仓库侧消费方：`app/repositories/http_backend/` 孪生仓储——**2026-10-29 起 http 模式
+> 已切换远端三控制器（7070 发布并全生命周期实测）**；生产主站部署 E12 前，读写两侧有
+> `require_e12` 护栏（读路径 2026-11-02 起覆盖，清理路径缺失容忍 0 行）。db 模式仍走本地三表。
 
 ## 涉及表
 

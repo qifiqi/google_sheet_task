@@ -471,10 +471,14 @@ class TaskHttpRepository(HttpRepositoryBase):
     def list_by_name(self, name, limit=2):
         """按名称取任务。
 
-        TODO(db-to-http): 远端无 name 精确过滤，全量拉取后本地匹配；
-        钉钉命令解析低频调用，暂可接受，建议远端补 name 过滤。
+        远端无 name 精确过滤：keyword 模糊预过滤缩小集合，本地精确匹配
+        （2026-11-02 前为全量拉取后本地过滤）。本分支消费方已随钉钉微服务
+        移除，方法为与本地孪生签名对齐保留。
         """
-        hits = [row for row in self.list_all() if row.get("name") == name]
+        hits = [
+            row for row in self.list_all_filtered(keyword=name)
+            if row.get("name") == name
+        ]
         hits.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         return hits[:limit]
 

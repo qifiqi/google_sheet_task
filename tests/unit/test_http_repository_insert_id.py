@@ -7,6 +7,9 @@ from app.remote_api.capabilities import require_e12, reset_e12_capability
 from app.repositories.http_backend.google_sheet_token_repository import (
     GoogleSheetTokenHttpRepository,
 )
+from app.repositories.http_backend.task_kline_snapshot_repository import (
+    TaskKlineSnapshotHttpRepository,
+)
 from app.repositories.http_backend.task_result_repository import (
     TaskResultHttpRepository,
 )
@@ -158,6 +161,61 @@ def test_require_e12_reports_missing_endpoint():
 
     assert "E12" in str(exc.value)
     assert "ParamTaskResultKlineLinks" in str(exc.value)
+
+
+# ---- 快照仓储读路径 E12 护栏（2026-11-02 前移，见 03-remote-defect-register 补充节） ----
+
+
+def test_snapshot_read_raises_clear_e12_error_when_endpoints_missing():
+    api = FakeApi(
+        links=FakeController(fail_list=RemoteApiError("远程数据服务 HTTP 404: "))
+    )
+    repo = TaskKlineSnapshotHttpRepository(api=api)
+
+    with pytest.raises(RemoteApiError) as exc:
+        repo.get_source("t1", "600000", "2026-2025")
+
+    assert "E12" in str(exc.value)
+
+
+def test_snapshot_read_works_when_e12_present():
+    api = FakeApi()
+    api.param_task_kline_sources = FakeController(
+        page=([{"id": 3, "task_id": "t1", "stock_code": "600000"}], 1)
+    )
+    repo = TaskKlineSnapshotHttpRepository(api=api)
+
+    row = repo.get_source("t1", "600000", "k")
+
+    assert row["id"] == 3
+
+
+def test_snapshot_by_id_reads_guarded_by_e12():
+    api = FakeApi()
+    api.param_task_random_series = FakeController(
+        fail_list=RemoteApiError("远程数据服务 HTTP 404: ")
+    )
+    repo = TaskKlineSnapshotHttpRepository(api=api)
+
+    with pytest.raises(RemoteApiError) as exc:
+        repo.get_series_by_id(1)
+
+    assert "E12" in str(exc.value)
+
+
+def test_snapshot_cleanup_tolerates_missing_e12():
+    """远端无 E12 ⇒ 三表必为空：清理按 0 行放行，任务重启/删除不被裸 404 阻断。"""
+
+    def _404():
+        return FakeController(fail_list=RemoteApiError("远程数据服务 HTTP 404: "))
+
+    api = FakeApi(links=_404())
+    api.param_task_kline_sources = _404()
+    api.param_task_random_series = _404()
+    repo = TaskKlineSnapshotHttpRepository(api=api)
+
+    assert repo.delete_by_task("t1") == 0
+    assert repo.delete_links_by_result_ids([1, 2, 3]) == 0
 
 
 class _FakeTokenEntity:

@@ -107,7 +107,7 @@ POST /api/ParamTaskResults/QueryWithTask
 
 | 控制器 | 增强项 | 消费方 |
 |---|---|---|
-| ParamTasks | `name` 模糊、`created_by`、`ids`、`order_fields: [["created_at","desc"],["id","desc"]]`（多键排序） | `list_by_name`、`clear_created_by`、`get_latest_task_id_by_type` 等双键排序 |
+| ParamTasks | `created_by`、`ids`、`order_fields: [["created_at","desc"],["id","desc"]]`（多键排序）。~~`name` 模糊~~（2026-11-02 移除：远端 `keyword` 模糊已具备，`list_by_name` 改走 keyword 预过滤 + 本地精确匹配） | `clear_created_by`、`get_latest_task_id_by_type` 等双键排序 |
 | ParamTaskResults | `fields: ["id","task_id","parameters",...]` 白名单投影（`result` 大 JSON 不下发）；`success_only` | `list_by_task_fields`（**当前 P0 缺口** http 孪生的长期解）、`get_export_entity` |
 | ParamGoogleSheets | `spreadsheet_id` 精确过滤 | `get_by_spreadsheet_id`/`get_duplicate_row`（registry 表小，低优先） |
 | ParamTaskResultSummaryIndex | `best_per_task` 分组取首（`PARTITION BY task_id ORDER BY metric DESC`） | `dedupe_best_per_task`、`page_summary_index(best_per_stock)`（拉全量本地去重 → 服务端窗口） |
@@ -141,7 +141,9 @@ POST /api/StockMetadata/BulkUpsert
 ## P2：随机K线三表（2026-10-28 新增，dev_vue 合入后的本地固定表上收）
 
 > 本地三表 `t_param_task_kline_sources` / `t_param_task_random_series` / `t_param_task_result_kline_links`
-> 当前固定本地 DB（http 模式下孪生仓储走本地混合读写）。远端补齐下列控制器后即可上收。
+> **http 模式已于 2026-10-29 上收远端**（E10-E12 端点 7070 发布并实测，`TaskKlineSnapshotHttpRepository`
+> 直连三控制器，本地 MySQL 不再需要三表；db 模式仍走本地）。生产主站部署 E12 前，
+> 读写两侧均有 `require_e12` 护栏（读路径 2026-11-02 起覆盖，清理路径缺失容忍 0 行）。
 > 命名对齐现有约定：`POST /api/<Controller>/<Action>`，统一信封 `ret_code/ret_msg/ret_count/ret_obj`，
 > 布尔 0/1 编码；四动作同构（GetDataByPageList / GetInfoById / ModifyOrAdd / Delete）。
 

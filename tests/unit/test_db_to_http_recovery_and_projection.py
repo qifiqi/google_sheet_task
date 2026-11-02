@@ -365,3 +365,39 @@ def test_task_http_normalizes_null_progress_to_zero():
 
     assert task.current_step == 0
     assert task.total_steps == 0
+
+
+class _KeywordFakeController:
+    """带远端 keyword 模糊语义的替身：name 包含 keyword 才命中，并记录请求体。"""
+
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.seen_bodies = []
+
+    def get_data_by_page_list(self, body):
+        self.seen_bodies.append(dict(body or {}))
+        rows = self.rows
+        keyword = body.get("keyword")
+        if keyword:
+            rows = [row for row in rows if keyword in str(row.get("name") or "")]
+        size = int(body.get("page_size") or 200)
+        return rows[:size], len(rows)
+
+
+def test_task_repo_list_by_name_prefilters_with_keyword():
+    """list_by_name 用 keyword 预过滤缩小集合，本地精确匹配（2026-11-02 前为全量拉取）。"""
+    tasks = _KeywordFakeController(rows=[
+        {"id": "a", "name": "目标-1", "created_at": "2026-11-01T10:00:00"},
+        {"id": "b", "name": "无关任务", "created_at": "2026-11-02T10:00:00"},
+        {"id": "c", "name": "目标", "created_at": "2026-11-03T10:00:00"},
+    ])
+    repo = TaskHttpRepository(api=_api(param_tasks=tasks))
+
+    hits = repo.list_by_name("目标")
+
+    assert [row["id"] for row in hits] == ["c"]
+    # 远端请求确实携带 keyword 预过滤（替身按 contains 过滤模拟远端契约）
+    assert tasks.seen_bodies and tasks.seen_bodies[0].get("keyword") == "目标"
+
+    assert repo.list_by_name("目标-1")[0]["id"] == "a"
+    assert repo.list_by_name("不存在名称") == []
