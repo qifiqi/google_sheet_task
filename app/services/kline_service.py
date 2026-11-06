@@ -27,6 +27,8 @@ from app.utils.market import (
     normalize_stock_code,
     strip_stock_code_suffix,
     supports_internal_kline,
+    to_eastmoney_ticker,
+    to_qq_ticker,
     to_yahoo_ticker,
 )
 
@@ -497,7 +499,11 @@ class KlineService:
 
     def _fetch_dfcf(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         return self.dfcf_api.get_stock_kline_data(
-            request["stock_code"],
+            to_eastmoney_ticker(
+                request["stock_code"],
+                request.get("market_type"),
+                request.get("exchange_market"),
+            ),
             request["exchange_market"],
             request["limit"],
             kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,
@@ -506,7 +512,11 @@ class KlineService:
 
     def _fetch_qq(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         return self._get_qq_api().get_stock_kline_data(
-            request["stock_code"],
+            to_qq_ticker(
+                request["stock_code"],
+                request.get("market_type"),
+                request.get("exchange_market"),
+            ),
             request["exchange_market"],
             limit=request["limit"],
             kline_type=request.get("kline_type") or DAILY_KLINE_TYPE,

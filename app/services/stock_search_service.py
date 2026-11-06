@@ -17,6 +17,7 @@ from app.utils.market import (
     normalize_stock_code,
     resolve_market_type,
     strip_stock_code_suffix,
+    to_eastmoney_search_keyword,
 )
 
 logger = get_logger(__name__)
@@ -42,9 +43,9 @@ class StockSearchService:
             return []
 
         page_size = max(1, min(int(page_size or 10), 20))
-        # 东方财富搜索不识别项目统一后缀，调用前还原为其原生代码。
+        # 东方财富搜索不识别项目统一后缀；美股类别股还要转成东财的 _ 写法。
         raw_results = self.dfcf_api.get_search_list_by_stock_code(
-            strip_stock_code_suffix(keyword), page_size
+            to_eastmoney_search_keyword(keyword), page_size
         )
         if isinstance(raw_results, dict):
             upstream_message = raw_results.get("error") or "股票搜索失败"
@@ -82,7 +83,7 @@ class StockSearchService:
                 "security_type_name": meta.get("security_type_name") or "",
                 "market": meta.get("exchange_market") or "",
                 "exchange_market": meta.get("exchange_market") or "",
-                "market_type": meta.get("market_type") or requested_market,
+                "market_type": requested_market,
                 "status": 10,
                 "is_exact_match": True,
             }
@@ -127,7 +128,8 @@ class StockSearchService:
                 return None
             return stock_metadata_repository.find_latest_by_codes(
                 StockSearchService._meta_code_candidates(code, requested_market),
-                requested_market,
+                # stock_metadata 的业务市场码为 cn/us，与 stock_metadata_service 对齐。
+                "us" if requested_market == "en" else requested_market,
             )
         except Exception as exc:
             logger.warning("stock_meta 前置查询失败 code=%s: %s", code, exc)
@@ -140,6 +142,9 @@ class StockSearchService:
         沪市 .SH 为当前统一格式；.SS 是切换统一格式前的历史雅虎行，保留命中。
         """
         code = str(code or "").strip().upper()
+        if market_type == "en":
+            canonical = normalize_stock_code(code, market_type)
+            return [canonical] if canonical else [code]
         if market_type == "cn":
             base = strip_stock_code_suffix(code)
             if base != code:

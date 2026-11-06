@@ -1,4 +1,4 @@
-"""股票市场、东方财富市场编号与 Yahoo ticker 的统一映射。"""
+"""股票市场、东方财富市场编号与外部行情代码（Yahoo/东财/腾讯）的统一映射。"""
 
 from __future__ import annotations
 
@@ -118,6 +118,10 @@ STANDARD_SUFFIX_MARKETS = {
     **{suffix.upper(): market for market, suffix in STOCK_CODE_SUFFIXES.items()},
 }
 
+# 美股类别股在项目/Yahoo 侧用 "-"（BRK-B），东方财富侧用 "_"（BRK_B）。
+_US_TICKER_PATTERN = re.compile(r"[A-Z0-9._-]+")
+_US_CLASS_SEPARATOR_PATTERN = re.compile(r"[._]")
+
 
 def normalize_market_type(value: Any, default: str | None = None) -> str | None:
     text = str(value or "").strip().lower()
@@ -149,6 +153,50 @@ def strip_stock_code_suffix(stock_code: Any) -> str:
     return split_stock_code(stock_code)[0]
 
 
+def normalize_us_ticker(stock_code: Any) -> str:
+    """美股 ticker 归一为项目/Yahoo 惯例：类别股分隔符 . / _ 统一为 -。"""
+    text = str(stock_code or "").strip().upper()
+    return _US_CLASS_SEPARATOR_PATTERN.sub("-", text)
+
+
+def to_eastmoney_ticker(
+    stock_code: Any,
+    market_type: Any,
+    exchange_market: Any = None,
+) -> str:
+    """项目标准代码转东方财富原生代码：美股类别股 BRK-B → BRK_B。"""
+    code = normalize_stock_code(stock_code, market_type, exchange_market)
+    market = infer_market_type(code, market_type)
+    base = strip_stock_code_suffix(code)
+    if market == "en":
+        return base.replace("-", "_")
+    return base
+
+
+def to_eastmoney_search_keyword(keyword: Any) -> str:
+    """东财搜索关键字：仅美股 ticker 转换类别股写法，其余市场/名称保持原逻辑。"""
+    text = str(keyword or "").strip()
+    base = strip_stock_code_suffix(text)
+    market = infer_market_type(text)
+    if market != "en" or not _US_TICKER_PATTERN.fullmatch(base):
+        return base
+    return to_eastmoney_ticker(base, market)
+
+
+def to_qq_ticker(
+    stock_code: Any,
+    market_type: Any,
+    exchange_market: Any = None,
+) -> str:
+    """项目标准代码转腾讯/QQ 原生代码：美股类别股 BRK-B → BRK.B。"""
+    code = normalize_stock_code(stock_code, market_type, exchange_market)
+    market = infer_market_type(code, market_type)
+    base = strip_stock_code_suffix(code)
+    if market == "en":
+        return base.replace("-", ".")
+    return base
+
+
 def exchange_market_from_stock_code(stock_code: Any, default: Any = None) -> str:
     """从统一代码推导东方财富/交易所市场编号。"""
     _base, suffix = split_stock_code(stock_code)
@@ -164,15 +212,26 @@ def normalize_stock_code(
     market_type: Any,
     exchange_market: Any = None,
 ) -> str:
-    """生成项目统一证券代码格式，例如 ``600519.SH``、``0700.HK``、``AAPL.US``。"""
+    """生成项目统一证券代码格式，例如 ``600519.SH``、``0700.HK``、``AAPL.US``。
+
+    美股类别股（BRK-B/B）的项目标准写法为 ``BRK-B.US``：输入端的 ``BRK_B``、
+    ``BRK.B``、``BRK_B.US`` 等经本函数统一归一，仅在东方财富/Yahoo/腾讯边界再转换。
+    """
     original_code = str(stock_code or "").strip().upper()
     code, existing_suffix = split_stock_code(original_code)
     market = infer_market_type(stock_code, market_type)
     if not code or not market:
         return code
     # 旧任务可能只留下中文名称而没有 stock_code；不能伪造成 "名称.US"。
+    if code == "UNKNOWN":
+        return original_code
+    if market == "en":
+        # 美股代码允许类别股分隔符 . / _，统一后输出项目/Yahoo 惯例的 -。
+        if not _US_TICKER_PATTERN.fullmatch(code):
+            return original_code
+        return f"{normalize_us_ticker(code)}.US"
     # 正常证券代码仅在无后缀时由字母、数字和连字符组成。
-    if code == "UNKNOWN" or not re.fullmatch(r"[A-Z0-9-]+", code):
+    if not re.fullmatch(r"[A-Z0-9-]+", code):
         return original_code
     # 保留数据源已给出的、当前映射表外的有效交易所后缀（如韩国 KOSDAQ 的 .KQ）。
     if "." in original_code and existing_suffix is None:
