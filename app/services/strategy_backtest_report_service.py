@@ -42,7 +42,7 @@ from app.services.performance_analysis.return_correlation import (
 )
 from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
-from app.utils.etf_total_assets import get_etf_total_assets_detail
+from app.utils.etf_total_assets import get_etf_total_assets
 from app.utils.number_format import abbreviate_number
 
 logger = get_logger(__name__)
@@ -105,9 +105,9 @@ class StrategyBacktestReportService:
                 generate_correlation_heatmap(correlation["labels"], correlation["matrix"], correlation_path)
                 heatmap_images.append({
                     "type": "image",
-                    "title": "权重日涨跌幅相关系数",
+                    "title": "日涨跌幅相关系数",
                     "path": str(correlation_path),
-                    "caption": f"各权重日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
+                    "caption": f"各日涨跌幅的 Pearson 相关系数（数据区间 {first_date} 至 {last_date}）",
                 })
                 same_direction_path = Path(temp_dir) / "权重同向率热力图.png"
                 generate_same_direction_heatmap(
@@ -115,10 +115,10 @@ class StrategyBacktestReportService:
                 )
                 heatmap_images.append({
                     "type": "image",
-                    "title": "权重日涨跌幅同向率",
+                    "title": "日涨跌幅同向率",
                     "path": str(same_direction_path),
                     "caption": (
-                        "各权重日涨跌幅同向（同涨或同跌）天数占全部共同交易日的比例"
+                        "各日涨跌幅同向（同涨或同跌）天数占全部共同交易日的比例"
                         f"（数据区间 {first_date} 至 {last_date}）"
                     ),
                 })
@@ -564,12 +564,10 @@ class StrategyBacktestReportService:
         ]
         # 平均成交额窗口终点取导出当天（而非回测数据最后一天），往前推 182 天。
         amount_texts = self._weight_metric_texts(payload, generated_at.strftime("%Y-%m-%d"))
-        asset_texts, etf_flags = self._etf_total_assets_texts(payload)
-        # 全部为个股（资产值均来自总市值回退或缺失、无任何 ETF 资产值）时，列头按净资产表述。
-        assets_header = "净资产" if asset_texts and not any(etf_flags.values()) else "ETF资产总数"
+        asset_texts = self._total_assets_texts(payload)
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
-            *self._weight_allocation_blocks(payload, report_type, amount_texts, asset_texts, assets_header),
+            *self._weight_allocation_blocks(payload, report_type, amount_texts, asset_texts),
             *self._parameter_config_blocks(payload),
         ]
         # 相关系数与同向率热力图紧跟权重区之后、分析图表区之前。
@@ -595,18 +593,17 @@ class StrategyBacktestReportService:
         report_type: str,
         amounts: dict[str, str] | None = None,
         assets: dict[str, str] | None = None,
-        assets_header: str = "ETF资产总数",
     ) -> list[dict[str, Any]]:
         """构造权重表格块：策略权重与指数权重各一张表。
 
         策略表 = 有效产品按配置比例；指数表 = 指数基准自身的比例权重
         （如 QQQ 100%、SOXX 30%），两表并列展示便于区分策略持仓与指数
-        构成，未选指数基准时省略指数表。平均成交额/资产总数按代码标签
+        构成，未选指数基准时省略指数表。平均成交额/总资产按代码标签
         回填；指数表代码列不再重复 "(指数)" 后缀。
         """
         amount_texts = amounts or {}
         asset_texts = assets or {}
-        columns = ["股票代码", "股票名", "权重", "平均成交额 (半年)", assets_header]
+        columns = ["股票代码", "股票名", "权重", "平均成交额 (半年)", "总资产"]
         active = StrategyBacktestReportService._active_report_products(payload.products)
         strategy_rows = []
         if isinstance(active, list):
@@ -824,45 +821,43 @@ class StrategyBacktestReportService:
         return sum(values) / len(values) if values else None
 
     @staticmethod
-    def _etf_total_assets_detail(product: dict[str, Any]) -> tuple[str, bool | None]:
-        """ETF 资产总数展示文本与是否 ETF 标记；取不到显示 "-"（按个股对待）。
+    def _total_assets_text(product: dict[str, Any]) -> str:
+        """资产总数展示文本；取不到显示 "-"。
 
-        数值按中文习惯缩写（亿/万），避免长数字撑爆表格列宽；
-        是否 ETF 取自数据来源（totalAssets=ETF、总市值回退=个股）。
+        数值按中文习惯缩写（亿/万），避免长数字撑爆表格列宽。
         """
-        value, is_etf = get_etf_total_assets_detail(
+        value = get_etf_total_assets(
             product.get("stock_code"),
             product.get("market_type"),
             product.get("exchange_market"),
         )
-        return abbreviate_number(value) or "-", is_etf
+        return abbreviate_number(value) or "-"
 
-    def _etf_total_assets_texts(
+    def _total_assets_texts(
         self, payload: StrategyBacktestReportSchema,
-    ) -> tuple[dict[str, str], dict[str, bool | None]]:
-        """按权重表行标签取各标的资产展示文本与是否 ETF 标记（策略行 + 指数基准行）。"""
+    ) -> dict[str, str]:
+        """按权重表行标签取各标的资产展示文本（策略行 + 指数基准行）。"""
         texts: dict[str, str] = {}
-        flags: dict[str, bool | None] = {}
         for product in self._active_report_products(payload.products):
             if not isinstance(product, dict):
                 continue
             code = str(product.get("stock_code") or product.get("product_name") or "").strip()
             if not code or code in texts:
                 continue
-            texts[code], flags[code] = self._etf_total_assets_detail(product)
+            texts[code] = self._total_assets_text(product)
         for code, _weight in self._benchmark_entries(payload):
             label = f"{code} (指数)"
             if label in texts:
                 continue
             if code in texts:
-                texts[label], flags[label] = texts[code], flags[code]
+                texts[label] = texts[code]
                 continue
             try:
                 product = self._find_product(payload, code)
-                texts[label], flags[label] = self._etf_total_assets_detail(product)
+                texts[label] = self._total_assets_text(product)
             except ValueError:
-                texts[label], flags[label] = "-", None
-        return texts, flags
+                texts[label] = "-"
+        return texts
 
     @staticmethod
     def _product_code_label(payload: StrategyBacktestReportSchema, product: dict[str, Any]) -> str:

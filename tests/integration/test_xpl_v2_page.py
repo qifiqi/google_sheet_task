@@ -118,10 +118,10 @@ def test_backtest_word_report_id_uses_report_type(
         "app.services.strategy_backtest_report_service.datetime",
         FrozenDateTime,
     )
-    # ETF 资产总数为外网络取数，单测统一桩掉。
+    # 总资产为外网络取数，单测统一桩掉。
     monkeypatch.setattr(
-        "app.services.strategy_backtest_report_service.get_etf_total_assets_detail",
-        lambda *args, **kwargs: (None, None),
+        "app.services.strategy_backtest_report_service.get_etf_total_assets",
+        lambda *args, **kwargs: None,
     )
     payload = _report_payload(
         report_type=report_type,

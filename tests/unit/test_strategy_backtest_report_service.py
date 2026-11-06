@@ -64,7 +64,7 @@ def test_weight_allocation_drops_zero_ratio_products():
     assert blocks[0]["rows"] == [["600519", "贵州茅台", "50%", "-", "-"]]
 
 
-def test_etf_total_assets_detail_abbreviates_large_values(monkeypatch):
+def test_total_assets_text_abbreviates_large_values(monkeypatch):
     """资产总数按中文习惯缩写（亿/万），避免长数字撑爆表格列宽。"""
     cases = [
         (488981004288, "4889.81亿"),
@@ -74,12 +74,12 @@ def test_etf_total_assets_detail_abbreviates_large_values(monkeypatch):
         (None, "-"),
     ]
     for value, expected in cases:
-        monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *a, _v=value, **k: (_v, True))
-        assert StrategyBacktestReportService._etf_total_assets_detail({"stock_code": "QQQ.US"}) == (expected, True)
+        monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *a, _v=value, **k: _v)
+        assert StrategyBacktestReportService._total_assets_text({"stock_code": "QQQ.US"}) == expected
 
 
-def test_weight_allocation_fills_etf_total_assets_column():
-    """资产总数列按代码标签回填；未提供的标的显示 "-"。"""
+def test_weight_allocation_fills_total_assets_column():
+    """总资产列按代码标签回填；未提供的标的显示 "-"。"""
     service = StrategyBacktestReportService()
     request = type("Request", (), {
         "products": [
@@ -96,27 +96,11 @@ def test_weight_allocation_fills_etf_total_assets_column():
         assets={"600519": "1,234,567,890"},
     )
 
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "ETF资产总数"]
+    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "总资产"]
     assert blocks[0]["rows"] == [
         ["600519", "贵州茅台", "50%", "10.00亿", "1,234,567,890"],
         ["0700.HK", "腾讯控股", "50%", "300.00亿", "-"],
     ]
-
-
-def test_weight_allocation_uses_net_asset_header_when_all_stocks():
-    """全部为个股（无任何 ETF 资产值）时，资产列头改为 净资产。"""
-    service = StrategyBacktestReportService()
-    request = type("Request", (), {
-        "products": [{"stock_code": "AAPL.US", "product_name": "苹果", "ratio": "100"}],
-        "weight_allocation": None,
-        "index_benchmarks": [],
-    })()
-
-    blocks = service._weight_allocation_blocks(
-        request, "RPT-S", assets_header="净资产",
-    )
-
-    assert blocks[0]["columns"] == ["股票代码", "股票名", "权重", "平均成交额 (半年)", "净资产"]
 
 
 def test_weight_allocation_fills_average_amount_by_code_label():
@@ -907,11 +891,10 @@ def test_build_report_data_places_heatmaps_after_weight_tables(monkeypatch):
     """相关系数与同向率热力图紧跟策略/指数权重表之后，位于分析图表区之前。"""
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
-    # 资产值全部缺失（视为个股）时列头为 净资产。
-    monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
+    monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *args, **kwargs: None)
     heatmap_images = [
-        {"type": "image", "title": "权重日涨跌幅相关系数", "path": "heatmap.png", "caption": "c"},
-        {"type": "image", "title": "权重日涨跌幅同向率", "path": "same_direction.png", "caption": "c"},
+        {"type": "image", "title": "日涨跌幅相关系数", "path": "heatmap.png", "caption": "c"},
+        {"type": "image", "title": "日涨跌幅同向率", "path": "same_direction.png", "caption": "c"},
     ]
 
     report_data = service._build_report_data(
@@ -923,20 +906,20 @@ def test_build_report_data_places_heatmaps_after_weight_tables(monkeypatch):
         ("metadata", None),
         ("table", "策略权重"),
         ("table", "指数权重"),
-        ("image", "权重日涨跌幅相关系数"),
-        ("image", "权重日涨跌幅同向率"),
+        ("image", "日涨跌幅相关系数"),
+        ("image", "日涨跌幅同向率"),
     ]
     # 后续仍是各分析章节表格，热力图不得出现在图表区末尾。
     assert blocks[5]["type"] == "heading"
     assert all(block["type"] != "image" for block in blocks[5:])
 
 
-def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
-    """任一标的取到 ETF 资产值（totalAssets 命中）时，列头保持 ETF资产总数。"""
+def test_build_report_data_always_uses_total_assets_header(monkeypatch):
+    """资产列头统一为 总资产，不随标的类型（ETF/个股）切换。"""
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
     monkeypatch.setattr(
-        report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (123.0, True),
+        report_module, "get_etf_total_assets", lambda *args, **kwargs: 123.0,
     )
 
     report_data = service._build_report_data(
@@ -945,7 +928,7 @@ def test_build_report_data_keeps_etf_header_when_any_etf_present(monkeypatch):
 
     weight_blocks = [block for block in report_data["blocks"] if block["type"] == "table"][:2]
     assert all(block["columns"][3] == "平均成交额 (半年)" for block in weight_blocks)
-    assert all(block["columns"][4] == "ETF资产总数" for block in weight_blocks)
+    assert all(block["columns"][4] == "总资产" for block in weight_blocks)
 
 
 def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
@@ -958,8 +941,8 @@ def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
 
     service = StrategyBacktestReportService()
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
-    # ETF 资产总数为外网络取数，列对齐测试统一桩掉（列宽覆盖不受影响）。
-    monkeypatch.setattr(report_module, "get_etf_total_assets_detail", lambda *args, **kwargs: (None, None))
+    # 总资产为外网络取数，列对齐测试统一桩掉（列宽覆盖不受影响）。
+    monkeypatch.setattr(report_module, "get_etf_total_assets", lambda *args, **kwargs: None)
     request = type("Request", (), {
         "report_type": "RPT-M",
         "title": "多基准报告",

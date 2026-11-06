@@ -163,7 +163,7 @@ def generate_correlation_heatmap(
     matrix: list[list[Any]],
     output_path: str | Path,
 ) -> None:
-    """权重日涨跌幅相关系数热力图：N×N 方阵，单元格内直接标注相关系数。
+    """日涨跌幅相关系数热力图：N×N 方阵，单元格内直接标注相关系数。
 
     标的增多时矩阵表格会超出版面宽度，热力图边长可随标的数自适应；
     相关系数缺失（数据不可对齐/零方差）的格子以灰色底与 "-" 展示。
@@ -210,7 +210,7 @@ def generate_same_direction_heatmap(
     matrix: list[list[Any]],
     output_path: str | Path,
 ) -> None:
-    """权重日涨跌幅同向率热力图：N×N 方阵，单元格内直接标注同向天数占比。
+    """日涨跌幅同向率热力图：N×N 方阵，单元格内直接标注同向天数占比。
 
     同向 = 双方同日同涨或同跌，分母为全部共同交易日；缺失（无共同交易日）
     的格子以灰色底与 "-" 展示，对角线恒为 100%。
